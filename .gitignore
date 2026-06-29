@@ -1,0 +1,56 @@
+# --- PYTHON ---
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual Environments
+.venv/
+venv/
+ENV/
+env/
+pyvenv.cfg
+.python-version
+
+# --- DEPENDENCY MANAGERS ---
+# Jika menggunakan Poetry, kita tetap meng-commit pyproject.toml dan poetry.lock.
+# Namun jika ada folder cache lokal poetry di dalam proyek, kita abaikan:
+.poetry/
+
+# --- CONFIGURASI LOKAL & IDE ---
+# Mengabaikan konfigurasi editor yang bersifat personal/lokal
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Mengabaikan pyrightconfig karena mengandung path absolut Windows lokal Anda
+pyrightconfig.json
+
+# --- ENVIRONMENT VARIABLES & SECRETS ---
+# Sangat penting agar kredensial database tidak bocor ke GitHub
+.env
+.env.local
+.env.*
+*.env
+alembic.ini.local
+
+# --- SISTEM OPERASI ---
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- DATABASE & STORAGE ---
+# Mengabaikan data database lokal jika ada file dump/sqlite di direktori kerja
+*.db
+*.sqlite3
+postgres_data/
+geoserver_data/
+
+# --- DOKUMEN GENERATED ---
+# Mengabaikan file PDF hasil uji coba dari MockDocumentGenerator di folder docs/
+docs/*.pdf
+/temp/
+
+sipas-be.txt
