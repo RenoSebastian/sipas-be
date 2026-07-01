@@ -63,3 +63,17 @@ def get_db() -> Generator[Session, None, None]:
         raise e
     finally:
         db.close()
+
+
+# Import Ports and Adapters to enable dynamic dependency injection [sipas-fe.txt]
+from src.use_cases.ports.integration_ports import BpnValidationPort, OssSyncPort, SimtaruSyncPort
+from src.infrastructure.adapters.mock_integrations import MockBpnAdapter, MockOssAdapter, MockSimtaruAdapter
+
+def get_bpn_port() -> BpnValidationPort:
+    return MockBpnAdapter()
+
+def get_oss_port() -> OssSyncPort:
+    return MockOssAdapter()
+
+def get_simtaru_port() -> SimtaruSyncPort:
+    return MockSimtaruAdapter()

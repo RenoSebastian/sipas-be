@@ -8,7 +8,7 @@ Peran: Mendefinisikan skema tabel fisik database PostgreSQL & PostGIS
 ============================================================================
 """
 
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from typing import List, Optional, Any
 from sqlalchemy import String, Float, Integer, Date, DateTime, ForeignKey, Text, Boolean
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -26,6 +26,9 @@ class UserModel(Base):
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[str] = mapped_column(String(50), nullable=False, default="PEMOHON") # PEMOHON | ADMIN | TIM_TEKNIS | KABID_PUPR
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    nip: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    company: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    phone: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
 
     permohonan: Mapped[List["PermohonanModel"]] = relationship("PermohonanModel", back_populates="user")
 
@@ -142,6 +145,10 @@ class PermohonanModel(Base):
     # ─── TAHAP 10: PERNYATAAN KOMITMEN HUKUM (STATEMENT) ──────────────────────
     statement_agreed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
+    # Tambahkan kolom baru untuk menyimpan bukti hukum TTE
+    signature_hash: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    signed_pdf_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+
     # ─── RELASI SPASIAL & ADMINISTRATIF ───────────────────────────────────────
     kompensasi: Mapped[List["LahanKompensasiModel"]] = relationship(
         "LahanKompensasiModel", 
@@ -182,7 +189,8 @@ class AuditTrailModel(Base):
     status_before: Mapped[str] = mapped_column(String(50), nullable=False)
     status_after: Mapped[str] = mapped_column(String(50), nullable=False)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    digital_signature_hash: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
 
 class SitePlanGeometryModel(Base):

@@ -11,8 +11,8 @@ Peran: Menyediakan enkripsi kata sandi (bcrypt murni) dan penanganan
 
 import jwt
 import bcrypt  # <-- Perbaikan: Menggunakan native bcrypt secara langsung
-from datetime import datetime, timedelta
-from typing import Optional, Dict, Any
+from datetime import datetime, timedelta, timezone
+from typing import Optional, Dict, Any, List
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
@@ -24,7 +24,26 @@ SECRET_KEY = "geosipas-super-secret-key-bogor-gis-sipas"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/submissions/auth/token")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token")
+
+def requires_roles(allowed_roles: List[str]):
+    """FastAPI dependency to enforce Role-Based Access Control (RBAC) via JWT claims."""
+    def dependency(token: str = Depends(oauth2_scheme)) -> Dict[str, Any]:
+        payload = decode_access_token(token)
+        if payload is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token autentikasi tidak valid atau kedaluwarsa.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        role = payload.get("role")
+        if not role or role not in allowed_roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Hak akses ditolak. Peran Anda tidak memiliki wewenang untuk mengakses sumber daya ini."
+            )
+        return payload
+    return dependency
 
 def hash_password(password: str) -> str:
     """Mengenkripsi password mentah menjadi hash bcrypt murni (Native Bcrypt 5.0)."""
@@ -47,9 +66,9 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     """Membuat Token JWT untuk autentikasi user."""
     to_encode = data.copy()
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = datetime.now(timezone.utc) + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt

@@ -18,6 +18,7 @@ class SubmissionStatus(str, Enum):
     VERIFIKASI_ADMINISTRASI = 'Verifikasi Administrasi'
     VERIFIKASI_TEKNIS = 'Verifikasi Teknis'
     MENUNGGU_PERSETUJUAN = 'Menunggu Persetujuan'
+    PROSES_TTE = 'Proses TTE'
     DISETUJUI = 'Disetujui'
     DITOLAK = 'Ditolak'
 
@@ -123,7 +124,9 @@ class Permohonan:
         # ─── TAHAP 10: PERNYATAAN KOMITMEN HUKUM (STATEMENT) ──────────────────────
         statement_agreed: bool = False,
         polygon: Optional[list] = None,
-        user_id: Optional[int] = None
+        user_id: Optional[int] = None,
+        signature_hash: Optional[str] = None,
+        signed_pdf_url: Optional[str] = None
     ):
         self.id_permohonan = id_permohonan
         self.submission_no = submission_no
@@ -216,6 +219,8 @@ class Permohonan:
         self.statement_agreed = statement_agreed
         self.polygon = polygon
         self.user_id = user_id
+        self.signature_hash = signature_hash
+        self.signed_pdf_url = signed_pdf_url
 
     # ─── INVARIANT 1: KLASIFIKASI DOKUMEN OTOMATIS [Bogor 4, 5, 8] ────────────────
     @property
@@ -296,8 +301,13 @@ class Permohonan:
             ],
             
             SubmissionStatus.MENUNGGU_PERSETUJUAN: [
-                SubmissionStatus.DISETUJUI, 
+                SubmissionStatus.PROSES_TTE, 
                 SubmissionStatus.DITOLAK
+            ],
+            
+            SubmissionStatus.PROSES_TTE: [
+                SubmissionStatus.DISETUJUI,
+                SubmissionStatus.MENUNGGU_PERSETUJUAN
             ],
             
             SubmissionStatus.DISETUJUI: [], # State akhir, tidak bisa bermutasi lagi
@@ -315,6 +325,14 @@ class Permohonan:
             self.elapsed_days = max(self.elapsed_days, (date.today() - self.submission_date).days)
 
         self.status = new_status
+
+    def attach_signature(self, hash: str, url: str) -> None:
+        """
+        Melakukan mutasi status akhir ke DISETUJUI secara aman sekaligus menyematkan bukti kriptografi.
+        """
+        self.transition_status(SubmissionStatus.DISETUJUI)
+        self.signature_hash = hash
+        self.signed_pdf_url = url
 
 
 class IllegalStateTransitionError(Exception):

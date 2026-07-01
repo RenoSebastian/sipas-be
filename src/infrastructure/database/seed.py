@@ -61,36 +61,59 @@ def seed_spatial_data() -> None:
         
         users = [
             UserModel(
-                username="ahmad_fauzi",
-                email="fauzi@ptmajusentosa.com",
+                username="pemohon@geocitra.com",
+                email="pemohon@geocitra.com",
                 hashed_password=default_password_hash,
-                full_name="Ahmad Fauzi",
+                full_name="Pemohon",
                 role="PEMOHON",
-                is_active=True
+                is_active=True,
+                nip="9120301938192",
+                company="PT Maju Jaya Sentosa",
+                phone="081234567890"
             ),
             UserModel(
-                username="siti_rahma",
-                email="siti.rahma@sipas.go.id",
+                username="admin@geocitra.com",
+                email="admin@geocitra.com",
                 hashed_password=default_password_hash,
-                full_name="Siti Rahma",
+                full_name="Admin",
                 role="ADMIN",
-                is_active=True
+                is_active=True,
+                nip="199208152018032001",
+                company="Dinas PUPR Kabupaten Bogor",
+                phone="081398765432"
             ),
             UserModel(
-                username="budi_santoso",
-                email="budi.teknis@sipas.go.id",
+                username="tim_teknis@geocitra.com",
+                email="tim_teknis@geocitra.com",
                 hashed_password=default_password_hash,
-                full_name="Ir. Budi Santoso",
+                full_name="Tim Teknis",
                 role="TIM_TEKNIS",
-                is_active=True
+                is_active=True,
+                nip="198005232005011002",
+                company="Tim Teknis Penataan Ruang",
+                phone="081223344556"
             ),
             UserModel(
-                username="hendra_wijaya",
-                email="hendra.kabid@sipas.go.id",
+                username="kabid@geocitra.com",
+                email="kabid@geocitra.com",
                 hashed_password=default_password_hash,
-                full_name="Dr. Hendra Wijaya",
+                full_name="Kepala Bidang",
                 role="KABID_PUPR",
-                is_active=True
+                is_active=True,
+                nip="198402122010011003",
+                company="Dinas PUPR Kabupaten Bogor",
+                phone="081199887766"
+            ),
+            UserModel(
+                username="superadmin@geocitra.com",
+                email="superadmin@geocitra.com",
+                hashed_password=default_password_hash,
+                full_name="Super Admin",
+                role="ADMIN",
+                is_active=True,
+                nip="198901012015011002",
+                company="Dinas PUPR Kabupaten Bogor",
+                phone="081111111111"
             )
         ]
         
@@ -100,109 +123,87 @@ def seed_spatial_data() -> None:
         print(f"[SEEDER] Sukses mendaftarkan {len(users)} user simulasi ke database.")
 
         # Ambil reference user_id untuk relasi permohonan
-        pemohon_user = db.query(UserModel).filter(UserModel.username == "ahmad_fauzi").first()
+        pemohon_user = db.query(UserModel).filter(UserModel.username == "pemohon@geocitra.com").first()
         pemohon_id = pemohon_user.id if pemohon_user else None
 
         # ──────────────────────────────────────────────────────────────────────
-        # TAHAP 2: PENYEMAIAN DATA SPASIAL PERMOHONAN & KOMPENSASI
+        # TAHAP 2: PENYEMAIAN DATA SPASIAL PERMOHONAN & KOMPENSASI REAL BOGOR
         # ──────────────────────────────────────────────────────────────────────
         print("[SEEDER] Menyemai data spasial permohonan dan kompensasi...")
 
-        # KASUS 1: Grand Bogor Residence (Status: Menunggu Verifikasi)
-        # Batas luar bidang tanah BPN (WGS84)
+        # KASUS 1: Cibinong Green Mansion (Status: Menunggu Verifikasi)
         outer_poly_1 = Polygon([
-            (106.8160, -6.5945),
-            (106.8175, -6.5945),
-            (106.8175, -6.5960),
-            (106.8160, -6.5960),
-            (106.8160, -6.5945)
+            (106.8400, -6.4800),
+            (106.8430, -6.4800),
+            (106.8430, -6.4830),
+            (106.8400, -6.4830),
+            (106.8400, -6.4800)
         ])
 
         permohonan_1 = PermohonanModel(
             id_permohonan="sub-1",
-            user_id=pemohon_id, # Hubungkan relasi user secara asing (Foreign Key)
+            user_id=pemohon_id,
             submission_no="SIPAS-2026-001",
-            housing_name="Grand Bogor Residence",
-            developer_name="PT Maju Jaya Sentosa (Ahmad Fauzi)",
-            land_area=25000.0,
+            housing_name="Cibinong Green Mansion",
+            developer_name="PT Geocitra Pembangunan Mandiri (Ahmad Fauzi)",
+            land_area=30000.0,
             submission_date=date(2026, 6, 20),
             status="Menunggu Verifikasi",
             buffer_sla=0,
             elapsed_days=0,
-
-            # TAHAP 1: DATA PEMOHON
             applicant_type="BADAN_USAHA",
-            applicant_name="PT Maju Jaya Sentosa",
+            applicant_name="PT Geocitra Pembangunan Mandiri",
             applicant_nik=None,
             applicant_nib="9120301938192",
             applicant_npwp="01.234.567.8-901.000",
             applicant_director_name="Ahmad Fauzi",
             applicant_phone="081234567890",
-            applicant_email="fauzi@ptmajusentosa.com",
-            applicant_address="Gedung Sentosa Lt. 4, Jl. Jend. Sudirman No. 10, Jakarta Pusat",
-
-            # TAHAP 2: DATA PENGAJUAN
+            applicant_email="pemohon@geocitra.com",
+            applicant_address="Kawasan Niaga Tegar Beriman Blok A-3, Cibinong, Kabupaten Bogor",
             submission_type="BARU",
             submission_category="PERUMAHAN",
-
-            # TAHAP 3: DATA LOKASI & TANAH
-            location_name="Lahan Baranangsiang",
-            location_village="Baranangsiang",
-            location_district="Bogor Timur",
-            location_city="Kota Bogor",
-            location_province="Jawa Barat",
-            location_full_address="Jl. Raya Pajajaran No.21, Baranangsiang, Kec. Bogor Timur, Kota Bogor, Jawa Barat",
+            location_name="Lahan Cibinong Raya",
+            location_village="Cibinong",
+            location_district="Cibinong",
+            location_full_address="Jl. Raya Tegar Beriman No. 45, Cibinong, Kec. Cibinong, Kabupaten Bogor, Jawa Barat",
             location_ownership_status="SHM",
-            location_certificate_number="SHM No. 10293/Baranangsiang",
-            location_certificate_owner="PT Maju Jaya Sentosa",
-
-            # TAHAP 4: GEOMETRI BIDANG LUAR BPN & HELMERT
+            location_certificate_number="SHM No. 10293/Cibinong",
+            location_certificate_owner="PT Geocitra Pembangunan Mandiri",
             geom=from_shape(outer_poly_1, srid=4326),
-            cad_file_name="blueprint_grand_bogor.dxf",
+            cad_file_name="blueprint_cibinong_mansion.dxf",
             cad_param_a=0.8875,
             cad_param_b=0.4612,
-            cad_param_tx=106.816629,
-            cad_param_ty=-6.595189,
+            cad_param_tx=106.8415,
+            cad_param_ty=-6.4815,
             cad_scale=1.0024,
             cad_rotation=0.4812,
-
-            # TAHAP 5: TATA RUANG
             spatial_kkpr_number="503/KKPR/PUPR/2026/089",
             spatial_land_use="Zona Perumahan Kepadatan Sedang",
-            spatial_green_area=3850.0,
-
-            # TAHAP 6: PARAMETER TEKNIS (PERUMAHAN)
-            tech_lot_count=120,
+            spatial_green_area=4600.0,
+            tech_lot_count=150,
             tech_housing_type="NON_SUBSIDI",
-            tech_cemetery_area=500.0,
+            tech_cemetery_area=600.0,
             tech_road_row_main="12 Meter",
             tech_road_row_local="8 Meter",
-            tech_water_system="PDAM Tirta Pakuan",
-
-            # TAHAP 7: KONSULTAN
+            tech_water_system="PDAM Tirta Kahuripan",
             consultant_name="Ir. Hermawan Pratama",
             consultant_company_name="CV Rencana Semesta",
             consultant_pic_name="Hermawan Pratama",
-
-            # TAHAP 9: URL DOKUMENTASI FOTO JALAN / RONAL AWAL
             photo_north="https://images.unsplash.com/photo-1590069261209-f8e9b8642343?auto=format&fit=crop&w=400&q=80",
             photo_south="https://images.unsplash.com/photo-1582407947304-fd86f028f716?auto=format&fit=crop&w=400&q=80",
             photo_east="https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=400&q=80",
             photo_west="https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=400&q=80",
             photo_access="https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=400&q=80",
-
-            # TAHAP 10: PERNYATAAN PEMOHON
             statement_agreed=True
         )
         db.add(permohonan_1)
 
-        # Poligon KDB Internal Rencana (Site Plan Geometries)
         poly_kdb_1 = Polygon([
-            (106.8160, -6.5945),
-            (106.8175, -6.5945),
-            (106.8175, -6.5960),
-            (106.8160, -6.5960),
-            (106.8160, -6.5945)
+            (106.8405, -6.4805),
+            (106.8425, -6.4805),
+            (106.8425, -6.4825),
+            (106.8405, -6.4825),
+            (106.8405, -6.4805)
         ])
         geom_kdb_1 = SitePlanGeometryModel(
             id_permohonan="sub-1",
@@ -211,18 +212,17 @@ def seed_spatial_data() -> None:
         )
         db.add(geom_kdb_1)
 
-        # Lahan Kompensasi Makam Fisik 2% (Perbaikan Typo Enum)
         kompensasi_1 = LahanKompensasiModel(
             id_kompensasi="komp-101",
             id_permohonan="sub-1",
             tipe_kompensasi="LAHAN_MAKAM_FISIK",
-            luas_kompensasi_m2=500.0,
+            luas_kompensasi_m2=600.0,
             geom=from_shape(Polygon([
-                (106.8155, -6.5940),
-                (106.8160, -6.5940),
-                (106.8160, -6.5945),
-                (106.8155, -6.5945),
-                (106.8155, -6.5940)
+                (106.8390, -6.4790),
+                (106.8398, -6.4790),
+                (106.8398, -6.4798),
+                (106.8390, -6.4798),
+                (106.8390, -6.4790)
             ]), srid=4326),
             status_pemenuhan="PROSES_VERIFIKASI",
             nilai_nominal=0.0,
@@ -230,82 +230,475 @@ def seed_spatial_data() -> None:
         )
         db.add(kompensasi_1)
 
-        # Log audit perdana pendaftaran berkas
         audit_1 = AuditTrailModel(
             submission_id="sub-1",
-            actor_name="Ahmad Fauzi",
+            actor_name="Pemohon",
             role="Pemohon",
             action="SUBMIT_UNIFIED_FORM",
             status_before="Draft",
             status_after="Menunggu Verifikasi",
-            notes="Berkas pendaftaran awal tipe 'Site Plan' berhasil didaftarkan secara mandiri melalui satu pintu.",
+            notes="Berkas pendaftaran awal berhasil diajukan online oleh pemohon.",
             created_at=datetime(2026, 6, 20, 9, 30, 0)
         )
         db.add(audit_1)
 
-        # KASUS 2: Batu Tulis Residence (Status: Ditolak / Butuh Revisi)
+        # KASUS 2: Bojonggede Residence (Status: Verifikasi Administrasi)
         outer_poly_2 = Polygon([
-            (106.8105, -6.6205),
-            (106.8120, -6.6205),
-            (106.8120, -6.6220),
-            (106.8105, -6.6220),
-            (106.8105, -6.6205)
+            (106.8000, -6.4950),
+            (106.8020, -6.4950),
+            (106.8020, -6.4970),
+            (106.8000, -6.4970),
+            (106.8000, -6.4950)
+        ])
+
+        permohonan_2 = PermohonanModel(
+            id_permohonan="sub-2",
+            user_id=pemohon_id,
+            submission_no="SIPAS-2026-002",
+            housing_name="Bojonggede Residence",
+            developer_name="PT Pabuaran Jaya Sentosa (Bambang Hariyadi)",
+            land_area=15000.0,
+            submission_date=date(2026, 6, 22),
+            status="Verifikasi Administrasi",
+            buffer_sla=1,
+            elapsed_days=1,
+            applicant_type="BADAN_USAHA",
+            applicant_name="PT Pabuaran Jaya Sentosa",
+            applicant_nik=None,
+            applicant_nib="8120309918273",
+            applicant_npwp="02.444.555.6-902.000",
+            applicant_director_name="Bambang Hariyadi",
+            applicant_phone="081255556666",
+            applicant_email="pemohon@geocitra.com",
+            applicant_address="Kawasan Permata Mansion Blok B-12, Bojonggede, Kabupaten Bogor",
+            submission_type="BARU",
+            submission_category="PERUMAHAN",
+            location_name="Kaveling Bojong Raya",
+            location_village="Pabuaran",
+            location_district="Bojonggede",
+            location_full_address="Jl. Raya Bojonggede No. 89, Pabuaran, Kec. Bojonggede, Kabupaten Bogor, Jawa Barat",
+            location_ownership_status="SHM",
+            location_certificate_number="SHM No. 673/Pabuaran",
+            location_certificate_owner="PT Pabuaran Jaya Sentosa",
+            geom=from_shape(outer_poly_2, srid=4326),
+            cad_file_name="blueprint_bojonggede.dxf",
+            cad_param_a=0.9125,
+            cad_param_b=0.3812,
+            cad_param_tx=106.8010,
+            cad_param_ty=-6.4960,
+            cad_scale=1.0012,
+            cad_rotation=0.3512,
+            spatial_kkpr_number="503/KKPR/PUPR/2026/092",
+            spatial_land_use="Zona Perumahan Kepadatan Sedang",
+            spatial_green_area=2500.0,
+            tech_lot_count=70,
+            tech_housing_type="CAMPURAN",
+            tech_cemetery_area=300.0,
+            tech_road_row_main="10 Meter",
+            tech_road_row_local="8 Meter",
+            tech_water_system="Sumur Bor Terstandar",
+            consultant_name="Ir. Wahyu Hidayat",
+            consultant_company_name="PT Wahyu Konsultan Teknik",
+            consultant_pic_name="Wahyu Hidayat",
+            photo_north="https://images.unsplash.com/photo-1590069261209-f8e9b8642343?auto=format&fit=crop&w=400&q=80",
+            photo_south="https://images.unsplash.com/photo-1582407947304-fd86f028f716?auto=format&fit=crop&w=400&q=80",
+            photo_east="https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=400&q=80",
+            photo_west="https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=400&q=80",
+            photo_access="https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=400&q=80",
+            statement_agreed=True
+        )
+        db.add(permohonan_2)
+
+        poly_kdb_2 = Polygon([
+            (106.8005, -6.4955),
+            (106.8015, -6.4955),
+            (106.8015, -6.4965),
+            (106.8005, -6.4965),
+            (106.8005, -6.4955)
+        ])
+        geom_kdb_2 = SitePlanGeometryModel(
+            id_permohonan="sub-2",
+            layer_name="PTSP_KDB",
+            geom=from_shape(poly_kdb_2, srid=4326)
+        )
+        db.add(geom_kdb_2)
+
+        kompensasi_2 = LahanKompensasiModel(
+            id_kompensasi="komp-102",
+            id_permohonan="sub-2",
+            tipe_kompensasi="LAHAN_MAKAM_FISIK",
+            luas_kompensasi_m2=300.0,
+            geom=from_shape(Polygon([
+                (106.7990, -6.4940),
+                (106.7995, -6.4940),
+                (106.7995, -6.4945),
+                (106.7990, -6.4945),
+                (106.7990, -6.4940)
+            ]), srid=4326),
+            status_pemenuhan="PROSES_VERIFIKASI",
+            nilai_nominal=0.0,
+            bukti_legalitas_url="https://sipas.bogor.go.id/sertifikat/komp-102.pdf"
+        )
+        db.add(kompensasi_2)
+
+        audit_2a = AuditTrailModel(
+            submission_id="sub-2",
+            actor_name="Pemohon",
+            role="Pemohon",
+            action="SUBMIT_UNIFIED_FORM",
+            status_before="Draft",
+            status_after="Menunggu Verifikasi",
+            notes="Berkas pendaftaran diajukan.",
+            created_at=datetime(2026, 6, 22, 10, 10, 0)
+        )
+        db.add(audit_2a)
+
+        audit_2b = AuditTrailModel(
+            submission_id="sub-2",
+            actor_name="Admin",
+            role="Admin",
+            action="VERIFY_ADMIN_APPROVED",
+            status_before="Menunggu Verifikasi",
+            status_after="Verifikasi Administrasi",
+            notes="Dokumen administrasi valid dan lengkap.",
+            created_at=datetime(2026, 6, 23, 11, 20, 0)
+        )
+        db.add(audit_2b)
+
+        # KASUS 3: Sentul Clover Garden (Status: Menunggu Persetujuan)
+        outer_poly_3 = Polygon([
+            (106.8700, -6.5600),
+            (106.8740, -6.5600),
+            (106.8740, -6.5640),
+            (106.8700, -6.5640),
+            (106.8700, -6.5600)
+        ])
+
+        permohonan_3 = PermohonanModel(
+            id_permohonan="sub-3",
+            user_id=pemohon_id,
+            submission_no="SIPAS-2026-003",
+            housing_name="Sentul Clover Garden",
+            developer_name="PT Sentul City Sentosa (Ir. Hermawan S.)",
+            land_area=45000.0,
+            submission_date=date(2026, 6, 15),
+            status="Menunggu Persetujuan",
+            buffer_sla=3,
+            elapsed_days=3,
+            applicant_type="BADAN_USAHA",
+            applicant_name="PT Sentul City Sentosa",
+            applicant_nik=None,
+            applicant_nib="9130402837194",
+            applicant_npwp="03.111.222.3-903.000",
+            applicant_director_name="Ir. Hermawan S.",
+            applicant_phone="081199887766",
+            applicant_email="pemohon@geocitra.com",
+            applicant_address="Menara Sentul Lt. 8, Babakan Madang, Kabupaten Bogor",
+            submission_type="BARU",
+            submission_category="PERUMAHAN",
+            location_name="Bukit Sentul Clover",
+            location_village="Babakan Madang",
+            location_district="Babakan Madang",
+            location_full_address="Kawasan Sentul City, Babakan Madang, Kec. Babakan Madang, Kabupaten Bogor, Jawa Barat",
+            location_ownership_status="SHM",
+            location_certificate_number="SHM No. 9081/Babakan",
+            location_certificate_owner="PT Sentul City Sentosa",
+            geom=from_shape(outer_poly_3, srid=4326),
+            cad_file_name="blueprint_sentul_clover.dxf",
+            cad_param_a=0.9015,
+            cad_param_b=0.4125,
+            cad_param_tx=106.8720,
+            cad_param_ty=-6.5620,
+            cad_scale=1.0018,
+            cad_rotation=0.4012,
+            spatial_kkpr_number="503/KKPR/PUPR/2026/099",
+            spatial_land_use="Zona Perumahan Kepadatan Sedang",
+            spatial_green_area=6800.0,
+            tech_lot_count=210,
+            tech_housing_type="NON_SUBSIDI",
+            tech_cemetery_area=900.0,
+            tech_road_row_main="14 Meter",
+            tech_road_row_local="8 Meter",
+            tech_water_system="PDAM Tirta Kahuripan",
+            consultant_name="Ir. Hermawan Pratama",
+            consultant_company_name="CV Rencana Semesta",
+            consultant_pic_name="Hermawan Pratama",
+            photo_north="https://images.unsplash.com/photo-1590069261209-f8e9b8642343?auto=format&fit=crop&w=400&q=80",
+            photo_south="https://images.unsplash.com/photo-1582407947304-fd86f028f716?auto=format&fit=crop&w=400&q=80",
+            photo_east="https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=400&q=80",
+            photo_west="https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=400&q=80",
+            photo_access="https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=400&q=80",
+            statement_agreed=True
+        )
+        db.add(permohonan_3)
+
+        poly_kdb_3 = Polygon([
+            (106.8710, -6.5610),
+            (106.8730, -6.5610),
+            (106.8730, -6.5630),
+            (106.8710, -6.5630),
+            (106.8710, -6.5610)
+        ])
+        geom_kdb_3 = SitePlanGeometryModel(
+            id_permohonan="sub-3",
+            layer_name="PTSP_KDB",
+            geom=from_shape(poly_kdb_3, srid=4326)
+        )
+        db.add(geom_kdb_3)
+
+        kompensasi_3 = LahanKompensasiModel(
+            id_kompensasi="komp-103",
+            id_permohonan="sub-3",
+            tipe_kompensasi="LAHAN_MAKAM_FISIK",
+            luas_kompensasi_m2=900.0,
+            geom=from_shape(Polygon([
+                (106.8680, -6.5590),
+                (106.8690, -6.5590),
+                (106.8690, -6.5599),
+                (106.8680, -6.5599),
+                (106.8680, -6.5590)
+            ]), srid=4326),
+            status_pemenuhan="PROSES_VERIFIKASI",
+            nilai_nominal=0.0,
+            bukti_legalitas_url="https://sipas.bogor.go.id/sertifikat/komp-103.pdf"
+        )
+        db.add(kompensasi_3)
+
+        audit_3a = AuditTrailModel(
+            submission_id="sub-3",
+            actor_name="Pemohon",
+            role="Pemohon",
+            action="SUBMIT_UNIFIED_FORM",
+            status_before="Draft",
+            status_after="Menunggu Verifikasi",
+            notes="Berkas pendaftaran diajukan.",
+            created_at=datetime(2026, 6, 15, 9, 0, 0)
+        )
+        db.add(audit_3a)
+
+        audit_3b = AuditTrailModel(
+            submission_id="sub-3",
+            actor_name="Admin",
+            role="Admin",
+            action="VERIFY_ADMIN_APPROVED",
+            status_before="Menunggu Verifikasi",
+            status_after="Verifikasi Administrasi",
+            notes="Administrasi valid.",
+            created_at=datetime(2026, 6, 16, 10, 0, 0)
+        )
+        db.add(audit_3b)
+
+        audit_3c = AuditTrailModel(
+            submission_id="sub-3",
+            actor_name="Tim Teknis",
+            role="Tim Teknis",
+            action="VERIFY_TECHNICAL_APPROVED",
+            status_before="Verifikasi Teknis",
+            status_after="Menunggu Persetujuan",
+            notes="Kelayakan spasial diverifikasi oleh Tim Teknis, BAPL diterbitkan.",
+            created_at=datetime(2026, 6, 18, 14, 0, 0)
+        )
+        db.add(audit_3c)
+
+        # KASUS 4: Cileungsi Green Valley (Status: Disetujui)
+        outer_poly_4 = Polygon([
+            (106.9600, -6.3800),
+            (106.9625, -6.3800),
+            (106.9625, -6.3825),
+            (106.9600, -6.3825),
+            (106.9600, -6.3800)
+        ])
+
+        permohonan_4 = PermohonanModel(
+            id_permohonan="sub-4",
+            user_id=pemohon_id,
+            submission_no="SIPAS-2026-004",
+            housing_name="Cileungsi Green Valley",
+            developer_name="PT Cileungsi Sukses Mandiri (Gunawan Wibisono)",
+            land_area=20000.0,
+            submission_date=date(2026, 6, 10),
+            status="Disetujui",
+            buffer_sla=4,
+            elapsed_days=4,
+            applicant_type="BADAN_USAHA",
+            applicant_name="PT Cileungsi Sukses Mandiri",
+            applicant_nik=None,
+            applicant_nib="9140302837184",
+            applicant_npwp="04.888.777.6-904.000",
+            applicant_director_name="Gunawan Wibisono",
+            applicant_phone="081288889999",
+            applicant_email="pemohon@geocitra.com",
+            applicant_address="Ruko Limus Blok C-10, Cileungsi, Kabupaten Bogor",
+            submission_type="BARU",
+            submission_category="PERUMAHAN",
+            location_name="Lahan Limus Cileungsi",
+            location_village="Limus Nunggal",
+            location_district="Cileungsi",
+            location_full_address="Jl. Raya Cileungsi No. 12, Limus Nunggal, Kec. Cileungsi, Kabupaten Bogor, Jawa Barat",
+            location_ownership_status="SHM",
+            location_certificate_number="SHM No. 1023/Limus",
+            location_certificate_owner="PT Cileungsi Sukses Mandiri",
+            geom=from_shape(outer_poly_4, srid=4326),
+            cad_file_name="blueprint_cileungsi.dxf",
+            cad_param_a=0.8925,
+            cad_param_b=0.3925,
+            cad_param_tx=106.9610,
+            cad_param_ty=-6.3810,
+            cad_scale=1.0020,
+            cad_rotation=0.3812,
+            spatial_kkpr_number="503/KKPR/PUPR/2026/084",
+            spatial_land_use="Zona Perumahan Kepadatan Sedang",
+            spatial_green_area=3100.0,
+            tech_lot_count=90,
+            tech_housing_type="SUBSIDI",
+            tech_cemetery_area=400.0,
+            tech_road_row_main="10 Meter",
+            tech_road_row_local="8 Meter",
+            tech_water_system="Sumur Bor Bersama",
+            consultant_name="Ir. Wahyu Hidayat",
+            consultant_company_name="PT Wahyu Konsultan Teknik",
+            consultant_pic_name="Wahyu Hidayat",
+            photo_north="https://images.unsplash.com/photo-1590069261209-f8e9b8642343?auto=format&fit=crop&w=400&q=80",
+            photo_south="https://images.unsplash.com/photo-1582407947304-fd86f028f716?auto=format&fit=crop&w=400&q=80",
+            photo_east="https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=400&q=80",
+            photo_west="https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=400&q=80",
+            photo_access="https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=400&q=80",
+            statement_agreed=True,
+            signature_hash="sha256:7b952f4c9c1b48b52f6f1947b19a3b90875638c039a7bb2e80556f8f17e7ab43",
+            signed_pdf_url="/api/v1/submissions/sub-4/download"
+        )
+        db.add(permohonan_4)
+
+        poly_kdb_4 = Polygon([
+            (106.9605, -6.3805),
+            (106.9618, -6.3805),
+            (106.9618, -6.3818),
+            (106.9605, -6.3818),
+            (106.9605, -6.3805)
+        ])
+        geom_kdb_4 = SitePlanGeometryModel(
+            id_permohonan="sub-4",
+            layer_name="PTSP_KDB",
+            geom=from_shape(poly_kdb_4, srid=4326)
+        )
+        db.add(geom_kdb_4)
+
+        kompensasi_4 = LahanKompensasiModel(
+            id_kompensasi="komp-104",
+            id_permohonan="sub-4",
+            tipe_kompensasi="LAHAN_MAKAM_FISIK",
+            luas_kompensasi_m2=400.0,
+            geom=from_shape(Polygon([
+                (106.9580, -6.3790),
+                (106.9590, -6.3790),
+                (106.9590, -6.3798),
+                (106.9580, -6.3798),
+                (106.9580, -6.3790)
+            ]), srid=4326),
+            status_pemenuhan="TERPENUHI",
+            nilai_nominal=0.0,
+            bukti_legalitas_url="https://sipas.bogor.go.id/sertifikat/komp-104.pdf"
+        )
+        db.add(kompensasi_4)
+
+        audit_4a = AuditTrailModel(
+            submission_id="sub-4",
+            actor_name="Pemohon",
+            role="Pemohon",
+            action="SUBMIT_UNIFIED_FORM",
+            status_before="Draft",
+            status_after="Menunggu Verifikasi",
+            notes="Berkas pendaftaran diajukan.",
+            created_at=datetime(2026, 6, 10, 9, 0, 0)
+        )
+        db.add(audit_4a)
+
+        audit_4b = AuditTrailModel(
+            submission_id="sub-4",
+            actor_name="Admin",
+            role="Admin",
+            action="VERIFY_ADMIN_APPROVED",
+            status_before="Menunggu Verifikasi",
+            status_after="Verifikasi Administrasi",
+            notes="Administrasi valid.",
+            created_at=datetime(2026, 6, 11, 10, 0, 0)
+        )
+        db.add(audit_4b)
+
+        audit_4c = AuditTrailModel(
+            submission_id="sub-4",
+            actor_name="Tim Teknis",
+            role="Tim Teknis",
+            action="VERIFY_TECHNICAL_APPROVED",
+            status_before="Verifikasi Teknis",
+            status_after="Menunggu Persetujuan",
+            notes="Kelayakan spasial diverifikasi oleh Tim Teknis, BAPL diterbitkan.",
+            created_at=datetime(2026, 6, 12, 14, 0, 0)
+        )
+        db.add(audit_4c)
+
+        audit_4d = AuditTrailModel(
+            submission_id="sub-4",
+            actor_name="Kepala Bidang",
+            role="KABID_PUPR",
+            action="APPROVE_KABID_TTE",
+            status_before="Proses TTE",
+            status_after="Disetujui",
+            notes="Pengesahan site plan berkas disetujui secara hukum menggunakan TTE Dinas resmi.",
+            digital_signature_hash="sha256:7b952f4c9c1b48b52f6f1947b19a3b90875638c039a7bb2e80556f8f17e7ab43",
+            created_at=datetime(2026, 6, 14, 16, 0, 0)
+        )
+        db.add(audit_4d)
+
+        # KASUS 5: Gunung Putri Commercial Hub (Status: Ditolak)
+        outer_poly_5 = Polygon([
+            (106.9000, -6.4200),
+            (106.9015, -6.4200),
+            (106.9015, -6.4215),
+            (106.9000, -6.4215),
+            (106.9000, -6.4200)
         ])
 
         permohonan_2 = PermohonanModel(
             id_permohonan="sub-5",
             user_id=pemohon_id,
             submission_no="SIPAS-2026-005",
-            housing_name="Batu Tulis Residence",
-            developer_name="PT Jaya Real Estate (Ir. Heru Prasetyo)",
+            housing_name="Gunung Putri Commercial Hub",
+            developer_name="PT Gunung Putri Eka Jaya (Suryadi Subagja)",
             land_area=12000.0,
             submission_date=date(2026, 6, 8),
             status="Ditolak",
             buffer_sla=0,
             elapsed_days=2,
-
-            # TAHAP 1: DATA PEMOHON
             applicant_type="BADAN_USAHA",
-            applicant_name="PT Jaya Real Estate",
+            applicant_name="PT Gunung Putri Eka Jaya",
             applicant_nik=None,
-            applicant_nib="8120304918273",
-            applicant_npwp="01.333.444.5-666.000",
-            applicant_director_name="Ir. Heru Prasetyo",
+            applicant_nib="8150403918274",
+            applicant_npwp="05.999.888.7-905.000",
+            applicant_director_name="Suryadi Subagja",
             applicant_phone="081255556666",
-            applicant_email="heru.p@jayarealestate.com",
-            applicant_address="Jaya Tower Lt. 12, Jl. MH Thamrin No. 8, Jakarta Pusat",
-
-            # TAHAP 2: DATA PENGAJUAN
+            applicant_email="pemohon@geocitra.com",
+            applicant_address="Kawasan Industri Gunung Putri No. 4, Gunung Putri, Kabupaten Bogor",
             submission_type="BARU",
             submission_category="NON_PERUMAHAN",
-
-            # TAHAP 3: DATA LOKASI & TANAH
-            location_name="Lahan Batu Tulis",
-            location_village="Batutulis",
-            location_district="Bogor Selatan",
-            location_city="Kota Bogor",
-            location_province="Jawa Barat",
-            location_full_address="Batu Tulis, Kec. Bogor Selatan, Kota Bogor, Jawa Barat",
+            location_name="Lahan Gunung Putri",
+            location_village="Gunung Putri",
+            location_district="Gunung Putri",
+            location_full_address="Jl. Raya Gunung Putri No. 7, Kec. Gunung Putri, Kabupaten Bogor, Jawa Barat",
             location_ownership_status="SHM",
-            location_certificate_number="SHM No. 673/Batutulis",
-            location_certificate_owner="Ir. Heru Prasetyo",
-
-            # TAHAP 4: GEOMETRI BIDANG LUAR BPN
-            geom=from_shape(outer_poly_2, srid=4326),
-            cad_file_name="blueprint_batu_tulis.dxf",
+            location_certificate_number="SHM No. 673/GunungPutri",
+            location_certificate_owner="PT Gunung Putri Eka Jaya",
+            geom=from_shape(outer_poly_5, srid=4326),
+            cad_file_name="blueprint_gunung_putri.dxf",
             cad_param_a=0.9125,
             cad_param_b=0.3812,
-            cad_param_tx=106.811234,
-            cad_param_ty=-6.621234,
+            cad_param_tx=106.9008,
+            cad_param_ty=-6.4208,
             cad_scale=1.0012,
             cad_rotation=0.3512,
-
-            # TAHAP 5: TATA RUANG
             spatial_kkpr_number="503/KKPR/PUPR/2026/304",
             spatial_land_use="Zona Cagar Budaya & Resapan Air",
             spatial_green_area=1452.0,
-
-            # TAHAP 6: PARAMETER TEKNIS (NON-PERUMAHAN)
             tech_building_blocks=2,
             tech_kdb=60.5,
             tech_klb=3.2,
@@ -313,70 +706,61 @@ def seed_spatial_data() -> None:
             tech_parking_capacity=40,
             tech_max_floors=3,
             tech_total_floor_area=9000.0,
-
-            # TAHAP 7: KONSULTAN
             consultant_name="Ir. Wahyu Hidayat",
             consultant_company_name="PT Wahyu Konsultan Teknik",
             consultant_pic_name="Wahyu Hidayat",
-
-            # TAHAP 9: URL DOKUMENTASI FOTO JALAN / RONAL AWAL
             photo_north="https://images.unsplash.com/photo-1590069261209-f8e9b8642343?auto=format&fit=crop&w=400&q=80",
             photo_south="https://images.unsplash.com/photo-1582407947304-fd86f028f716?auto=format&fit=crop&w=400&q=80",
             photo_east="https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=400&q=80",
             photo_west="https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=400&q=80",
             photo_access="https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=400&q=80",
-
-            # TAHAP 10: PERNYATAAN PEMOHON
             statement_agreed=True
         )
         db.add(permohonan_2)
 
-        # Poligon Kavling KDB melanggar sempadan sungai Cipakancilan
-        poly_kdb_2 = Polygon([
-            (106.8110, -6.6210),
-            (106.8120, -6.6210),
-            (106.8120, -6.6220),
-            (106.8110, -6.6220),
-            (106.8110, -6.6210)
+        poly_kdb_5 = Polygon([
+            (106.9005, -6.4205),
+            (106.9010, -6.4205),
+            (106.9010, -6.4210),
+            (106.9005, -6.4210),
+            (106.9005, -6.4205)
         ])
-        geom_kdb_2 = SitePlanGeometryModel(
+        geom_kdb_5 = SitePlanGeometryModel(
             id_permohonan="sub-5",
             layer_name="PTSP_KDB",
-            geom=from_shape(poly_kdb_2, srid=4326)
+            geom=from_shape(poly_kdb_5, srid=4326)
         )
-        db.add(geom_kdb_2)
+        db.add(geom_kdb_5)
 
-        # Kompensasi pengganti konversi sawah basah (KP2B) 1:1
-        kompensasi_2 = LahanKompensasiModel(
-            id_kompensasi="komp-102",
+        kompensasi_5 = LahanKompensasiModel(
+            id_kompensasi="komp-105",
             id_permohonan="sub-5",
             tipe_kompensasi="LAHAN_SAWAH",
             luas_kompensasi_m2=12000.0,
             geom=from_shape(Polygon([
-                (106.8110, -6.6210),
-                (106.8120, -6.6210),
-                (106.8120, -6.6220),
-                (106.8110, -6.6220),
-                (106.8110, -6.6210)
+                (106.8980, -6.4180),
+                (106.8995, -6.4180),
+                (106.8995, -6.4195),
+                (106.8980, -6.4195),
+                (106.8980, -6.4180)
             ]), srid=4326),
             status_pemenuhan="BELUM_TERPENUHI",
             nilai_nominal=0.0,
             bukti_legalitas_url=None
         )
-        db.add(kompensasi_2)
+        db.add(kompensasi_5)
 
-        # Log audit penolakan teknis akibat melanggar sempadan
-        audit_2 = AuditTrailModel(
+        audit_5 = AuditTrailModel(
             submission_id="sub-5",
-            actor_name="Ir. Budi Santoso",
-            role="Tim Teknis",
+            actor_name="Tim Teknis",
+            role="TIM_TEKNIS",
             action="VERIFY_TECHNICAL_REJECTED",
             status_before="Verifikasi Teknis",
             status_after="Ditolak",
-            notes="Berkas dikembalikan untuk REVISI teknis. Rencana jalan dan kaveling nomor 12 s/d 18 terbukti melanggar batas sempadan sungai Cipakancilan (WGS84) sejauh 5 meter.",
+            notes="Berkas ditolak. Kavling melanggar KDB tata ruang daerah resapan air dekat aliran sungai Cileungsi.",
             created_at=datetime(2026, 6, 12, 14, 15, 0)
         )
-        db.add(audit_2)
+        db.add(audit_5)
 
         db.commit()
         print("[SEEDER] Sukses menyemai seluruh data spasial, user, dan riwayat log audit.")

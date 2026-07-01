@@ -19,7 +19,7 @@ from src.domain.entities.permohonan import Permohonan, SubmissionStatus
 
 class PermohonanRepositoryPort(ABC):
     @abstractmethod
-    def save(self, permohonan: Permohonan) -> Permohonan:
+    def save(self, permohonan: Permohonan, commit: bool = True) -> Permohonan:
         pass
 
     @abstractmethod
@@ -49,7 +49,9 @@ class AuditTrailRepositoryPort(ABC):
         action: str,
         status_before: str,
         status_after: str,
-        notes: str
+        notes: str,
+        digital_signature_hash: Optional[str] = None,
+        commit: bool = True
     ) -> None:
         pass
 
@@ -147,15 +149,23 @@ class SubmitPermohonanInputDto:
 
 # ─── SECTION: USE CASE INTERACTOR ─────────────────────────────────────────
 
+from src.use_cases.ports.integration_ports import BpnValidationPort, OssSyncPort, SimtaruSyncPort
+
 class SubmitPermohonanUseCase:
     def __init__(
         self,
         permohonan_repo: PermohonanRepositoryPort,
-        audit_trail_repo: AuditTrailRepositoryPort
+        audit_trail_repo: AuditTrailRepositoryPort,
+        bpn_port: Optional[BpnValidationPort] = None,
+        oss_port: Optional[OssSyncPort] = None,
+        simtaru_port: Optional[SimtaruSyncPort] = None
     ):
         """Suntikkan abstraksi ketergantungan (Dependency Injection)."""
         self.permohonan_repo = permohonan_repo
         self.audit_trail_repo = audit_trail_repo
+        self.bpn_port = bpn_port
+        self.oss_port = oss_port
+        self.simtaru_port = simtaru_port
 
     def execute(self, input_dto: SubmitPermohonanInputDto) -> Permohonan:
         """Menjalankan orkestrasi pendaftaran permohonan satu pintu [Bogor 4]."""
@@ -261,6 +271,14 @@ class SubmitPermohonanUseCase:
             action_name = "SUBMIT_UNIFIED_FORM"
             status_after = SubmissionStatus.MENUNGGU_VERIFIKASI.value
             audit_notes = f"Berkas permohonan tipe '{permohonan.document_category.value}' berhasil didaftarkan secara mandiri."
+            
+            # Invoke future integration points via mock ports
+            if self.bpn_port:
+                self.bpn_port.validate_land_boundary(input_dto.polygon or [])
+            if self.simtaru_port:
+                self.simtaru_port.check_zoning_compliance(input_dto.polygon or [])
+            if self.oss_port:
+                self.oss_port.sync_licensing_status(input_dto.id_permohonan, status_after)
 
         # 3. Simpan entitas domain ke database menggunakan Port Repositori [sipas-fe.txt]
         saved_permohonan = self.permohonan_repo.save(permohonan)

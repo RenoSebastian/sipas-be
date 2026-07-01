@@ -17,6 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from src.infrastructure.http.routes.submissions import router as submissions_router
+from src.infrastructure.http.routes.auth import router as auth_router
 import logging
 
 from src.domain.exceptions import SpatialValidationError
@@ -37,8 +38,12 @@ app = FastAPI(
 # 2. Konfigurasi Keamanan CORS (Cross-Origin Resource Sharing) [sipas-fe.txt]
 # Menghindari wildcard '*' di produksi untuk mencegah celah keamanan.
 ORIGINS = [
-    "http://localhost:5173",  # Port standar Vite Pemohon [sipas-fe.txt]
+    "http://localhost:5173",   # Port standar Vite
     "http://127.0.0.1:5173",
+    "http://localhost:5174",   # Port Vite fallback (jika 5173 sedang terpakai)
+    "http://127.0.0.1:5174",
+    "http://localhost:5175",   # Port Vite fallback kedua
+    "http://127.0.0.1:5175",
     # Daftarkan domain produksi dinas di sini kelak
 ]
 
@@ -104,5 +109,6 @@ async def health_check():
     }
 
 app.include_router(submissions_router)
+app.include_router(auth_router)
 # Seluruh router dari folder http/routes akan didaftarkan di bawah ini kelak:
 # app.include_router(submissions.router, prefix="/api/v1")

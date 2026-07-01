@@ -7,6 +7,7 @@ Peran: Mengimplementasikan AuditTrailRepositoryPort untuk mencatat riwayat
 ============================================================================
 """
 
+from typing import Optional
 from sqlalchemy.orm import Session
 from src.use_cases.submit_permohonan import AuditTrailRepositoryPort
 from src.infrastructure.database.models import AuditTrailModel
@@ -23,7 +24,9 @@ class AuditTrailRepository(AuditTrailRepositoryPort):
         action: str,
         status_before: str,
         status_after: str,
-        notes: str
+        notes: str,
+        digital_signature_hash: Optional[str] = None,
+        commit: bool = True
     ) -> None:
         """Penyisipan baris log audit transaksional."""
         new_log = AuditTrailModel(
@@ -33,7 +36,11 @@ class AuditTrailRepository(AuditTrailRepositoryPort):
             action=action,
             status_before=status_before,
             status_after=status_after,
-            notes=notes
+            notes=notes,
+            digital_signature_hash=digital_signature_hash
         )
         self.db.add(new_log)
-        self.db.commit()
+        if commit:
+            self.db.commit()
+        else:
+            self.db.flush()

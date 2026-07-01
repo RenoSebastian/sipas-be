@@ -131,7 +131,9 @@ class PermohonanRepository(PermohonanRepositoryPort):
             # Tahap 10
             statement_agreed=bool(model.statement_agreed),
             polygon=polygon_coords,
-            user_id=int(model.user_id) if model.user_id is not None else None
+            user_id=int(model.user_id) if model.user_id is not None else None,
+            signature_hash=model.signature_hash,
+            signed_pdf_url=model.signed_pdf_url
         )
 
     def _to_model(self, entity: Permohonan) -> PermohonanModel:
@@ -245,7 +247,9 @@ class PermohonanRepository(PermohonanRepositoryPort):
             
             # Tahap 10
             statement_agreed=entity.statement_agreed,
-            user_id=entity.user_id
+            user_id=entity.user_id,
+            signature_hash=entity.signature_hash,
+            signed_pdf_url=entity.signed_pdf_url
         )
 
     def find_by_id(self, id_permohonan: str) -> Optional[Permohonan]:
@@ -255,7 +259,7 @@ class PermohonanRepository(PermohonanRepositoryPort):
             return None
         return self._to_domain(model)
 
-    def save(self, permohonan: Permohonan) -> Permohonan:
+    def save(self, permohonan: Permohonan, commit: bool = True) -> Permohonan:
         """Menyimpan atau memperbarui data permohonan secara transaksional."""
         existing_model = self.db.query(PermohonanModel).filter(
             PermohonanModel.id_permohonan == permohonan.id_permohonan
@@ -354,6 +358,8 @@ class PermohonanRepository(PermohonanRepositoryPort):
             # Tahap 10
             existing_model.statement_agreed = permohonan.statement_agreed
             existing_model.user_id = permohonan.user_id
+            existing_model.signature_hash = permohonan.signature_hash
+            existing_model.signed_pdf_url = permohonan.signed_pdf_url
 
             # Save polygon geom if updated
             if permohonan.polygon:
@@ -371,7 +377,10 @@ class PermohonanRepository(PermohonanRepositoryPort):
             new_model = self._to_model(permohonan)
             self.db.add(new_model)
 
-        self.db.commit()
+        if commit:
+            self.db.commit()
+        else:
+            self.db.flush()
         return permohonan
 
     def find_all(self) -> List[Permohonan]:

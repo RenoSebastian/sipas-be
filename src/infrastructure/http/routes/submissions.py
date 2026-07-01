@@ -8,18 +8,19 @@ Peran: Menyediakan REST endpoints bertingkat untuk mengelola pendaftaran
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, UploadFile, File
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, model_validator, SecretStr
 from sqlalchemy.orm import Session
-from typing import Tuple, Optional, Any
-from datetime import datetime, date
+from typing import Tuple, Optional, Any, cast
+from datetime import datetime, date, timezone
 import logging
 import random
 
 # Adapter Koneksi & Repositori Database
-from src.infrastructure.database.connection import get_db
+from src.infrastructure.database.connection import get_db, get_bpn_port, get_oss_port, get_simtaru_port
+from src.use_cases.ports.integration_ports import BpnValidationPort, OssSyncPort, SimtaruSyncPort
 from src.infrastructure.database.repositories.permohonan_repository import PermohonanRepository
 from src.infrastructure.database.repositories.audit_trail_repository import AuditTrailRepository
-from src.infrastructure.database.models import PermohonanModel
+from src.infrastructure.database.models import PermohonanModel, AuditTrailModel
 
 # Adapter Eksternal Spasial, Geoserver, dan BSrE
 from src.infrastructure.gis.cad_parser import CadParser
@@ -169,92 +170,41 @@ class CalibrateRequest(BaseModel):
     role: Optional[str] = Field(default=None, examples=["TIM_TEKNIS"])
 
 class VerifyRequest(BaseModel):
-    actor_name: Optional[str] = Field(default=None, examples=["H. Rudy Susmanto, S.Si"])
-    role: Optional[str] = Field(default=None, examples=["KABID_PUPR"])
+    actor_name: Optional[str] = Field(default=None, examples=["Dr. Hendra Wijaya"])
+    role: Optional[str] = Field(default=None, pattern="^(KABID_PUPR|TIM_TEKNIS|ADMIN)$")
     nip: Optional[str] = Field(default=None, examples=["198402122010011003"])
-    action_type: str = Field(pattern="^(APPROVE|REJECT)$", examples=["APPROVE"])
-    notes: str = Field(examples=["Berkas dan spasial sudah divalidasi, layak terbit."])
+    passphrase: Optional[SecretStr] = Field(default=None, min_length=6, json_schema_extra={"writeOnly": True}, examples=["P@ssw0rdPejabat!"])
+    action_type: str = Field(pattern="^(APPROVE|REJECT)$")
+    notes: str = Field(...)
     is_spatially_compliant: bool = Field(default=True)
 
-# ─── SECTION 2.1: AUTHENTICATION SCHEMAS ──────────────────────────────────
-
-class UserCreate(BaseModel):
-    username: str = Field(examples=["ahmad_fauzi"])
-    email: str = Field(examples=["ahmad@geocitra.co.id"])
-    password: str = Field(examples=["password123"])
-    full_name: str = Field(examples=["Ahmad Fauzi"])
-    role: str = Field(default="PEMOHON", pattern="^(PEMOHON|ADMIN|TIM_TEKNIS|KABID_PUPR)$", examples=["PEMOHON"])
-
-class TokenResponse(BaseModel):
-    access_token: str
-    token_type: str
-    username: str
-    role: str
-    full_name: str
-
 # ─── SECTION 3: HTTP ROUTE HANDLERS ───────────────────────────────────────
-
-@router.post("/auth/register", status_code=status.HTTP_201_CREATED)
-def register_user(req: UserCreate, db: Session = Depends(get_db)):
-    """Mendaftar user baru ke sistem secara aman."""
-    existing_user = db.query(UserModel).filter(UserModel.username == req.username).first()
-    if existing_user:
-        raise HTTPException(status_code=400, detail="Username sudah terdaftar.")
-    existing_email = db.query(UserModel).filter(UserModel.email == req.email).first()
-    if existing_email:
-        raise HTTPException(status_code=400, detail="Email sudah terdaftar.")
-
-    new_user = UserModel(
-        username=req.username,
-        email=req.email,
-        hashed_password=hash_password(req.password),
-        full_name=req.full_name,
-        role=req.role,
-        is_active=True
-    )
-    db.add(new_user)
-    db.commit()
-    db.refresh(new_user)
-    return {
-        "status": "SUCCESS",
-        "message": "User berhasil terdaftar.",
-        "username": new_user.username
-    }
-
-@router.post("/auth/token", response_model=TokenResponse)
-def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    """Memperoleh token JWT OAuth2 untuk otorisasi API."""
-    user = db.query(UserModel).filter(UserModel.username == form_data.username).first()
-    if not user or not verify_password(form_data.password, user.hashed_password):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Username atau password salah.",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    access_token = create_access_token(data={"sub": user.username, "role": user.role})
-    return {
-        "access_token": access_token,
-        "token_type": "bearer",
-        "username": user.username,
-        "role": user.role,
-        "full_name": user.full_name
-    }
 
 
 @router.post("/submit", status_code=status.HTTP_201_CREATED)
 def submit_permohonan(
     req: SubmitRequest, 
     db: Session = Depends(get_db), 
+    bpn_port: BpnValidationPort = Depends(get_bpn_port),
+    oss_port: OssSyncPort = Depends(get_oss_port),
+    simtaru_port: SimtaruSyncPort = Depends(get_simtaru_port),
     current_user: UserModel = Depends(get_current_user)
 ):
     """Menerima berkas pendaftaran terpadu satu pintu 10-tahap [Bogor 4]."""
     try:
         permohonan_repo = PermohonanRepository(db)
         audit_trail_repo = AuditTrailRepository(db)
-        use_case = SubmitPermohonanUseCase(permohonan_repo, audit_trail_repo)
+        
+        use_case = SubmitPermohonanUseCase(
+            permohonan_repo, 
+            audit_trail_repo,
+            bpn_port=bpn_port,
+            oss_port=oss_port,
+            simtaru_port=simtaru_port
+        )
 
         # Gunakan ID yang dikirim oleh Frontend atau generasikan baru jika kosong
-        id_permohonan = req.id_permohonan or f"sub-{int(datetime.utcnow().timestamp())}"
+        id_permohonan = req.id_permohonan or f"sub-{int(datetime.now(timezone.utc).timestamp())}"
         submission_no = f"SIPAS-2026-0{random.randint(100, 999)}"
 
         # Panggil Use Case dengan DTO terstruktur 10-tahap lengkap
@@ -264,8 +214,8 @@ def submit_permohonan(
             housing_name=req.submission.activityName,
             developer_name=req.applicant.name,
             land_area=req.location.landArea,
-            actor_name=current_user.full_name,
-            role=current_user.role,
+            actor_name=cast(str, current_user.full_name),
+            role=cast(str, current_user.role),
             
             # Tahap 1
             applicant_type=req.applicant.type,
@@ -343,7 +293,7 @@ def submit_permohonan(
             # Tahap 10
             statement_agreed=req.statement.agreed,
             polygon=req.coordinate.polygon,
-            user_id=current_user.id,
+            user_id=cast(int, current_user.id),
             is_draft=req.is_draft
         )
         result = use_case.execute(dto)
@@ -389,8 +339,8 @@ def calibrate_cad_spasial(
             anchor_cad_2=req.anchor_cad_2,
             anchor_map_1=req.anchor_map_1,
             anchor_map_2=req.anchor_map_2,
-            actor_name=current_user.full_name,
-            role=current_user.role
+            actor_name=cast(str, current_user.full_name),
+            role=cast(str, current_user.role)
         )
 
         # 1. Jalankan proses penyelarasan koordinat & validasi awal (Helmert)
@@ -420,7 +370,7 @@ def calibrate_cad_spasial(
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/{id_permohonan}/verify", status_code=status.HTTP_200_OK)
-def verify_submission(
+async def verify_submission(
     id_permohonan: str,
     req: VerifyRequest,
     db: Session = Depends(get_db),
@@ -442,15 +392,16 @@ def verify_submission(
 
         dto = VerifySubmissionInputDto(
             id_permohonan=id_permohonan,
-            actor_name=current_user.full_name,
-            role=current_user.role,
+            actor_name=cast(str, current_user.full_name),
+            role=cast(str, current_user.role),
             nip=req.nip,
+            passphrase=req.passphrase.get_secret_value() if req.passphrase else None,
             action_type=req.action_type,
             notes=req.notes,
             is_spatially_compliant=req.is_spatially_compliant
         )
 
-        result = use_case.execute(dto)
+        result = await use_case.execute(dto)
         return {
             "status": "SUCCESS",
             "message": f"Keputusan verifikasi berhasil direkam. Status berkas: {result.status.value}"
@@ -547,7 +498,9 @@ def get_all_submissions(db: Session = Depends(get_db), current_user: UserModel =
                 "lng": 106.816629,
                 "address": r.location_full_address,
                 "polygon": r.polygon or []
-            }
+            },
+            "signatureHash": r.signature_hash,
+            "signedPdfUrl": r.signed_pdf_url
         }
         for r in results
     ]
@@ -648,10 +601,20 @@ def get_submission_by_id(id_permohonan: str, db: Session = Depends(get_db), curr
             { "id": f"doc-{r.id_permohonan}-1", "name": "Surat Permohonan.pdf", "type": "pdf", "url": "#", "uploadedAt": r.submission_date.isoformat() },
             { "id": f"doc-{r.id_permohonan}-2", "name": "Sertifikat Tanah Hak Milik.pdf", "type": "pdf", "url": "#", "uploadedAt": r.submission_date.isoformat() }
         ],
-        "history": [
-            { "date": r.submission_date.isoformat() + " 09:00", "status": "Draft", "notes": "Pengajuan dibuat", "actor": r.applicant_name },
-            { "date": r.submission_date.isoformat() + " 10:00", "status": r.status.value, "notes": "Status terupdate ke: " + r.status.value, "actor": "Sistem" }
-        ]
+        "signatureHash": r.signature_hash,
+        "signedPdfUrl": r.signed_pdf_url,
+        "history": (lambda: [
+            {
+                "date": log.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+                "status": log.status_after,
+                "notes": log.notes,
+                "actor": f"{log.actor_name} ({log.role})",
+                "digitalSignatureHash": log.digital_signature_hash
+            }
+            for log in db.query(AuditTrailModel).filter(AuditTrailModel.submission_id == r.id_permohonan).order_by(AuditTrailModel.created_at.asc()).all()
+        ] or [
+            { "date": r.submission_date.isoformat() + " 09:00", "status": "Draft", "notes": "Pengajuan dibuat", "actor": r.applicant_name or "Pemohon", "digitalSignatureHash": None }
+        ])()
     }
 
 
@@ -677,7 +640,7 @@ def get_submission_geometries(
         polygon_coords = []
         if g.geom:
             try:
-                shapely_poly = to_shape(g.geom)
+                shapely_poly = to_shape(cast(Any, g.geom))
                 exterior = getattr(shapely_poly, "exterior", None)
                 if exterior is not None:
                     # Convert to list of [longitude, latitude]
