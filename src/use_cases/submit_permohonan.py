@@ -59,36 +59,36 @@ class AuditTrailRepositoryPort(ABC):
 class SubmitPermohonanInputDto:
     id_permohonan: str
     submission_no: str
-    housing_name: str
-    developer_name: str
-    land_area: float
+    housing_name: Optional[str]
+    developer_name: Optional[str]
+    land_area: Optional[float]
     actor_name: str
     role: str
 
     # Tahap 1
-    applicant_type: str
+    applicant_type: Optional[str]
     applicant_nik: Optional[str]
     applicant_nib: Optional[str]
-    applicant_npwp: str
+    applicant_npwp: Optional[str]
     applicant_director_name: Optional[str]
-    applicant_phone: str
-    applicant_email: str
-    applicant_address: str
+    applicant_phone: Optional[str]
+    applicant_email: Optional[str]
+    applicant_address: Optional[str]
 
     # Tahap 2
-    submission_type: str
-    submission_category: str
+    submission_type: Optional[str]
+    submission_category: Optional[str]
 
     # Tahap 3
-    location_name: str
-    location_village: str
-    location_district: str
-    location_city: str
-    location_province: str
-    location_full_address: str
-    location_ownership_status: str
-    location_certificate_number: str
-    location_certificate_owner: str
+    location_name: Optional[str]
+    location_village: Optional[str]
+    location_district: Optional[str]
+    location_city: Optional[str]
+    location_province: Optional[str]
+    location_full_address: Optional[str]
+    location_ownership_status: Optional[str]
+    location_certificate_number: Optional[str]
+    location_certificate_owner: Optional[str]
 
     # Tahap 4
     cad_file_name: Optional[str]
@@ -100,9 +100,9 @@ class SubmitPermohonanInputDto:
     cad_rotation: Optional[float]
 
     # Tahap 5
-    spatial_kkpr_number: str
-    spatial_land_use: str
-    spatial_green_area: float
+    spatial_kkpr_number: Optional[str]
+    spatial_land_use: Optional[str]
+    spatial_green_area: Optional[float]
 
     # Tahap 6
     tech_lot_count: Optional[int]
@@ -112,6 +112,7 @@ class SubmitPermohonanInputDto:
     tech_road_row_local: Optional[str]
     tech_water_system: Optional[str]
 
+    # (tech non-perumahan)
     tech_building_blocks: Optional[int]
     tech_kdb: Optional[float]
     tech_klb: Optional[float]
@@ -134,14 +135,15 @@ class SubmitPermohonanInputDto:
     tech_tps_b3_provision: Optional[str]
 
     # Tahap 7
-    consultant_name: str
-    consultant_company_name: str
-    consultant_pic_name: str
+    consultant_name: Optional[str]
+    consultant_company_name: Optional[str]
+    consultant_pic_name: Optional[str]
 
     # Tahap 10
     statement_agreed: bool
     polygon: Optional[list] = None
     user_id: Optional[int] = None
+    is_draft: bool = False
 
 # ─── SECTION: USE CASE INTERACTOR ─────────────────────────────────────────
 
@@ -245,11 +247,20 @@ class SubmitPermohonanUseCase:
             
             # Tahap 10
             statement_agreed=input_dto.statement_agreed,
+            polygon=input_dto.polygon,
             user_id=input_dto.user_id
         )
 
-        # 2. Mutasikan status draf awal ke antrean peninjauan dinas secara berjenjang
-        permohonan.transition_status(SubmissionStatus.MENUNGGU_VERIFIKASI)
+        # 2. Mutasikan status draf awal ke antrean peninjauan dinas jika bukan draf
+        action_name = "SAVE_DRAFT"
+        status_after = SubmissionStatus.DRAFT.value
+        audit_notes = f"Draf permohonan tipe '{permohonan.document_category.value}' berhasil disimpan secara mandiri."
+        
+        if not input_dto.is_draft:
+            permohonan.transition_status(SubmissionStatus.MENUNGGU_VERIFIKASI)
+            action_name = "SUBMIT_UNIFIED_FORM"
+            status_after = SubmissionStatus.MENUNGGU_VERIFIKASI.value
+            audit_notes = f"Berkas permohonan tipe '{permohonan.document_category.value}' berhasil didaftarkan secara mandiri."
 
         # 3. Simpan entitas domain ke database menggunakan Port Repositori [sipas-fe.txt]
         saved_permohonan = self.permohonan_repo.save(permohonan)
@@ -259,10 +270,10 @@ class SubmitPermohonanUseCase:
             submission_id=saved_permohonan.id_permohonan,
             actor_name=input_dto.actor_name,
             role=input_dto.role,
-            action="SUBMIT_UNIFIED_FORM", # Kode aksi penyerahan formulir terpadu [sipas-fe.txt]
+            action=action_name,
             status_before=SubmissionStatus.DRAFT.value,
-            status_after=SubmissionStatus.MENUNGGU_VERIFIKASI.value,
-            notes=f"Berkas permohonan tipe '{saved_permohonan.document_category.value}' berhasil didaftarkan secara mandiri."
+            status_after=status_after,
+            notes=audit_notes
         )
 
         return saved_permohonan

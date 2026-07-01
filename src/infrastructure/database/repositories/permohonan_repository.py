@@ -39,39 +39,39 @@ class PermohonanRepository(PermohonanRepositoryPort):
         return Permohonan(
             id_permohonan=str(model.id_permohonan),
             submission_no=str(model.submission_no),
-            housing_name=str(model.housing_name),
-            developer_name=str(model.developer_name),
-            land_area=float(model.land_area),
+            housing_name=str(model.housing_name) if model.housing_name else None,
+            developer_name=str(model.developer_name) if model.developer_name else None,
+            land_area=float(model.land_area) if model.land_area is not None else None,
             submission_date=model.submission_date,
             status=SubmissionStatus(str(model.status)),
             buffer_sla=int(model.buffer_sla),
             elapsed_days=int(model.elapsed_days),
             
             # Tahap 1
-            applicant_type=str(model.applicant_type),
-            applicant_name=str(model.applicant_name),
+            applicant_type=str(model.applicant_type) if model.applicant_type else None,
+            applicant_name=str(model.applicant_name) if model.applicant_name else None,
             applicant_nik=str(model.applicant_nik) if model.applicant_nik else None,
             applicant_nib=str(model.applicant_nib) if model.applicant_nib else None,
-            applicant_npwp=str(model.applicant_npwp),
+            applicant_npwp=str(model.applicant_npwp) if model.applicant_npwp else None,
             applicant_director_name=str(model.applicant_director_name) if model.applicant_director_name else None,
-            applicant_phone=str(model.applicant_phone),
-            applicant_email=str(model.applicant_email),
-            applicant_address=str(model.applicant_address),
+            applicant_phone=str(model.applicant_phone) if model.applicant_phone else None,
+            applicant_email=str(model.applicant_email) if model.applicant_email else None,
+            applicant_address=str(model.applicant_address) if model.applicant_address else None,
             
             # Tahap 2
-            submission_type=str(model.submission_type),
-            submission_category=str(model.submission_category),
+            submission_type=str(model.submission_type) if model.submission_type else None,
+            submission_category=str(model.submission_category) if model.submission_category else None,
             
             # Tahap 3
-            location_name=str(model.location_name),
-            location_village=str(model.location_village),
-            location_district=str(model.location_district),
-            location_city=str(model.location_city),
-            location_province=str(model.location_province),
-            location_full_address=str(model.location_full_address),
-            location_ownership_status=str(model.location_ownership_status),
-            location_certificate_number=str(model.location_certificate_number),
-            location_certificate_owner=str(model.location_certificate_owner),
+            location_name=str(model.location_name) if model.location_name else None,
+            location_village=str(model.location_village) if model.location_village else None,
+            location_district=str(model.location_district) if model.location_district else None,
+            location_city=str(model.location_city) if model.location_city else None,
+            location_province=str(model.location_province) if model.location_province else None,
+            location_full_address=str(model.location_full_address) if model.location_full_address else None,
+            location_ownership_status=str(model.location_ownership_status) if model.location_ownership_status else None,
+            location_certificate_number=str(model.location_certificate_number) if model.location_certificate_number else None,
+            location_certificate_owner=str(model.location_certificate_owner) if model.location_certificate_owner else None,
             
             # Tahap 4 (CAD Helmert parameters)
             cad_file_name=str(model.cad_file_name) if model.cad_file_name else None,
@@ -83,8 +83,8 @@ class PermohonanRepository(PermohonanRepositoryPort):
             cad_rotation=float(model.cad_rotation) if model.cad_rotation is not None else None,
             
             # Tahap 5
-            spatial_kkpr_number=str(model.spatial_kkpr_number),
-            spatial_land_use=str(model.spatial_land_use),
+            spatial_kkpr_number=str(model.spatial_kkpr_number) if model.spatial_kkpr_number else None,
+            spatial_land_use=str(model.spatial_land_use) if model.spatial_land_use else None,
             spatial_green_area=float(model.spatial_green_area),
             
             # Tahap 6
@@ -117,9 +117,9 @@ class PermohonanRepository(PermohonanRepositoryPort):
             tech_tps_b3_provision=str(model.tech_tps_b3_provision) if model.tech_tps_b3_provision else None,
             
             # Tahap 7
-            consultant_name=str(model.consultant_name),
-            consultant_company_name=str(model.consultant_company_name),
-            consultant_pic_name=str(model.consultant_pic_name),
+            consultant_name=str(model.consultant_name) if model.consultant_name else None,
+            consultant_company_name=str(model.consultant_company_name) if model.consultant_company_name else None,
+            consultant_pic_name=str(model.consultant_pic_name) if model.consultant_pic_name else None,
             
             # Tahap 9
             photo_north=str(model.photo_north) if model.photo_north else None,

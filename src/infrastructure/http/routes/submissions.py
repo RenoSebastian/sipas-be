@@ -8,7 +8,7 @@ Peran: Menyediakan REST endpoints bertingkat untuk mengelola pendaftaran
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, UploadFile, File
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.orm import Session
 from typing import Tuple, Optional, Any
 from datetime import datetime, date
@@ -45,32 +45,32 @@ router = APIRouter(prefix="/api/v1/submissions", tags=["Submissions Core"])
 # ─── SECTION 1: SUB-DTO SCHEMAS (Pydantic V2 Standards) ───────────────────
 
 class ApplicantDto(BaseModel):
-    type: str = Field(pattern="^(PERORANGAN|BADAN_USAHA)$", examples=["BADAN_USAHA"])
-    name: str = Field(examples=["PT Geocitra Raya"])
+    type: Optional[str] = Field(default="PERORANGAN", pattern="^(PERORANGAN|BADAN_USAHA)$", examples=["BADAN_USAHA"])
+    name: Optional[str] = Field(default=None, examples=["PT Geocitra Raya"])
     nik: Optional[str] = Field(default=None, examples=["3201020304050607"])
     nib: Optional[str] = Field(default=None, examples=["9120301938192"])
-    npwp: str = Field(examples=["01.234.567.8-901.000"])
+    npwp: Optional[str] = Field(default=None, examples=["01.234.567.8-901.000"])
     directorName: Optional[str] = Field(default=None, examples=["Ahmad Fauzi"])
-    phone: str = Field(examples=["081234567890"])
-    email: str = Field(examples=["ahmad.fauzi@geocitra.co.id"])
-    address: str = Field(examples=["Gedung Sentosa Lt. 4, Jl. Jend. Sudirman No. 10, Jakarta Pusat"])
+    phone: Optional[str] = Field(default=None, examples=["081234567890"])
+    email: Optional[str] = Field(default=None, examples=["ahmad.fauzi@geocitra.co.id"])
+    address: Optional[str] = Field(default=None, examples=["Gedung Sentosa Lt. 4, Jl. Jend. Sudirman No. 10, Jakarta Pusat"])
 
 class SubmissionDetailsDto(BaseModel):
-    submissionType: str = Field(pattern="^(BARU|REVISI|PERPANJANGAN)$", examples=["BARU"])
-    activityName: str = Field(examples=["Grand Bogor Residence"])
-    category: str = Field(pattern="^(PERUMAHAN|NON_PERUMAHAN|FASUM|INDUSTRI)$", examples=["PERUMAHAN"])
+    submissionType: Optional[str] = Field(default="BARU", pattern="^(BARU|REVISI|PERPANJANGAN)$", examples=["BARU"])
+    activityName: Optional[str] = Field(default=None, examples=["Grand Bogor Residence"])
+    category: Optional[str] = Field(default="PERUMAHAN", pattern="^(PERUMAHAN|NON_PERUMAHAN|FASUM|INDUSTRI)$", examples=["PERUMAHAN"])
 
 class LocationDetailsDto(BaseModel):
-    locationName: str = Field(examples=["Lahan Baranangsiang"])
-    village: str = Field(examples=["Baranangsiang"])
-    district: str = Field(examples=["Bogor Timur"])
-    city: str = Field(default="Kabupaten Bogor", examples=["Kabupaten Bogor"])
-    province: str = Field(default="Jawa Barat", examples=["Jawa Barat"])
-    fullAddress: str = Field(examples=["Jl. Raya Pajajaran No.21, Baranangsiang, Kec. Bogor Timur"])
-    landArea: float = Field(gt=0, examples=[25000.0])
-    ownershipStatus: str = Field(pattern="^(SHM|HGB|HAK_PAKAI|LAINNYA)$", examples=["SHM"])
-    certificateNumber: str = Field(examples=["SHM No. 10293/Baranangsiang"])
-    certificateOwner: str = Field(examples=["PT Geocitra Raya"])
+    locationName: Optional[str] = Field(default=None, examples=["Lahan Baranangsiang"])
+    village: Optional[str] = Field(default=None, examples=["Baranangsiang"])
+    district: Optional[str] = Field(default=None, examples=["Bogor Timur"])
+    city: Optional[str] = Field(default="Kabupaten Bogor", examples=["Kabupaten Bogor"])
+    province: Optional[str] = Field(default="Jawa Barat", examples=["Jawa Barat"])
+    fullAddress: Optional[str] = Field(default=None, examples=["Jl. Raya Pajajaran No.21, Baranangsiang, Kec. Bogor Timur"])
+    landArea: Optional[float] = Field(default=None, examples=[25000.0])
+    ownershipStatus: Optional[str] = Field(default="SHM", pattern="^(SHM|HGB|HAK_PAKAI|LAINNYA)$", examples=["SHM"])
+    certificateNumber: Optional[str] = Field(default=None, examples=["SHM No. 10293/Baranangsiang"])
+    certificateOwner: Optional[str] = Field(default=None, examples=["PT Geocitra Raya"])
 
 class CoordinateDto(BaseModel):
     polygon: Optional[list] = Field(default=None)
@@ -84,9 +84,9 @@ class CoordinateDto(BaseModel):
     cadRotation: Optional[float] = Field(default=None)
 
 class SpatialDetailsDto(BaseModel):
-    kkprNumber: str = Field(examples=["503/KKPR/PUPR/2026/089"])
-    landUse: str = Field(examples=["Zona Perumahan Kepadatan Sedang"])
-    greenArea: float = Field(default=0.0, examples=[3850.0])
+    kkprNumber: Optional[str] = Field(default=None, examples=["503/KKPR/PUPR/2026/089"])
+    landUse: Optional[str] = Field(default=None, examples=["Zona Perumahan Kepadatan Sedang"])
+    greenArea: Optional[float] = Field(default=0.0, examples=[3850.0])
 
 class TechnicalDetailsDto(BaseModel):
     # A. Kategori Perumahan
@@ -122,9 +122,9 @@ class TechnicalDetailsDto(BaseModel):
     tpsB3Provision: Optional[str] = Field(default=None)
 
 class ConsultantDto(BaseModel):
-    consultantName: str = Field(examples=["Ir. Hermawan Pratama"])
-    companyName: str = Field(examples=["CV Rencana Semesta"])
-    picName: str = Field(examples=["Hermawan Pratama"])
+    consultantName: Optional[str] = Field(default=None, examples=["Ir. Hermawan Pratama"])
+    companyName: Optional[str] = Field(default=None, examples=["CV Rencana Semesta"])
+    picName: Optional[str] = Field(default=None, examples=["Hermawan Pratama"])
 
 class StatementDto(BaseModel):
     agreed: bool = Field(default=True)
@@ -137,6 +137,7 @@ class SubmitRequest(BaseModel):
     Zod Schema di Frontend untuk mencegah galat parsing 422 di API Gateway.
     """
     id_permohonan: Optional[str] = Field(default=None, examples=["sub-123456"])
+    is_draft: bool = Field(default=False)
     applicant: ApplicantDto
     submission: SubmissionDetailsDto
     location: LocationDetailsDto
@@ -145,6 +146,18 @@ class SubmitRequest(BaseModel):
     technical: TechnicalDetailsDto
     consultant: ConsultantDto
     statement: StatementDto
+
+    @model_validator(mode='before')
+    @classmethod
+    def allow_empty_fields_for_draft(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            is_draft = data.get("is_draft", False)
+            if is_draft:
+                # Ensure all nested DTOs are at least empty dictionaries if missing or None
+                for field in ["applicant", "submission", "location", "coordinate", "spatial", "technical", "consultant", "statement"]:
+                    if field not in data or data[field] is None:
+                        data[field] = {}
+        return data
 
 class CalibrateRequest(BaseModel):
     cad_file_path: str = Field(examples=["C:/temp/blueprint.dxf"])
@@ -330,7 +343,8 @@ def submit_permohonan(
             # Tahap 10
             statement_agreed=req.statement.agreed,
             polygon=req.coordinate.polygon,
-            user_id=current_user.id
+            user_id=current_user.id,
+            is_draft=req.is_draft
         )
         result = use_case.execute(dto)
 

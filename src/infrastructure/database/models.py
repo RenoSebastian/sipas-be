@@ -40,9 +40,9 @@ class PermohonanModel(Base):
     # ─── KOORDINAT INTI & ADMINISTRASI ────────────────────────────────────────
     id_permohonan: Mapped[str] = mapped_column(String(50), primary_key=True, index=True)
     submission_no: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
-    housing_name: Mapped[str] = mapped_column(String(255), nullable=False)
-    developer_name: Mapped[str] = mapped_column(String(255), nullable=False)
-    land_area: Mapped[float] = mapped_column(Float, nullable=False)
+    housing_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    developer_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    land_area: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     submission_date: Mapped[date] = mapped_column(Date, nullable=False, default=date.today)
     status: Mapped[str] = mapped_column(String(50), nullable=False)
     buffer_sla: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -50,29 +50,29 @@ class PermohonanModel(Base):
 
     # ─── TAHAP 1: DATA PEMOHON (APPLICANT) ────────────────────────────────────
     applicant_type: Mapped[str] = mapped_column(String(50), nullable=False, default="PERORANGAN") # PERORANGAN | BADAN_USAHA
-    applicant_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    applicant_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     applicant_nik: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     applicant_nib: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
-    applicant_npwp: Mapped[str] = mapped_column(String(50), nullable=False)
+    applicant_npwp: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     applicant_director_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    applicant_phone: Mapped[str] = mapped_column(String(50), nullable=False)
-    applicant_email: Mapped[str] = mapped_column(String(255), nullable=False)
-    applicant_address: Mapped[str] = mapped_column(Text, nullable=False)
+    applicant_phone: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    applicant_email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    applicant_address: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     # ─── TAHAP 2: DATA PENGAJUAN (SUBMISSION DETAILS) ─────────────────────────
     submission_type: Mapped[str] = mapped_column(String(50), nullable=False, default="BARU") # BARU | REVISI | PERPANJANGAN
     submission_category: Mapped[str] = mapped_column(String(50), nullable=False, default="PERUMAHAN") # PERUMAHAN | NON_PERUMAHAN | FASUM | INDUSTRI
 
     # ─── TAHAP 3: DATA LOKASI ADMINISTRATIF & TANAH (LOCATION) ───────────────
-    location_name: Mapped[str] = mapped_column(String(255), nullable=False)
-    location_village: Mapped[str] = mapped_column(String(255), nullable=False)
-    location_district: Mapped[str] = mapped_column(String(255), nullable=False)
-    location_city: Mapped[str] = mapped_column(String(255), nullable=False, default="Kabupaten Bogor")
-    location_province: Mapped[str] = mapped_column(String(255), nullable=False, default="Jawa Barat")
-    location_full_address: Mapped[str] = mapped_column(Text, nullable=False)
-    location_ownership_status: Mapped[str] = mapped_column(String(50), nullable=False, default="SHM") # SHM | HGB | HAK_PAKAI | LAINNYA
-    location_certificate_number: Mapped[str] = mapped_column(String(255), nullable=False)
-    location_certificate_owner: Mapped[str] = mapped_column(String(255), nullable=False)
+    location_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    location_village: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    location_district: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    location_city: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, default="Kabupaten Bogor")
+    location_province: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, default="Jawa Barat")
+    location_full_address: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    location_ownership_status: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, default="SHM") # SHM | HGB | HAK_PAKAI | LAINNYA
+    location_certificate_number: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    location_certificate_owner: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
     # ─── TAHAP 4: DATA KOORDINAT BATAS LUAR (OUTER BOUNDARY GEOM) ────────────
     # Menyimpan poligon batas luar bidang tanah BPN murni (SRID WGS84)
@@ -90,8 +90,8 @@ class PermohonanModel(Base):
     cad_rotation: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
     # ─── TAHAP 5: DATA INFORMASI TATA RUANG (SPATIAL INFO) ────────────────────
-    spatial_kkpr_number: Mapped[str] = mapped_column(String(255), nullable=False)
-    spatial_land_use: Mapped[str] = mapped_column(String(255), nullable=False)
+    spatial_kkpr_number: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    spatial_land_use: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     spatial_green_area: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
 
     # ─── TAHAP 6: PARAMETER TEKNIS BERSYARAT (TECHNICAL DETAILS) ─────────────
@@ -128,9 +128,9 @@ class PermohonanModel(Base):
     tech_tps_b3_provision: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
     # ─── TAHAP 7: DATA KONSULTAN PERENCANA (CONSULTANT) ───────────────────────
-    consultant_name: Mapped[str] = mapped_column(String(255), nullable=False)
-    consultant_company_name: Mapped[str] = mapped_column(String(255), nullable=False)
-    consultant_pic_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    consultant_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    consultant_company_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    consultant_pic_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
     # ─── TAHAP 9: DOKUMENTASI FOTO JURU UKUR (PHOTOS) ─────────────────────────
     photo_north: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)

@@ -13,13 +13,17 @@ from typing import Generator
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
 import logging
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 logger = logging.getLogger("sipas-be")
 
 # 1. Membaca URL Database dari Environment Variable (.env) [sipas-fe.txt]
 DATABASE_URL = os.getenv(
     "DATABASE_URL", 
-    "postgresql://postgres:123@localhost:5432/sipas_db"
+    "postgresql://postgres:naufal@localhost:5432/sipas_db"
 )
 
 # 2. Membuat Engine Koneksi Database

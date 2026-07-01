@@ -31,10 +31,10 @@ class Permohonan:
         self,
         id_permohonan: str,
         submission_no: str,
-        housing_name: str,
-        developer_name: str,
-        land_area: float,  # Dalam satuan m2 [sipas-fe.txt]
         submission_date: date,
+        housing_name: Optional[str] = None,
+        developer_name: Optional[str] = None,
+        land_area: Optional[float] = None,  # Dalam satuan m2 [sipas-fe.txt]
         status: SubmissionStatus = SubmissionStatus.DRAFT,
         buffer_sla: int = 0,
         elapsed_days: int = 0,
@@ -44,11 +44,11 @@ class Permohonan:
         applicant_name: Optional[str] = None,
         applicant_nik: Optional[str] = None,
         applicant_nib: Optional[str] = None,
-        applicant_npwp: str = "PENDING",
+        applicant_npwp: Optional[str] = None,
         applicant_director_name: Optional[str] = None,
-        applicant_phone: str = "PENDING",
-        applicant_email: str = "PENDING",
-        applicant_address: str = "PENDING",
+        applicant_phone: Optional[str] = None,
+        applicant_email: Optional[str] = None,
+        applicant_address: Optional[str] = None,
         
         # ─── TAHAP 2: DATA PENGAJUAN (SUBMISSION DETAILS) ─────────────────────────
         submission_type: str = "BARU",
@@ -56,14 +56,14 @@ class Permohonan:
         
         # ─── TAHAP 3: DATA LOKASI ADMINISTRATIF & TANAH (LOCATION) ───────────────
         location_name: Optional[str] = None,
-        location_village: str = "PENDING",
-        location_district: str = "PENDING",
+        location_village: Optional[str] = None,
+        location_district: Optional[str] = None,
         location_city: str = "Kabupaten Bogor",
         location_province: str = "Jawa Barat",
-        location_full_address: str = "PENDING",
+        location_full_address: Optional[str] = None,
         location_ownership_status: str = "SHM",
-        location_certificate_number: str = "PENDING",
-        location_certificate_owner: str = "PENDING",
+        location_certificate_number: Optional[str] = None,
+        location_certificate_owner: Optional[str] = None,
         
         # ─── TAHAP 4: DATA KOORDINAT BATAS LUAR (OUTER BOUNDARY GEOM) ────────────
         cad_file_name: Optional[str] = None,
@@ -75,8 +75,8 @@ class Permohonan:
         cad_rotation: Optional[float] = None,
         
         # ─── TAHAP 5: DATA INFORMASI TATA RUANG (SPATIAL INFO) ────────────────────
-        spatial_kkpr_number: str = "PENDING",
-        spatial_land_use: str = "PENDING",
+        spatial_kkpr_number: Optional[str] = None,
+        spatial_land_use: Optional[str] = None,
         spatial_green_area: float = 0.0,
         
         # ─── TAHAP 6: PARAMETER TEKNIS BERSYARAT (TECHNICAL DETAILS) ─────────────
@@ -109,9 +109,9 @@ class Permohonan:
         tech_tps_b3_provision: Optional[str] = None,
         
         # ─── TAHAP 7: DATA KONSULTAN PERENCANA (CONSULTANT) ───────────────────────
-        consultant_name: str = "PENDING",
-        consultant_company_name: str = "PENDING",
-        consultant_pic_name: str = "PENDING",
+        consultant_name: Optional[str] = None,
+        consultant_company_name: Optional[str] = None,
+        consultant_pic_name: Optional[str] = None,
         
         # ─── TAHAP 9: DOKUMENTASI FOTO JURU UKUR (PHOTOS) ─────────────────────────
         photo_north: Optional[str] = None,
@@ -130,7 +130,7 @@ class Permohonan:
         self.housing_name = housing_name
         self.developer_name = developer_name
         
-        if land_area <= 0:
+        if land_area is not None and land_area <= 0:
             raise ValueError("Luas lahan harus bernilai positif.")
         self.land_area = land_area
         
@@ -224,6 +224,8 @@ class Permohonan:
         Menentukan kategori dokumen pengesahan berdasarkan batasan luas lahan
         sesuai Perbup Bogor No. 4 Tahun 2025.
         """
+        if self.land_area is None:
+            return DocumentCategory.SITE_PLAN
         if self.land_area <= 2500:
             return DocumentCategory.GAMBAR_SITUASI  # Maksimal 2.500 m2 [Bogor 8]
         elif self.land_area < 500000:
@@ -278,7 +280,8 @@ class Permohonan:
             SubmissionStatus.DRAFT: [SubmissionStatus.MENUNGGU_VERIFIKASI],
             
             SubmissionStatus.MENUNGGU_VERIFIKASI: [
-                SubmissionStatus.VERIFIKASI_ADMINISTRASI, 
+                SubmissionStatus.VERIFIKASI_ADMINISTRASI,
+                SubmissionStatus.VERIFIKASI_TEKNIS,
                 SubmissionStatus.DITOLAK
             ],
             
