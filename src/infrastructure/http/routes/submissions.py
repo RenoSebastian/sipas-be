@@ -502,7 +502,8 @@ def get_all_submissions(db: Session = Depends(get_db), current_user: UserModel =
                 "polygon": r.polygon or []
             },
             "signatureHash": r.signature_hash,
-            "signedPdfUrl": r.signed_pdf_url
+            "signedPdfUrl": r.signed_pdf_url,
+            "kabidSignature": r.kabid_signature
         }
         for r in results
     ]
@@ -605,6 +606,7 @@ def get_submission_by_id(id_permohonan: str, db: Session = Depends(get_db), curr
         ],
         "signatureHash": r.signature_hash,
         "signedPdfUrl": r.signed_pdf_url,
+        "kabidSignature": r.kabid_signature,
         "history": (lambda: [
             {
                 "date": log.created_at.strftime("%Y-%m-%d %H:%M:%S"),

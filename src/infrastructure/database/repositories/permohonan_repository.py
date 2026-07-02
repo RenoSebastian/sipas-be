@@ -362,6 +362,7 @@ class PermohonanRepository(PermohonanRepositoryPort):
             existing_model.user_id = permohonan.user_id
             existing_model.signature_hash = permohonan.signature_hash
             existing_model.signed_pdf_url = permohonan.signed_pdf_url
+            existing_model.kabid_signature = permohonan.kabid_signature
 
             # Save polygon geom if updated
             if permohonan.polygon:
