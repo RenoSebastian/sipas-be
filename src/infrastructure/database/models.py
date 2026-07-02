@@ -135,12 +135,7 @@ class PermohonanModel(Base):
     consultant_company_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     consultant_pic_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
-    # ─── TAHAP 9: DOKUMENTASI FOTO JURU UKUR (PHOTOS) ─────────────────────────
-    photo_north: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
-    photo_south: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
-    photo_east: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
-    photo_west: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
-    photo_access: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+
 
     # ─── TAHAP 10: PERNYATAAN KOMITMEN HUKUM (STATEMENT) ──────────────────────
     statement_agreed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
@@ -150,9 +145,13 @@ class PermohonanModel(Base):
     signed_pdf_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     kabid_signature: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
-    # ─── RELASI SPASIAL & ADMINISTRATIF ───────────────────────────────────────
     kompensasi: Mapped[List["LahanKompensasiModel"]] = relationship(
         "LahanKompensasiModel", 
+        back_populates="permohonan", 
+        cascade="all, delete-orphan"
+    )
+    files: Mapped[List["PermohonanFileModel"]] = relationship(
+        "PermohonanFileModel", 
         back_populates="permohonan", 
         cascade="all, delete-orphan"
     )
@@ -206,3 +205,18 @@ class SitePlanGeometryModel(Base):
         Geometry(geometry_type='POLYGON', srid=4326, spatial_index=True), 
         nullable=False
     )
+
+
+class PermohonanFileModel(Base):
+    __tablename__ = "permohonan_files"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id_permohonan: Mapped[str] = mapped_column(String(50), ForeignKey("permohonan.id_permohonan", ondelete="CASCADE"), nullable=False)
+    file_type: Mapped[str] = mapped_column(String(50), nullable=False) # 'document' or 'photo'
+    file_key: Mapped[str] = mapped_column(String(100), nullable=False) # e.g. 'legalDoc', 'photoNorth'
+    file_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    file_path: Mapped[str] = mapped_column(String(500), nullable=False)
+    file_url: Mapped[str] = mapped_column(String(500), nullable=False)
+    uploaded_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+
+    permohonan: Mapped["PermohonanModel"] = relationship("PermohonanModel", back_populates="files")

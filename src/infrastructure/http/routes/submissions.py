@@ -7,20 +7,23 @@ Peran: Menyediakan REST endpoints bertingkat untuk mengelola pendaftaran
 ============================================================================
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, UploadFile, File, Request
 from pydantic import BaseModel, Field, model_validator, SecretStr
 from sqlalchemy.orm import Session
 from typing import Tuple, Optional, Any, cast
 from datetime import datetime, date, timezone
 import logging
 import random
+import shutil
+import uuid
+import os
 
 # Adapter Koneksi & Repositori Database
 from src.infrastructure.database.connection import get_db, get_bpn_port, get_oss_port, get_simtaru_port
 from src.use_cases.ports.integration_ports import BpnValidationPort, OssSyncPort, SimtaruSyncPort
 from src.infrastructure.database.repositories.permohonan_repository import PermohonanRepository
 from src.infrastructure.database.repositories.audit_trail_repository import AuditTrailRepository
-from src.infrastructure.database.models import PermohonanModel, AuditTrailModel
+from src.infrastructure.database.models import PermohonanModel, AuditTrailModel, PermohonanFileModel
 
 # Adapter Eksternal Spasial, Geoserver, dan BSrE
 from src.infrastructure.gis.cad_parser import CadParser
@@ -132,6 +135,19 @@ class StatementDto(BaseModel):
 
 # ─── SECTION 2: NESTED ROOT REQUEST DTO ───────────────────────────────────
 
+class DocumentDto(BaseModel):
+    legalDoc: Optional[str] = Field(default=None)
+    technicalDoc: Optional[str] = Field(default=None)
+    supportDoc: Optional[str] = Field(default=None)
+    supportDoc2: Optional[str] = Field(default=None)
+
+class PhotoDto(BaseModel):
+    photoNorth: Optional[str] = Field(default=None)
+    photoSouth: Optional[str] = Field(default=None)
+    photoEast: Optional[str] = Field(default=None)
+    photoWest: Optional[str] = Field(default=None)
+    photoAccess: Optional[str] = Field(default=None)
+
 class SubmitRequest(BaseModel):
     """
     Struktur data request bertingkat (nested) yang identik 100% dengan
@@ -147,6 +163,8 @@ class SubmitRequest(BaseModel):
     technical: TechnicalDetailsDto
     consultant: ConsultantDto
     statement: StatementDto
+    document: Optional[DocumentDto] = Field(default=None)
+    photo: Optional[PhotoDto] = Field(default=None)
 
     @model_validator(mode='before')
     @classmethod
@@ -155,7 +173,7 @@ class SubmitRequest(BaseModel):
             is_draft = data.get("is_draft", False)
             if is_draft:
                 # Ensure all nested DTOs are at least empty dictionaries if missing or None
-                for field in ["applicant", "submission", "location", "coordinate", "spatial", "technical", "consultant", "statement"]:
+                for field in ["applicant", "submission", "location", "coordinate", "spatial", "technical", "consultant", "statement", "document", "photo"]:
                     if field not in data or data[field] is None:
                         data[field] = {}
         return data
@@ -182,6 +200,37 @@ class VerifyRequest(BaseModel):
 # ─── SECTION 3: HTTP ROUTE HANDLERS ───────────────────────────────────────
 
 
+@router.post("/upload", status_code=status.HTTP_201_CREATED)
+async def upload_file(request: Request, file: UploadFile = File(...)):
+    """Mengunggah berkas lampiran secara lokal ke storage backend [uploads/permohonan]"""
+    try:
+        upload_dir = "uploads/permohonan"
+        os.makedirs(upload_dir, exist_ok=True)
+        
+        # Generate unique filename using uuid
+        file_ext = os.path.splitext(file.filename)[1]
+        unique_filename = f"{uuid.uuid4().hex}{file_ext}"
+        file_path = os.path.join(upload_dir, unique_filename)
+        
+        # Save file to disk
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+            
+        base_url = str(request.base_url).rstrip("/")
+        file_url = f"{base_url}/uploads/permohonan/{unique_filename}"
+        
+        return {
+            "file_name": file.filename,
+            "file_path": file_path,
+            "file_url": file_url
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Gagal mengunggah berkas: {str(e)}"
+        )
+
+
 @router.post("/submit", status_code=status.HTTP_201_CREATED)
 def submit_permohonan(
     req: SubmitRequest, 
@@ -203,11 +252,11 @@ def submit_permohonan(
             oss_port=oss_port,
             simtaru_port=simtaru_port
         )
-
+ 
         # Gunakan ID yang dikirim oleh Frontend atau generasikan baru jika kosong
         id_permohonan = req.id_permohonan or f"sub-{int(datetime.now(timezone.utc).timestamp())}"
         submission_no = f"SIPAS-2026-0{random.randint(100, 999)}"
-
+ 
         # Panggil Use Case dengan DTO terstruktur 10-tahap lengkap
         dto = SubmitPermohonanInputDto(
             id_permohonan=id_permohonan,
@@ -290,6 +339,19 @@ def submit_permohonan(
             consultant_name=req.consultant.consultantName,
             consultant_company_name=req.consultant.companyName,
             consultant_pic_name=req.consultant.picName,
+            
+            # Tahap 8
+            document_legal_doc=req.document.legalDoc if req.document else None,
+            document_technical_doc=req.document.technicalDoc if req.document else None,
+            document_support_doc=req.document.supportDoc if req.document else None,
+            document_support_doc2=req.document.supportDoc2 if req.document else None,
+            
+            # Tahap 9
+            photo_north=req.photo.photoNorth if req.photo else None,
+            photo_south=req.photo.photoSouth if req.photo else None,
+            photo_east=req.photo.photoEast if req.photo else None,
+            photo_west=req.photo.photoWest if req.photo else None,
+            photo_access=req.photo.photoAccess if req.photo else None,
             
             # Tahap 10
             statement_agreed=req.statement.agreed,
@@ -516,6 +578,34 @@ def get_submission_by_id(id_permohonan: str, db: Session = Depends(get_db), curr
     if not r:
         raise HTTPException(status_code=404, detail="Permohonan tidak ditemukan.")
     
+    db_files = db.query(PermohonanFileModel).filter(PermohonanFileModel.id_permohonan == id_permohonan).all()
+    docs_list = []
+    photos_dict = {
+        "photoNorth": None,
+        "photoSouth": None,
+        "photoEast": None,
+        "photoWest": None,
+        "photoAccess": None
+    }
+    docs_dict = {
+        "legalDoc": None,
+        "technicalDoc": None,
+        "supportDoc": None,
+        "supportDoc2": None
+    }
+    for f in db_files:
+        if f.file_type == "document":
+            docs_list.append({
+                "id": f"doc-{r.id_permohonan}-{f.id}",
+                "name": f.file_name,
+                "type": f.file_name.split('.')[-1] if '.' in f.file_name else 'pdf',
+                "url": f.file_url,
+                "uploadedAt": f.uploaded_at.isoformat()
+            })
+            docs_dict[f.file_key] = f.file_url
+        elif f.file_type == "photo":
+            photos_dict[f.file_key] = f.file_url
+
     # Map to frontend structure
     return {
         "id": r.id_permohonan,
@@ -600,10 +690,13 @@ def get_submission_by_id(id_permohonan: str, db: Session = Depends(get_db), curr
             "address": r.location_full_address,
             "polygon": r.polygon or []
         },
-        "documents": [
+        "documents": docs_list or [
             { "id": f"doc-{r.id_permohonan}-1", "name": "Surat Permohonan.pdf", "type": "pdf", "url": "#", "uploadedAt": r.submission_date.isoformat() },
             { "id": f"doc-{r.id_permohonan}-2", "name": "Sertifikat Tanah Hak Milik.pdf", "type": "pdf", "url": "#", "uploadedAt": r.submission_date.isoformat() }
         ],
+        "document": docs_dict,
+        "photo": photos_dict,
+        "photos": photos_dict,
         "signatureHash": r.signature_hash,
         "signedPdfUrl": r.signed_pdf_url,
         "kabidSignature": r.kabid_signature,

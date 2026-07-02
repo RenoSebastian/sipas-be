@@ -12,6 +12,7 @@ from abc import ABC, abstractmethod
 from datetime import date
 from typing import Optional, List, Any
 from dataclasses import dataclass
+import os
 
 from src.domain.entities.permohonan import Permohonan, SubmissionStatus
 
@@ -20,6 +21,10 @@ from src.domain.entities.permohonan import Permohonan, SubmissionStatus
 class PermohonanRepositoryPort(ABC):
     @abstractmethod
     def save(self, permohonan: Permohonan, commit: bool = True) -> Permohonan:
+        pass
+
+    @abstractmethod
+    def save_files(self, id_permohonan: str, files: List[dict]) -> None:
         pass
 
     @abstractmethod
@@ -157,6 +162,19 @@ class SubmitPermohonanInputDto:
     user_id: Optional[int] = None
     is_draft: bool = False
 
+    # Tahap 8 (Lampiran Berkas)
+    document_legal_doc: Optional[str] = None
+    document_technical_doc: Optional[str] = None
+    document_support_doc: Optional[str] = None
+    document_support_doc2: Optional[str] = None
+
+    # Tahap 9 (Foto-foto)
+    photo_north: Optional[str] = None
+    photo_south: Optional[str] = None
+    photo_east: Optional[str] = None
+    photo_west: Optional[str] = None
+    photo_access: Optional[str] = None
+
 # ─── SECTION: USE CASE INTERACTOR ─────────────────────────────────────────
 
 from src.use_cases.ports.integration_ports import BpnValidationPort, OssSyncPort, SimtaruSyncPort
@@ -292,6 +310,85 @@ class SubmitPermohonanUseCase:
 
         # 3. Simpan entitas domain ke database menggunakan Port Repositori [sipas-fe.txt]
         saved_permohonan = self.permohonan_repo.save(permohonan)
+
+        # 3b. Simpan berkas lampiran & foto ke tabel relasional permohonan_files
+        files_to_save = []
+        if input_dto.document_legal_doc:
+            files_to_save.append({
+                "file_type": "document",
+                "file_key": "legalDoc",
+                "file_name": os.path.basename(input_dto.document_legal_doc),
+                "file_path": input_dto.document_legal_doc,
+                "file_url": input_dto.document_legal_doc
+            })
+        if input_dto.document_technical_doc:
+            files_to_save.append({
+                "file_type": "document",
+                "file_key": "technicalDoc",
+                "file_name": os.path.basename(input_dto.document_technical_doc),
+                "file_path": input_dto.document_technical_doc,
+                "file_url": input_dto.document_technical_doc
+            })
+        if input_dto.document_support_doc:
+            files_to_save.append({
+                "file_type": "document",
+                "file_key": "supportDoc",
+                "file_name": os.path.basename(input_dto.document_support_doc),
+                "file_path": input_dto.document_support_doc,
+                "file_url": input_dto.document_support_doc
+            })
+        if input_dto.document_support_doc2:
+            files_to_save.append({
+                "file_type": "document",
+                "file_key": "supportDoc2",
+                "file_name": os.path.basename(input_dto.document_support_doc2),
+                "file_path": input_dto.document_support_doc2,
+                "file_url": input_dto.document_support_doc2
+            })
+        
+        # Photos
+        if input_dto.photo_north:
+            files_to_save.append({
+                "file_type": "photo",
+                "file_key": "photoNorth",
+                "file_name": os.path.basename(input_dto.photo_north),
+                "file_path": input_dto.photo_north,
+                "file_url": input_dto.photo_north
+            })
+        if input_dto.photo_south:
+            files_to_save.append({
+                "file_type": "photo",
+                "file_key": "photoSouth",
+                "file_name": os.path.basename(input_dto.photo_south),
+                "file_path": input_dto.photo_south,
+                "file_url": input_dto.photo_south
+            })
+        if input_dto.photo_east:
+            files_to_save.append({
+                "file_type": "photo",
+                "file_key": "photoEast",
+                "file_name": os.path.basename(input_dto.photo_east),
+                "file_path": input_dto.photo_east,
+                "file_url": input_dto.photo_east
+            })
+        if input_dto.photo_west:
+            files_to_save.append({
+                "file_type": "photo",
+                "file_key": "photoWest",
+                "file_name": os.path.basename(input_dto.photo_west),
+                "file_path": input_dto.photo_west,
+                "file_url": input_dto.photo_west
+            })
+        if input_dto.photo_access:
+            files_to_save.append({
+                "file_type": "photo",
+                "file_key": "photoAccess",
+                "file_name": os.path.basename(input_dto.photo_access),
+                "file_path": input_dto.photo_access,
+                "file_url": input_dto.photo_access
+            })
+
+        self.permohonan_repo.save_files(saved_permohonan.id_permohonan, files_to_save)
 
         # 4. Catat jejak audit transaksional untuk jaminan hukum (Audit Trail) [Bogor 7]
         self.audit_trail_repo.log_action(

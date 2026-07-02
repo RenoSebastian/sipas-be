@@ -26,7 +26,8 @@ from src.infrastructure.database.models import (
     PermohonanModel,
     LahanKompensasiModel,
     AuditTrailModel,
-    SitePlanGeometryModel
+    SitePlanGeometryModel,
+    PermohonanFileModel
 )
 
 def clear_existing_data(db) -> None:
@@ -36,6 +37,7 @@ def clear_existing_data(db) -> None:
         db.query(AuditTrailModel).delete()
         db.query(LahanKompensasiModel).delete()
         db.query(SitePlanGeometryModel).delete()
+        db.query(PermohonanFileModel).delete()
         db.query(PermohonanModel).delete()
         db.query(UserModel).delete()  # Bersihkan tabel user lama
         db.commit()
@@ -44,6 +46,36 @@ def clear_existing_data(db) -> None:
         db.rollback()
         print(f"[SEEDER_ERROR] Gagal membersihkan database: {str(e)}")
         sys.exit(1)
+
+def add_mock_files_for_permohonan(db, id_permohonan: str, photos_dict: dict) -> None:
+    # Add mock documents
+    db.add(PermohonanFileModel(
+        id_permohonan=id_permohonan,
+        file_type="document",
+        file_key="legalDoc",
+        file_name="Surat Permohonan & KTP.pdf",
+        file_path="uploads/permohonan/mock_legalDoc.pdf",
+        file_url="#"
+    ))
+    db.add(PermohonanFileModel(
+        id_permohonan=id_permohonan,
+        file_type="document",
+        file_key="technicalDoc",
+        file_name="Rencana Site Plan.pdf",
+        file_path="uploads/permohonan/mock_technicalDoc.pdf",
+        file_url="#"
+    ))
+    
+    # Add photos
+    for k, url in photos_dict.items():
+        db.add(PermohonanFileModel(
+            id_permohonan=id_permohonan,
+            file_type="photo",
+            file_key=k,
+            file_name=f"{k}.jpg",
+            file_path=f"uploads/permohonan/mock_{k}.jpg",
+            file_url=url
+        ))
 
 def seed_spatial_data() -> None:
     """Menyemai data user dan spasial WGS84 nyata wilayah Kabupaten Bogor."""
@@ -189,14 +221,16 @@ def seed_spatial_data() -> None:
             consultant_name="Ir. Hermawan Pratama",
             consultant_company_name="CV Rencana Semesta",
             consultant_pic_name="Hermawan Pratama",
-            photo_north="https://images.unsplash.com/photo-1590069261209-f8e9b8642343?auto=format&fit=crop&w=400&q=80",
-            photo_south="https://images.unsplash.com/photo-1582407947304-fd86f028f716?auto=format&fit=crop&w=400&q=80",
-            photo_east="https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=400&q=80",
-            photo_west="https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=400&q=80",
-            photo_access="https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=400&q=80",
             statement_agreed=True
         )
         db.add(permohonan_1)
+        add_mock_files_for_permohonan(db, "sub-1", {
+            "photoNorth": "https://images.unsplash.com/photo-1590069261209-f8e9b8642343?auto=format&fit=crop&w=400&q=80",
+            "photoSouth": "https://images.unsplash.com/photo-1582407947304-fd86f028f716?auto=format&fit=crop&w=400&q=80",
+            "photoEast": "https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=400&q=80",
+            "photoWest": "https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=400&q=80",
+            "photoAccess": "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=400&q=80"
+        })
 
         poly_kdb_1 = Polygon([
             (106.8405, -6.4805),
@@ -300,14 +334,16 @@ def seed_spatial_data() -> None:
             consultant_name="Ir. Wahyu Hidayat",
             consultant_company_name="PT Wahyu Konsultan Teknik",
             consultant_pic_name="Wahyu Hidayat",
-            photo_north="https://images.unsplash.com/photo-1590069261209-f8e9b8642343?auto=format&fit=crop&w=400&q=80",
-            photo_south="https://images.unsplash.com/photo-1582407947304-fd86f028f716?auto=format&fit=crop&w=400&q=80",
-            photo_east="https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=400&q=80",
-            photo_west="https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=400&q=80",
-            photo_access="https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=400&q=80",
             statement_agreed=True
         )
         db.add(permohonan_2)
+        add_mock_files_for_permohonan(db, "sub-2", {
+            "photoNorth": "https://images.unsplash.com/photo-1590069261209-f8e9b8642343?auto=format&fit=crop&w=400&q=80",
+            "photoSouth": "https://images.unsplash.com/photo-1582407947304-fd86f028f716?auto=format&fit=crop&w=400&q=80",
+            "photoEast": "https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=400&q=80",
+            "photoWest": "https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=400&q=80",
+            "photoAccess": "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=400&q=80"
+        })
 
         poly_kdb_2 = Polygon([
             (106.8005, -6.4955),
@@ -423,14 +459,16 @@ def seed_spatial_data() -> None:
             consultant_name="Ir. Hermawan Pratama",
             consultant_company_name="CV Rencana Semesta",
             consultant_pic_name="Hermawan Pratama",
-            photo_north="https://images.unsplash.com/photo-1590069261209-f8e9b8642343?auto=format&fit=crop&w=400&q=80",
-            photo_south="https://images.unsplash.com/photo-1582407947304-fd86f028f716?auto=format&fit=crop&w=400&q=80",
-            photo_east="https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=400&q=80",
-            photo_west="https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=400&q=80",
-            photo_access="https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=400&q=80",
             statement_agreed=True
         )
         db.add(permohonan_3)
+        add_mock_files_for_permohonan(db, "sub-3", {
+            "photoNorth": "https://images.unsplash.com/photo-1590069261209-f8e9b8642343?auto=format&fit=crop&w=400&q=80",
+            "photoSouth": "https://images.unsplash.com/photo-1582407947304-fd86f028f716?auto=format&fit=crop&w=400&q=80",
+            "photoEast": "https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=400&q=80",
+            "photoWest": "https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=400&q=80",
+            "photoAccess": "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=400&q=80"
+        })
 
         poly_kdb_3 = Polygon([
             (106.8710, -6.5610),
@@ -558,17 +596,19 @@ def seed_spatial_data() -> None:
             consultant_name="Ir. Wahyu Hidayat",
             consultant_company_name="PT Wahyu Konsultan Teknik",
             consultant_pic_name="Wahyu Hidayat",
-            photo_north="https://images.unsplash.com/photo-1590069261209-f8e9b8642343?auto=format&fit=crop&w=400&q=80",
-            photo_south="https://images.unsplash.com/photo-1582407947304-fd86f028f716?auto=format&fit=crop&w=400&q=80",
-            photo_east="https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=400&q=80",
-            photo_west="https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=400&q=80",
-            photo_access="https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=400&q=80",
             statement_agreed=True,
             signature_hash="sha256:7b952f4c9c1b48b52f6f1947b19a3b90875638c039a7bb2e80556f8f17e7ab43",
             signed_pdf_url="/api/v1/submissions/sub-4/download",
             kabid_signature="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGQAAAAyCAYAAACq594cAAAABmJLR0QA/wD/AP+gvaeTAAAAcUlEQVR42u3SQQ0AIBDAsOH8OUcRDyagdyfAramS5OsB2GhkJCgJCQpKQlASEhSUhAQFJSFBCUkIUFISFJSEBCUkICFBCUkIUFISFJSEBCUkICFBCUkIUFISFJSEBCUkICFBCUkIUFISFJSEBCUkICFBCUlIUFISFJSEBAUlIUEJCUZ3o2Tf566ZAAAAAElFTkSuQmCC"
         )
         db.add(permohonan_4)
+        add_mock_files_for_permohonan(db, "sub-4", {
+            "photoNorth": "https://images.unsplash.com/photo-1590069261209-f8e9b8642343?auto=format&fit=crop&w=400&q=80",
+            "photoSouth": "https://images.unsplash.com/photo-1582407947304-fd86f028f716?auto=format&fit=crop&w=400&q=80",
+            "photoEast": "https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=400&q=80",
+            "photoWest": "https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=400&q=80",
+            "photoAccess": "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=400&q=80"
+        })
 
         poly_kdb_4 = Polygon([
             (106.9605, -6.3805),
@@ -710,14 +750,16 @@ def seed_spatial_data() -> None:
             consultant_name="Ir. Wahyu Hidayat",
             consultant_company_name="PT Wahyu Konsultan Teknik",
             consultant_pic_name="Wahyu Hidayat",
-            photo_north="https://images.unsplash.com/photo-1590069261209-f8e9b8642343?auto=format&fit=crop&w=400&q=80",
-            photo_south="https://images.unsplash.com/photo-1582407947304-fd86f028f716?auto=format&fit=crop&w=400&q=80",
-            photo_east="https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=400&q=80",
-            photo_west="https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=400&q=80",
-            photo_access="https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=400&q=80",
             statement_agreed=True
         )
         db.add(permohonan_2)
+        add_mock_files_for_permohonan(db, "sub-5", {
+            "photoNorth": "https://images.unsplash.com/photo-1590069261209-f8e9b8642343?auto=format&fit=crop&w=400&q=80",
+            "photoSouth": "https://images.unsplash.com/photo-1582407947304-fd86f028f716?auto=format&fit=crop&w=400&q=80",
+            "photoEast": "https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=400&q=80",
+            "photoWest": "https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=400&q=80",
+            "photoAccess": "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=400&q=80"
+        })
 
         poly_kdb_5 = Polygon([
             (106.9005, -6.4205),

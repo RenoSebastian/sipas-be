@@ -114,12 +114,7 @@ class Permohonan:
         consultant_company_name: Optional[str] = None,
         consultant_pic_name: Optional[str] = None,
         
-        # ─── TAHAP 9: DOKUMENTASI FOTO JURU UKUR (PHOTOS) ─────────────────────────
-        photo_north: Optional[str] = None,
-        photo_south: Optional[str] = None,
-        photo_east: Optional[str] = None,
-        photo_west: Optional[str] = None,
-        photo_access: Optional[str] = None,
+
         
         # ─── TAHAP 10: PERNYATAAN KOMITMEN HUKUM (STATEMENT) ──────────────────────
         statement_agreed: bool = False,
@@ -211,11 +206,7 @@ class Permohonan:
         self.consultant_company_name = consultant_company_name
         self.consultant_pic_name = consultant_pic_name
         
-        self.photo_north = photo_north
-        self.photo_south = photo_south
-        self.photo_east = photo_east
-        self.photo_west = photo_west
-        self.photo_access = photo_access
+
         
         self.statement_agreed = statement_agreed
         self.polygon = polygon

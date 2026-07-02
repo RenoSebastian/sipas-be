@@ -121,12 +121,7 @@ class PermohonanRepository(PermohonanRepositoryPort):
             consultant_company_name=str(model.consultant_company_name) if model.consultant_company_name else None,
             consultant_pic_name=str(model.consultant_pic_name) if model.consultant_pic_name else None,
             
-            # Tahap 9
-            photo_north=str(model.photo_north) if model.photo_north else None,
-            photo_south=str(model.photo_south) if model.photo_south else None,
-            photo_east=str(model.photo_east) if model.photo_east else None,
-            photo_west=str(model.photo_west) if model.photo_west else None,
-            photo_access=str(model.photo_access) if model.photo_access else None,
+
             
             # Tahap 10
             statement_agreed=bool(model.statement_agreed),
@@ -239,12 +234,7 @@ class PermohonanRepository(PermohonanRepositoryPort):
             consultant_company_name=entity.consultant_company_name,
             consultant_pic_name=entity.consultant_pic_name,
             
-            # Tahap 9
-            photo_north=entity.photo_north,
-            photo_south=entity.photo_south,
-            photo_east=entity.photo_east,
-            photo_west=entity.photo_west,
-            photo_access=entity.photo_access,
+
             
             # Tahap 10
             statement_agreed=entity.statement_agreed,
@@ -350,12 +340,7 @@ class PermohonanRepository(PermohonanRepositoryPort):
             existing_model.consultant_company_name = permohonan.consultant_company_name
             existing_model.consultant_pic_name = permohonan.consultant_pic_name
             
-            # Tahap 9
-            existing_model.photo_north = permohonan.photo_north
-            existing_model.photo_south = permohonan.photo_south
-            existing_model.photo_east = permohonan.photo_east
-            existing_model.photo_west = permohonan.photo_west
-            existing_model.photo_access = permohonan.photo_access
+
             
             # Tahap 10
             existing_model.statement_agreed = permohonan.statement_agreed
@@ -465,6 +450,23 @@ class PermohonanRepository(PermohonanRepositoryPort):
                 bukti_legalitas_url=kompensasi.bukti_legalitas_url
             )
             self.db.add(new_model)
+        self.db.commit()
+
+    def save_files(self, id_permohonan: str, files: List[dict]) -> None:
+        from src.infrastructure.database.models import PermohonanFileModel
+        # 1. Hapus berkas lama
+        self.db.query(PermohonanFileModel).filter(PermohonanFileModel.id_permohonan == id_permohonan).delete()
+        # 2. Tambahkan berkas baru
+        for f in files:
+            new_file = PermohonanFileModel(
+                id_permohonan=id_permohonan,
+                file_type=f["file_type"],
+                file_key=f["file_key"],
+                file_name=f["file_name"],
+                file_path=f["file_path"],
+                file_url=f["file_url"]
+            )
+            self.db.add(new_file)
         self.db.commit()
 
     def commit(self) -> None:
