@@ -283,37 +283,50 @@ class Permohonan:
         Mengontrol mutasi status secara ketat untuk mencegah bypass tahapan
         penilaian legalitas (Aparatur -> Tim Teknis -> KABID -> KADIS) [sipas-fe.txt].
         """
+        # ─── MATRIKS TRANSISI STATUS (STATE MACHINE) ──────────────────────────────
+        # Setiap kunci adalah status SAAT INI; nilai adalah daftar status TARGET yang
+        # diizinkan. Jalur mundur (reversion) internal ditambahkan agar petugas dinas
+        # dapat mengembalikan berkas ke tahapan sebelumnya TANPA memulai ulang SLA
+        # pemohon (hanya DITOLAK yang membekukan SLA — lihat guard di bawah).
         allowed_transitions = {
             SubmissionStatus.DRAFT: [SubmissionStatus.MENUNGGU_VERIFIKASI],
-            
+
             SubmissionStatus.MENUNGGU_VERIFIKASI: [
                 SubmissionStatus.VERIFIKASI_ADMINISTRASI,
                 SubmissionStatus.VERIFIKASI_TEKNIS,
-                SubmissionStatus.DITOLAK
+                SubmissionStatus.DITOLAK,
             ],
-            
+
             SubmissionStatus.VERIFIKASI_ADMINISTRASI: [
-                SubmissionStatus.VERIFIKASI_TEKNIS, 
-                SubmissionStatus.DITOLAK
+                SubmissionStatus.VERIFIKASI_TEKNIS,
+                SubmissionStatus.DITOLAK,
             ],
-            
+
             SubmissionStatus.VERIFIKASI_TEKNIS: [
-                SubmissionStatus.MENUNGGU_PERSETUJUAN, 
-                SubmissionStatus.DITOLAK
+                SubmissionStatus.MENUNGGU_PERSETUJUAN,
+                SubmissionStatus.DITOLAK,
+                # ── JALUR MUNDUR INTERNAL: Tim Teknis → Admin SIPAS ──────────────
+                # Digunakan saat Tim Teknis menemukan masalah administratif klerikal
+                # yang harus diperbaiki oleh Admin sebelum audit spasial dilanjutkan.
+                SubmissionStatus.VERIFIKASI_ADMINISTRASI,
             ],
-            
+
             SubmissionStatus.MENUNGGU_PERSETUJUAN: [
-                SubmissionStatus.PROSES_TTE, 
-                SubmissionStatus.DITOLAK
+                SubmissionStatus.PROSES_TTE,
+                SubmissionStatus.DITOLAK,
+                # ── JALUR MUNDUR INTERNAL: Kabid → Tim Teknis ────────────────────
+                # Digunakan saat Kepala Bidang menemukan catatan teknis minor yang
+                # perlu diklarifikasi ulang oleh Tim Teknis sebelum TTE diterbitkan.
+                SubmissionStatus.VERIFIKASI_TEKNIS,
             ],
-            
+
             SubmissionStatus.PROSES_TTE: [
                 SubmissionStatus.DISETUJUI,
-                SubmissionStatus.MENUNGGU_PERSETUJUAN
+                SubmissionStatus.MENUNGGU_PERSETUJUAN,
             ],
-            
-            SubmissionStatus.DISETUJUI: [], # State akhir, tidak bisa bermutasi lagi
-            SubmissionStatus.DITOLAK: [SubmissionStatus.MENUNGGU_VERIFIKASI] # Dapat diajukan kembali
+
+            SubmissionStatus.DISETUJUI: [],  # State terminal — tidak dapat bermutasi lagi
+            SubmissionStatus.DITOLAK: [SubmissionStatus.MENUNGGU_VERIFIKASI],  # Dapat diajukan ulang oleh Pemohon
         }
 
         if new_status not in allowed_transitions[self.status]:

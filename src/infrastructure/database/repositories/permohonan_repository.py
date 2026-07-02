@@ -465,3 +465,11 @@ class PermohonanRepository(PermohonanRepositoryPort):
             )
             self.db.add(new_model)
         self.db.commit()
+
+    def commit(self) -> None:
+        """Commit transaksi database yang sedang aktif secara eksplisit."""
+        self.db.commit()
+
+    def rollback(self) -> None:
+        """Rollback transaksi database yang sedang aktif secara atomik."""
+        self.db.rollback()

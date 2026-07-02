@@ -38,6 +38,16 @@ class PermohonanRepositoryPort(ABC):
     def save_kompensasi(self, kompensasi: Any) -> None:
         pass
 
+    @abstractmethod
+    def commit(self) -> None:
+        """Commit transaksi database yang sedang aktif secara eksplisit."""
+        pass
+
+    @abstractmethod
+    def rollback(self) -> None:
+        """Rollback transaksi database yang sedang aktif secara atomik."""
+        pass
+
 
 class AuditTrailRepositoryPort(ABC):
     @abstractmethod

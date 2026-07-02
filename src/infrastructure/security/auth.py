@@ -27,7 +27,16 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 60
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token")
 
 def requires_roles(allowed_roles: List[str]):
-    """FastAPI dependency to enforce Role-Based Access Control (RBAC) via JWT claims."""
+    """
+    FastAPI dependency to enforce strict Role-Based Access Control (RBAC) via JWT claims.
+
+    KEBIJAKAN SOD (SEGREGATION OF DUTIES):
+        Fungsi ini melakukan pemeriksaan peran secara MURNI berdasarkan daftar `allowed_roles`
+        yang diberikan pada setiap endpoint. TIDAK ADA hardcoded global override yang
+        mengizinkan SUPER_ADMIN untuk melewati pemeriksaan peran secara implisit.
+        Setiap akses ke endpoint harus melewati validasi peran yang ketat sesuai dengan
+        prinsip Segregation of Duties (SoD) dan Zero Trust Architecture.
+    """
     def dependency(token: str = Depends(oauth2_scheme)) -> Dict[str, Any]:
         payload = decode_access_token(token)
         if payload is None:
@@ -37,6 +46,8 @@ def requires_roles(allowed_roles: List[str]):
                 headers={"WWW-Authenticate": "Bearer"},
             )
         role = payload.get("role")
+        # Pemeriksaan peran murni — tidak ada special-case SUPER_ADMIN di sini.
+        # Akses harus secara eksplisit didaftarkan pada setiap endpoint.
         if not role or role not in allowed_roles:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,

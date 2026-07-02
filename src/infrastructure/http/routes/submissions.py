@@ -174,7 +174,7 @@ class VerifyRequest(BaseModel):
     role: Optional[str] = Field(default=None, pattern="^(KABID_PUPR|TIM_TEKNIS|ADMIN)$")
     nip: Optional[str] = Field(default=None, examples=["198402122010011003"])
     passphrase: Optional[SecretStr] = Field(default=None, min_length=6, json_schema_extra={"writeOnly": True}, examples=["P@ssw0rdPejabat!"])
-    action_type: str = Field(pattern="^(APPROVE|REJECT)$")
+    action_type: str = Field(pattern="^(APPROVE|REJECT|REVERT_TO_TECHNICAL|REVERT_TO_ADMINISTRATIVE)$")
     notes: str = Field(...)
     is_spatially_compliant: bool = Field(default=True)
     signature_base64: Optional[str] = Field(default=None, description="Base64 image data of drawn signature")
