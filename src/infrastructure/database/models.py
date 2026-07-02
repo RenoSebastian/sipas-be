@@ -148,6 +148,7 @@ class PermohonanModel(Base):
     # Tambahkan kolom baru untuk menyimpan bukti hukum TTE
     signature_hash: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     signed_pdf_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    kabid_signature: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     # ─── RELASI SPASIAL & ADMINISTRATIF ───────────────────────────────────────
     kompensasi: Mapped[List["LahanKompensasiModel"]] = relationship(

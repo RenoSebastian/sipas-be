@@ -126,7 +126,8 @@ class Permohonan:
         polygon: Optional[list] = None,
         user_id: Optional[int] = None,
         signature_hash: Optional[str] = None,
-        signed_pdf_url: Optional[str] = None
+        signed_pdf_url: Optional[str] = None,
+        kabid_signature: Optional[str] = None
     ):
         self.id_permohonan = id_permohonan
         self.submission_no = submission_no
@@ -221,6 +222,7 @@ class Permohonan:
         self.user_id = user_id
         self.signature_hash = signature_hash
         self.signed_pdf_url = signed_pdf_url
+        self.kabid_signature = kabid_signature
 
     # ─── INVARIANT 1: KLASIFIKASI DOKUMEN OTOMATIS [Bogor 4, 5, 8] ────────────────
     @property

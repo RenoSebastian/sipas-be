@@ -133,7 +133,8 @@ class PermohonanRepository(PermohonanRepositoryPort):
             polygon=polygon_coords,
             user_id=int(model.user_id) if model.user_id is not None else None,
             signature_hash=model.signature_hash,
-            signed_pdf_url=model.signed_pdf_url
+            signed_pdf_url=model.signed_pdf_url,
+            kabid_signature=model.kabid_signature
         )
 
     def _to_model(self, entity: Permohonan) -> PermohonanModel:
@@ -249,7 +250,8 @@ class PermohonanRepository(PermohonanRepositoryPort):
             statement_agreed=entity.statement_agreed,
             user_id=entity.user_id,
             signature_hash=entity.signature_hash,
-            signed_pdf_url=entity.signed_pdf_url
+            signed_pdf_url=entity.signed_pdf_url,
+            kabid_signature=entity.kabid_signature
         )
 
     def find_by_id(self, id_permohonan: str) -> Optional[Permohonan]:

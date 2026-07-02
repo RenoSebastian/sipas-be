@@ -54,6 +54,7 @@ class VerifySubmissionInputDto:
     action_type: str                # 'APPROVE' (Setujui) atau 'REJECT' (Tolak)
     notes: str                      # Justifikasi ulasan/revisi
     is_spatially_compliant: bool   # Status kelaikan spasial hasil uji Turf.js/petugas lapangan
+    signature_base64: Optional[str] = None
 
 # ─── SECTION: USE CASE INTERACTOR ─────────────────────────────────────────
 
@@ -219,6 +220,7 @@ class VerifySubmissionUseCase:
                 p = self.permohonan_repo.find_by_id(input_dto.id_permohonan)
                 signed_url = f"/api/v1/submissions/{p.id_permohonan}/download"
                 p.attach_signature(crypto_hash, signed_url)
+                p.kabid_signature = input_dto.signature_base64
                 
                 self.permohonan_repo.save(p, commit=False)
                 self.audit_trail_repo.log_action(

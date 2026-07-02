@@ -177,6 +177,7 @@ class VerifyRequest(BaseModel):
     action_type: str = Field(pattern="^(APPROVE|REJECT)$")
     notes: str = Field(...)
     is_spatially_compliant: bool = Field(default=True)
+    signature_base64: Optional[str] = Field(default=None, description="Base64 image data of drawn signature")
 
 # ─── SECTION 3: HTTP ROUTE HANDLERS ───────────────────────────────────────
 
@@ -398,7 +399,8 @@ async def verify_submission(
             passphrase=req.passphrase.get_secret_value() if req.passphrase else None,
             action_type=req.action_type,
             notes=req.notes,
-            is_spatially_compliant=req.is_spatially_compliant
+            is_spatially_compliant=req.is_spatially_compliant,
+            signature_base64=req.signature_base64
         )
 
         result = await use_case.execute(dto)
