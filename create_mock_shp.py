@@ -13,23 +13,29 @@ def main():
     os.makedirs(temp_dir, exist_ok=True)
     
     try:
-        # Define mock polygon coordinates in WGS84 (Lng, Lat) for Kabupaten Bogor
+        # Define mock polygon coordinates in WGS84 (Lng, Lat) for Kabupaten Bogor (irregular surveyed parcels)
         polygons = [
-            # Lahan 1 (Grand Bogor Residence area)
+            # Lahan 1 (Bojong Gede area - sub-1)
             Polygon([
-                (106.8160, -6.5945),
-                (106.8175, -6.5945),
-                (106.8175, -6.5960),
-                (106.8160, -6.5960),
-                (106.8160, -6.5945)
+                (106.84000, -6.48000),
+                (106.84300, -6.48020),
+                (106.84280, -6.48150),
+                (106.84320, -6.48280),
+                (106.84150, -6.48310),
+                (106.84010, -6.48250),
+                (106.84020, -6.48120),
+                (106.84000, -6.48000)
             ]),
-            # Lahan 2 (Batu Tulis area)
+            # Lahan 2 (Gunung Putri area - sub-5)
             Polygon([
-                (106.8105, -6.6205),
-                (106.8120, -6.6205),
-                (106.8120, -6.6220),
-                (106.8105, -6.6220),
-                (106.8105, -6.6205)
+                (106.90000, -6.42000),
+                (106.90150, -6.42010),
+                (106.90140, -6.42080),
+                (106.90160, -6.42140),
+                (106.90080, -6.42160),
+                (106.90010, -6.42120),
+                (106.90020, -6.42060),
+                (106.90000, -6.42000)
             ])
         ]
         
@@ -37,8 +43,8 @@ def main():
         gdf = gpd.GeoDataFrame(
             {
                 "id": ["sub-1", "sub-5"],
-                "name": ["Grand Bogor Residence", "Batu Tulis Residence"],
-                "area_m2": [25000.0, 15000.0]
+                "name": ["Grand Bogor Residence", "Gunung Putri Commercial Hub"],
+                "area_m2": [25000.0, 12000.0]
             },
             geometry=polygons,
             crs="EPSG:4326"
