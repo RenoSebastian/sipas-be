@@ -210,8 +210,8 @@ class VerifySubmissionUseCase:
                 audit_notes = input_dto.notes
 
                 if status_awal == SubmissionStatus.MENUNGGU_VERIFIKASI:
-                    status_akhir = SubmissionStatus.VERIFIKASI_ADMINISTRASI
-                    p.transition_status(SubmissionStatus.VERIFIKASI_ADMINISTRASI)
+                    status_akhir = SubmissionStatus.VERIFIKASI_TEKNIS
+                    p.transition_status(SubmissionStatus.VERIFIKASI_TEKNIS)
                     self.permohonan_repo.save(p)
                     log_action_code = "VERIFY_ADMIN_APPROVED"
                     audit_notes = f"Ulasan dokumen kelengkapan administrasi disetujui. Catatan: {input_dto.notes}"
