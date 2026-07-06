@@ -1,16 +1,17 @@
 """
 ============================================================================
-SIPAS HTTP CONTROLLER — Submissions Router [submissions.py]
+SIPAS HTTP CONTROLLER — Submissions Router [submissions.py] (REVISED v3)
 ============================================================================
 Peran: Menyediakan REST endpoints bertingkat untuk mengelola pendaftaran
-       10-tahap terpadu, kalibrasi, dan peninjauan berjenjang [sipas-fe.txt].
+       10-tahap terpadu, kalibrasi, audit spasial manual-sentris, dan
+       peninjauan berjenjang [sipas-fe.txt].
 ============================================================================
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, UploadFile, File, Request
 from pydantic import BaseModel, Field, model_validator, SecretStr
 from sqlalchemy.orm import Session
-from typing import Tuple, Optional, Any, cast
+from typing import Tuple, Optional, Any, List, Dict, cast
 from datetime import datetime, date, timezone
 import logging
 import random
@@ -23,7 +24,14 @@ from src.infrastructure.database.connection import get_db, get_bpn_port, get_oss
 from src.use_cases.ports.integration_ports import BpnValidationPort, OssSyncPort, SimtaruSyncPort
 from src.infrastructure.database.repositories.permohonan_repository import PermohonanRepository
 from src.infrastructure.database.repositories.audit_trail_repository import AuditTrailRepository
-from src.infrastructure.database.models import PermohonanModel, AuditTrailModel, PermohonanFileModel
+from src.infrastructure.database.models import (
+    PermohonanModel, 
+    AuditTrailModel, 
+    PermohonanFileModel, 
+    MasterRDTRModel, 
+    EvaluasiChecklistItemModel, 
+    ChecklistStatus
+)
 
 # Adapter Eksternal Spasial, Geoserver, dan BSrE
 from src.infrastructure.gis.cad_parser import CadParser
@@ -33,14 +41,13 @@ from src.infrastructure.document.mock_generator import MockDocumentGenerator
 # Import Use Cases (Clean Architecture Interactors)
 from src.use_cases.submit_permohonan import SubmitPermohonanUseCase, SubmitPermohonanInputDto
 from src.use_cases.calibrate_cad import CalibrateCadUseCase, CalibrateCadInputDto
-from src.use_cases.verify_submission import VerifySubmissionUseCase, VerifySubmissionInputDto
+from src.use_cases.verify_submission import VerifySubmissionUseCase, VerifySubmissionInputDto, EvaluasiChecklistItemDto as UsecaseEvaluasiChecklistItemDto
 
 # Penanganan Background Task Pengurai CAD
 from src.infrastructure.queue.tasks import execute_cad_parsing_background
 
 # Utilitas Keamanan / Autentikasi JWT
-from fastapi.security import OAuth2PasswordRequestForm
-from src.infrastructure.security.auth import get_current_user, hash_password, verify_password, create_access_token
+from src.infrastructure.security.auth import get_current_user
 from src.infrastructure.database.models import UserModel
 
 logger = logging.getLogger("sipas-be")
@@ -125,6 +132,11 @@ class TechnicalDetailsDto(BaseModel):
     greenBufferArea: Optional[float] = Field(default=None)
     tpsB3Provision: Optional[str] = Field(default=None)
 
+    # ─── BARU: DEKLARASI DETAIL SPASIAL PEMOHON (Proposed) ───
+    applicantBuildingArea: Optional[float] = Field(default=None, examples=[13750.0])
+    applicantGsb: Optional[float] = Field(default=None, examples=[5.0])
+    applicantRthArea: Optional[float] = Field(default=None, examples=[2500.0])
+
 class ConsultantDto(BaseModel):
     consultantName: Optional[str] = Field(default=None, examples=["Ir. Hermawan Pratama"])
     companyName: Optional[str] = Field(default=None, examples=["CV Rencana Semesta"])
@@ -149,10 +161,6 @@ class PhotoDto(BaseModel):
     photoAccess: Optional[str] = Field(default=None)
 
 class SubmitRequest(BaseModel):
-    """
-    Struktur data request bertingkat (nested) yang identik 100% dengan
-    Zod Schema di Frontend untuk mencegah galat parsing 422 di API Gateway.
-    """
     id_permohonan: Optional[str] = Field(default=None, examples=["sub-123456"])
     is_draft: bool = Field(default=False)
     applicant: ApplicantDto
@@ -172,7 +180,6 @@ class SubmitRequest(BaseModel):
         if isinstance(data, dict):
             is_draft = data.get("is_draft", False)
             if is_draft:
-                # Ensure all nested DTOs are at least empty dictionaries if missing or None
                 for field in ["applicant", "submission", "location", "coordinate", "spatial", "technical", "consultant", "statement", "document", "photo"]:
                     if field not in data or data[field] is None:
                         data[field] = {}
@@ -182,10 +189,19 @@ class CalibrateRequest(BaseModel):
     cad_file_path: str = Field(examples=["C:/temp/blueprint.dxf"])
     anchor_cad_1: Tuple[float, float] = Field(examples=[(10.0, 15.0)])
     anchor_cad_2: Tuple[float, float] = Field(examples=[(120.0, 95.0)])
-    anchor_map_1: Tuple[float, float] = Field(examples=[(106.8272, -6.5971)]) # Lng, Lat
+    anchor_map_1: Tuple[float, float] = Field(examples=[(106.8272, -6.5971)])
     anchor_map_2: Tuple[float, float] = Field(examples=[(106.8295, -6.5990)])
     actor_name: Optional[str] = Field(default=None, examples=["Andi Setiawan"])
     role: Optional[str] = Field(default=None, examples=["TIM_TEKNIS"])
+
+# ─── REVISI: DTO UNTUK ARRAY CHECKLIST EVALUASI VERIFIKATOR ───
+
+class EvaluasiChecklistItemDto(BaseModel):
+    aspek_code: str = Field(..., examples=["REQ_KDB"])
+    aspek_label: str = Field(..., examples=["Koefisien Dasar Bangunan (KDB)"])
+    status_kelayakan: str = Field(..., pattern="^(Sesuai|Sesuai Bersyarat|Tidak Sesuai|Pending)$", examples=["Sesuai"])
+    catatan_verifikator: Optional[str] = Field(default=None, examples=["Luas jalan belakang belum terhitung"])
+    attachment_url: Optional[str] = Field(default=None, examples=["/uploads/evaluasi/revisi_kdb.pdf"])
 
 class VerifyRequest(BaseModel):
     actor_name: Optional[str] = Field(default=None, examples=["Dr. Hendra Wijaya"])
@@ -197,8 +213,16 @@ class VerifyRequest(BaseModel):
     is_spatially_compliant: bool = Field(default=True)
     signature_base64: Optional[str] = Field(default=None, description="Base64 image data of drawn signature")
 
-# ─── SECTION 3: HTTP ROUTE HANDLERS ───────────────────────────────────────
+    # ─── REVISI: METRIK HASIL HITUNG MANUAL & KESIMPULAN KKPR AKHIR ───
+    kkpr_verdict: Optional[str] = Field(default=None, pattern="^(Sesuai|Sesuai Bersyarat|Perlu Perbaikan / Revisi|Tidak Sesuai / Ditolak)$")
+    verified_kdb: Optional[float] = None
+    verified_klb: Optional[float] = None
+    verified_kdh: Optional[float] = None
+    verified_gsb: Optional[float] = None
+    verified_rth_area: Optional[float] = None
+    checklist_items: Optional[List[EvaluasiChecklistItemDto]] = None
 
+# ─── SECTION 3: HTTP ROUTE HANDLERS ───────────────────────────────────────
 
 @router.post("/upload", status_code=status.HTTP_201_CREATED)
 async def upload_file(request: Request, file: UploadFile = File(...)):
@@ -207,12 +231,12 @@ async def upload_file(request: Request, file: UploadFile = File(...)):
         upload_dir = "uploads/permohonan"
         os.makedirs(upload_dir, exist_ok=True)
         
-        # Generate unique filename using uuid
-        file_ext = os.path.splitext(file.filename)[1]
+        # Penyelarasan Tipe Data Nama File untuk Membungkus Splitting Extension secara Aman
+        raw_filename = file.filename if file.filename else ""
+        file_ext = os.path.splitext(raw_filename)[1]
         unique_filename = f"{uuid.uuid4().hex}{file_ext}"
         file_path = os.path.join(upload_dir, unique_filename)
         
-        # Save file to disk
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
             
@@ -229,7 +253,6 @@ async def upload_file(request: Request, file: UploadFile = File(...)):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Gagal mengunggah berkas: {str(e)}"
         )
-
 
 @router.post("/submit", status_code=status.HTTP_201_CREATED)
 def submit_permohonan(
@@ -253,11 +276,23 @@ def submit_permohonan(
             simtaru_port=simtaru_port
         )
  
-        # Gunakan ID yang dikirim oleh Frontend atau generasikan baru jika kosong
         id_permohonan = req.id_permohonan or f"sub-{int(datetime.now(timezone.utc).timestamp())}"
         submission_no = f"SIPAS-2026-0{random.randint(100, 999)}"
+
+        # ─── REVISI: SINKRONISASI BATAS ATURAN SEARA OTOMATIS (Master RDTR) ───
+        rdtr = db.query(MasterRDTRModel).filter(
+            MasterRDTRModel.district == req.location.district,
+            MasterRDTRModel.village == req.location.village,
+            MasterRDTRModel.category == req.submission.category
+        ).first()
+
+        # Gunakan baseline Kabupaten Bogor default jika wilayah tidak terpetakan
+        bylaw_max_kdb = rdtr.max_kdb if rdtr else 60.0
+        bylaw_max_klb = rdtr.max_klb if rdtr else 3.5
+        bylaw_min_kdh = rdtr.min_kdh if rdtr else 10.0
+        bylaw_min_gsb = rdtr.min_gsb if rdtr else 5.0
+        bylaw_min_rth_area = rdtr.min_rth_area if rdtr else 1400.0
  
-        # Panggil Use Case dengan DTO terstruktur 10-tahap lengkap
         dto = SubmitPermohonanInputDto(
             id_permohonan=id_permohonan,
             submission_no=submission_no,
@@ -269,6 +304,7 @@ def submit_permohonan(
             
             # Tahap 1
             applicant_type=req.applicant.type,
+            applicant_name=req.applicant.name or req.applicant.directorName, # Resolving mandatory field
             applicant_nik=req.applicant.nik,
             applicant_nib=req.applicant.nib,
             applicant_npwp=req.applicant.npwp,
@@ -357,7 +393,22 @@ def submit_permohonan(
             statement_agreed=req.statement.agreed,
             polygon=req.coordinate.polygon,
             user_id=cast(int, current_user.id),
-            is_draft=req.is_draft
+            is_draft=req.is_draft,
+
+            # ─── REVISI: METRIK PROPOSED PEMOHON & BYLAW KEBUTUHAN ───
+            applicant_land_area=req.location.landArea,
+            applicant_building_area=req.technical.applicantBuildingArea if req.technical else None,
+            applicant_kdb=req.technical.kdb if req.technical else None,
+            applicant_klb=req.technical.klb if req.technical else None,
+            applicant_kdh=req.technical.kdh if req.technical else None,
+            applicant_gsb=req.technical.applicantGsb if req.technical else None,
+            applicant_rth_area=req.technical.applicantRthArea if req.technical else None,
+
+            bylaw_max_kdb=bylaw_max_kdb,
+            bylaw_max_klb=bylaw_max_klb,
+            bylaw_min_kdh=bylaw_min_kdh,
+            bylaw_min_gsb=bylaw_min_gsb,
+            bylaw_min_rth_area=bylaw_min_rth_area
         )
         result = use_case.execute(dto)
 
@@ -406,11 +457,8 @@ def calibrate_cad_spasial(
             role=cast(str, current_user.role)
         )
 
-        # 1. Jalankan proses penyelarasan koordinat & validasi awal (Helmert)
         use_case.execute(dto)
 
-        # 2. ARSITEKTUR INDIRECTION: Bungkus pemanggilan dalam closure helper tanpa parameter.
-        # Ini mengeliminasi 100% bug pengetikan tipe data (Pylance Type-Check Bug).
         def run_cad_parsing_task() -> None:
             execute_cad_parsing_background(
                 file_path=req.cad_file_path,
@@ -421,14 +469,12 @@ def calibrate_cad_spasial(
                 anchor_map_2=req.anchor_map_2
             )
 
-        # Daftarkan closure helper yang bersih ke dalam antrean latar belakang
         background_tasks.add_task(run_cad_parsing_task)
 
         return {
             "status": "SUCCESS",
             "message": "Penyelarasan spasial selesai. Poligon CAD sedang diekstrak di latar belakang."
         }
-    
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -453,6 +499,20 @@ async def verify_submission(
             audit_trail_repo
         )
 
+        # ─── REVISI: TRANSFORMASI CHECKLIST DTO KE USECASE MODEL ───
+        usecase_items = []
+        if req.checklist_items:
+            for item in req.checklist_items:
+                usecase_items.append(
+                    UsecaseEvaluasiChecklistItemDto(
+                        aspek_code=item.aspek_code,
+                        aspek_label=item.aspek_label,
+                        status_kelayakan=item.status_kelayakan,
+                        catatan_verifikator=item.catatan_verifikator,
+                        attachment_url=item.attachment_url
+                    )
+                )
+
         dto = VerifySubmissionInputDto(
             id_permohonan=id_permohonan,
             actor_name=cast(str, current_user.full_name),
@@ -462,7 +522,16 @@ async def verify_submission(
             action_type=req.action_type,
             notes=req.notes,
             is_spatially_compliant=req.is_spatially_compliant,
-            signature_base64=req.signature_base64
+            signature_base64=req.signature_base64,
+
+            # Bind parameter komparasi teknis revisi
+            kkpr_verdict=req.kkpr_verdict,
+            verified_kdb=req.verified_kdb,
+            verified_klb=req.verified_klb,
+            verified_kdh=req.verified_kdh,
+            verified_gsb=req.verified_gsb,
+            verified_rth_area=req.verified_rth_area,
+            checklist_items=usecase_items
         )
 
         result = await use_case.execute(dto)
@@ -473,12 +542,45 @@ async def verify_submission(
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+@router.get("/rdtr-limits", status_code=status.HTTP_200_OK)
+def get_rdtr_limits(
+    district: str,
+    village: str,
+    category: str,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user)
+):
+    """Mendapatkan batasan regulasi (bylaw) RDTR Kabupaten Bogor secara dinamis."""
+    rdtr = db.query(MasterRDTRModel).filter(
+        MasterRDTRModel.district == district,
+        MasterRDTRModel.village == village,
+        MasterRDTRModel.category == category
+    ).first()
+
+    if not rdtr:
+        return {
+            "max_kdb": 60.0,
+            "max_klb": 3.5,
+            "min_kdh": 10.0,
+            "min_gsb": 5.0,
+            "min_rth_area": 1400.0,
+            "is_fallback": True
+        }
+
+    return {
+        "max_kdb": rdtr.max_kdb,
+        "max_klb": rdtr.max_klb,
+        "min_kdh": rdtr.min_kdh,
+        "min_gsb": rdtr.min_gsb,
+        "min_rth_area": rdtr.min_rth_area,
+        "is_fallback": False
+    }
+
 @router.get("", status_code=status.HTTP_200_OK)
 def get_all_submissions(db: Session = Depends(get_db), current_user: UserModel = Depends(get_current_user)):
     """Mendapatkan seluruh daftar pengajuan site plan."""
     repo = PermohonanRepository(db)
     results = repo.find_all()
-    # Map to JSON format matching frontend type
     return [
         {
             "id": r.id_permohonan,
@@ -550,7 +652,12 @@ def get_all_submissions(db: Session = Depends(get_db), current_user: UserModel =
                 "electricityPower": r.tech_electricity_power,
                 "ipalCapacity": r.tech_ipal_capacity,
                 "greenBufferArea": r.tech_green_buffer_area,
-                "tpsB3Provision": r.tech_tps_b3_provision
+                "tpsB3Provision": r.tech_tps_b3_provision,
+
+                # ─── REVISI: METRIK PROPOSED DETAIL PEMOHON ───
+                "applicantBuildingArea": r.applicant_building_area,
+                "applicantGsb": r.applicant_gsb,
+                "applicantRthArea": r.applicant_rth_area
             },
             "consultant": {
                 "consultantName": r.consultant_name,
@@ -565,7 +672,17 @@ def get_all_submissions(db: Session = Depends(get_db), current_user: UserModel =
             },
             "signatureHash": r.signature_hash,
             "signedPdfUrl": r.signed_pdf_url,
-            "kabidSignature": r.kabid_signature
+            "kabidSignature": r.kabid_signature,
+
+            # ─── REVISI: METRIK INTEGRAL TATA RUANG (VERDICT & VERIFIED) ───
+            "kkprVerdict": r.kkpr_verdict.value if r.kkpr_verdict else None,
+            "kkprVerifiedAt": r.kkpr_verified_at.isoformat() if r.kkpr_verified_at else None,
+            "kkprVerifierName": r.kkpr_verifier_name,
+            "verifiedKdb": r.verified_kdb,
+            "verifiedKlb": r.verified_klb,
+            "verifiedKdh": r.verified_kdh,
+            "verifiedGsb": r.verified_gsb,
+            "verifiedRthArea": r.verified_rth_area
         }
         for r in results
     ]
@@ -577,7 +694,7 @@ def get_submission_by_id(id_permohonan: str, db: Session = Depends(get_db), curr
     r = repo.find_by_id(id_permohonan)
     if not r:
         raise HTTPException(status_code=404, detail="Permohonan tidak ditemukan.")
-    
+
     db_files = db.query(PermohonanFileModel).filter(PermohonanFileModel.id_permohonan == id_permohonan).all()
     docs_list = []
     photos_dict = {
@@ -587,7 +704,7 @@ def get_submission_by_id(id_permohonan: str, db: Session = Depends(get_db), curr
         "photoWest": None,
         "photoAccess": None
     }
-    docs_dict = {
+    docs_dict: Dict[str, Optional[str]] = {
         "legalDoc": None,
         "technicalDoc": None,
         "supportDoc": None,
@@ -606,7 +723,22 @@ def get_submission_by_id(id_permohonan: str, db: Session = Depends(get_db), curr
         elif f.file_type == "photo":
             photos_dict[f.file_key] = f.file_url
 
-    # Map to frontend structure
+    # Ambil Checklist Evaluasi manual jika ada
+    db_evaluations = db.query(EvaluasiChecklistItemModel).filter(
+        EvaluasiChecklistItemModel.id_permohonan == id_permohonan
+    ).all()
+
+    evaluation_list = [
+        {
+            "aspekCode": item.aspek_code,
+            "aspekLabel": item.aspek_label,
+            "statusKelayakan": item.status_kelayakan.value,
+            "catatanVerifikator": item.catatan_verifikator,
+            "attachmentUrl": item.attachment_url
+        }
+        for item in db_evaluations
+    ]
+
     return {
         "id": r.id_permohonan,
         "submissionNo": r.submission_no,
@@ -618,7 +750,7 @@ def get_submission_by_id(id_permohonan: str, db: Session = Depends(get_db), curr
         "category": r.document_category.value,
         "base_sla_days": r.base_sla,
         "remaining_sla_days": r.remaining_sla_days,
-        
+
         # Form data (Tahap 1-10)
         "applicant": {
             "type": r.applicant_type,
@@ -677,7 +809,12 @@ def get_submission_by_id(id_permohonan: str, db: Session = Depends(get_db), curr
             "electricityPower": r.tech_electricity_power,
             "ipalCapacity": r.tech_ipal_capacity,
             "greenBufferArea": r.tech_green_buffer_area,
-            "tpsB3Provision": r.tech_tps_b3_provision
+            "tpsB3Provision": r.tech_tps_b3_provision,
+
+            # ─── REVISI: METRIK PROPOSED DETAIL PEMOHON ───
+            "applicantBuildingArea": r.applicant_building_area,
+            "applicantGsb": r.applicant_gsb,
+            "applicantRthArea": r.applicant_rth_area
         },
         "consultant": {
             "consultantName": r.consultant_name,
@@ -700,6 +837,18 @@ def get_submission_by_id(id_permohonan: str, db: Session = Depends(get_db), curr
         "signatureHash": r.signature_hash,
         "signedPdfUrl": r.signed_pdf_url,
         "kabidSignature": r.kabid_signature,
+
+        # ─── REVISI: METRIK INTEGRAL TATA RUANG (VERDICT, CHECKLIST, & VERIFIED) ───
+        "kkprVerdict": r.kkpr_verdict.value if r.kkpr_verdict else None,
+        "kkprVerifiedAt": r.kkpr_verified_at.isoformat() if r.kkpr_verified_at else None,
+        "kkprVerifierName": r.kkpr_verifier_name,
+        "verifiedKdb": r.verified_kdb,
+        "verifiedKlb": r.verified_klb,
+        "verifiedKdh": r.verified_kdh,
+        "verifiedGsb": r.verified_gsb,
+        "verifiedRthArea": r.verified_rth_area,
+        "evaluationChecklist": evaluation_list,
+
         "history": (lambda: [
             {
                 "date": log.created_at.strftime("%Y-%m-%d %H:%M:%S"),
@@ -713,7 +862,6 @@ def get_submission_by_id(id_permohonan: str, db: Session = Depends(get_db), curr
             { "date": r.submission_date.isoformat() + " 09:00", "status": "Draft", "notes": "Pengajuan dibuat", "actor": r.applicant_name or "Pemohon", "digitalSignatureHash": None }
         ])()
     }
-
 
 @router.get("/{id_permohonan}/geometries", status_code=status.HTTP_200_OK)
 def get_submission_geometries(
@@ -740,7 +888,6 @@ def get_submission_geometries(
                 shapely_poly = to_shape(cast(Any, g.geom))
                 exterior = getattr(shapely_poly, "exterior", None)
                 if exterior is not None:
-                    # Convert to list of [longitude, latitude]
                     polygon_coords = [(float(pt[0]), float(pt[1])) for pt in exterior.coords]
             except Exception:
                 continue
@@ -754,7 +901,6 @@ def get_submission_geometries(
         elif "RTH" in layer or "HIJAU" in layer or "TAMAN" in layer:
             rth_polygons.append(polygon_coords)
         else:
-            # Fallback as PSU / Kaveling / KDB
             psu_polygons.append(polygon_coords)
             
     return {
@@ -764,7 +910,6 @@ def get_submission_geometries(
         "psuPolygons": psu_polygons
     }
 
-
 @router.post("/ocr/ktp", status_code=status.HTTP_200_OK)
 async def ocr_ktp(
     file: UploadFile = File(...),
@@ -772,7 +917,6 @@ async def ocr_ktp(
 ):
     """Mengekstrak data NIK, Nama, dan Alamat dari dokumen KTP (OCR)."""
     try:
-        from fastapi import HTTPException, UploadFile, File
         from src.infrastructure.ocr.tesseract_adapter import TesseractOcrAdapter
         
         content = await file.read()
@@ -780,9 +924,7 @@ async def ocr_ktp(
         data = adapter.extract_ktp_data(content)
         return data
     except Exception as e:
-        from fastapi import HTTPException
         raise HTTPException(status_code=400, detail=f"Gagal memproses OCR KTP: {str(e)}")
-
 
 @router.post("/ocr/nib", status_code=status.HTTP_200_OK)
 async def ocr_nib(
@@ -791,7 +933,6 @@ async def ocr_nib(
 ):
     """Mengekstrak data NIB, Nama Perusahaan, dan Alamat Perusahaan dari dokumen NIB (OCR)."""
     try:
-        from fastapi import HTTPException, UploadFile, File
         from src.infrastructure.ocr.tesseract_adapter import TesseractOcrAdapter
         
         content = await file.read()
@@ -799,5 +940,4 @@ async def ocr_nib(
         data = adapter.extract_nib_data(content)
         return data
     except Exception as e:
-        from fastapi import HTTPException
-        raise HTTPException(status_code=400, detail=f"Gagal memproses OCR NIB: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Gagal memproses OCR NIB: {str(e)}")

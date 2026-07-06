@@ -1,14 +1,15 @@
 """
 ============================================================================
-SIPAS DOMAIN ENTITY — Permohonan [permohonan.py]
+SIPAS DOMAIN ENTITY — Permohonan [permohonan.py] (REVISED v3 - TYPE SAFE)
 ============================================================================
 Peran: Entitas domain murni (Pure Python) yang merepresentasikan data
        pengisian pengesahan site plan serta menegakkan aturan bisnis (invariants)
-       terkait klasifikasi objek, durasi SLA, dan mutasi status [sipas-fe.txt].
+       terkait klasifikasi objek, durasi SLA, perbandingan metrik tiga sisi
+       (Proposed vs Bylaw vs Verified), dan mutasi status [sipas-fe.txt].
 ============================================================================
 """
 
-from datetime import date
+from datetime import date, datetime
 from enum import Enum
 from typing import List, Optional
 
@@ -27,6 +28,12 @@ class DocumentCategory(str, Enum):
     SITE_PLAN = 'Site Plan'
     MASTER_PLAN = 'Master Plan'
 
+class KKPRVerdict(str, Enum):
+    SESUAI = "Sesuai"
+    SESUAI_BERSYARAT = "Sesuai Bersyarat"
+    PERLU_PERBAIKAN = "Perlu Perbaikan / Revisi"
+    TIDAK_SESUAI = "Tidak Sesuai / Ditolak"
+
 class Permohonan:
     def __init__(
         self,
@@ -35,13 +42,13 @@ class Permohonan:
         submission_date: date,
         housing_name: Optional[str] = None,
         developer_name: Optional[str] = None,
-        land_area: Optional[float] = None,  # Dalam satuan m2 [sipas-fe.txt]
+        land_area: Optional[float] = None,
         status: SubmissionStatus = SubmissionStatus.DRAFT,
         buffer_sla: int = 0,
         elapsed_days: int = 0,
         
         # ─── TAHAP 1: DATA PEMOHON (APPLICANT) ────────────────────────────────────
-        applicant_type: str = "PERORANGAN",
+        applicant_type: Optional[str] = "PERORANGAN",
         applicant_name: Optional[str] = None,
         applicant_nik: Optional[str] = None,
         applicant_nib: Optional[str] = None,
@@ -52,17 +59,17 @@ class Permohonan:
         applicant_address: Optional[str] = None,
         
         # ─── TAHAP 2: DATA PENGAJUAN (SUBMISSION DETAILS) ─────────────────────────
-        submission_type: str = "BARU",
-        submission_category: str = "PERUMAHAN",
+        submission_type: Optional[str] = "BARU",
+        submission_category: Optional[str] = "PERUMAHAN",
         
         # ─── TAHAP 3: DATA LOKASI ADMINISTRATIF & TANAH (LOCATION) ───────────────
         location_name: Optional[str] = None,
         location_village: Optional[str] = None,
         location_district: Optional[str] = None,
-        location_city: str = "Kabupaten Bogor",
-        location_province: str = "Jawa Barat",
+        location_city: Optional[str] = "Kabupaten Bogor",
+        location_province: Optional[str] = "Jawa Barat",
         location_full_address: Optional[str] = None,
-        location_ownership_status: str = "SHM",
+        location_ownership_status: Optional[str] = "SHM",
         location_certificate_number: Optional[str] = None,
         location_certificate_owner: Optional[str] = None,
         
@@ -78,7 +85,7 @@ class Permohonan:
         # ─── TAHAP 5: DATA INFORMASI TATA RUANG (SPATIAL INFO) ────────────────────
         spatial_kkpr_number: Optional[str] = None,
         spatial_land_use: Optional[str] = None,
-        spatial_green_area: float = 0.0,
+        spatial_green_area: Optional[float] = 0.0,
         
         # ─── TAHAP 6: PARAMETER TEKNIS BERSYARAT (TECHNICAL DETAILS) ─────────────
         tech_lot_count: Optional[int] = None,
@@ -114,31 +121,54 @@ class Permohonan:
         consultant_company_name: Optional[str] = None,
         consultant_pic_name: Optional[str] = None,
         
-
-        
         # ─── TAHAP 10: PERNYATAAN KOMITMEN HUKUM (STATEMENT) ──────────────────────
         statement_agreed: bool = False,
         polygon: Optional[list] = None,
         user_id: Optional[int] = None,
         signature_hash: Optional[str] = None,
         signed_pdf_url: Optional[str] = None,
-        kabid_signature: Optional[str] = None
+        kabid_signature: Optional[str] = None,
+
+        # ─── REVISI: METRIK INTENSITAS BANGUNAN (THREE-SIDED COMPARISON LEDGER) ──
+        applicant_land_area: Optional[float] = None,
+        applicant_building_area: Optional[float] = None,
+        applicant_kdb: Optional[float] = None,
+        applicant_klb: Optional[float] = None,
+        applicant_kdh: Optional[float] = None,
+        applicant_gsb: Optional[float] = None,
+        applicant_rth_area: Optional[float] = None,
+
+        bylaw_max_kdb: Optional[float] = None,
+        bylaw_max_klb: Optional[float] = None,
+        bylaw_min_kdh: Optional[float] = None,
+        bylaw_min_gsb: Optional[float] = None,
+        bylaw_min_rth_area: Optional[float] = None,
+
+        verified_kdb: Optional[float] = None,
+        verified_klb: Optional[float] = None,
+        verified_kdh: Optional[float] = None,
+        verified_gsb: Optional[float] = None,
+        verified_rth_area: Optional[float] = None,
+
+        kkpr_verdict: Optional[KKPRVerdict] = None,
+        kkpr_verified_at: Optional[datetime] = None,
+        kkpr_verifier_name: Optional[str] = None
     ):
         self.id_permohonan = id_permohonan
         self.submission_no = submission_no
         self.housing_name = housing_name
         self.developer_name = developer_name
         
-        if land_area is not None and land_area <= 0:
+        resolved_land_area = applicant_land_area or land_area
+        if resolved_land_area is not None and resolved_land_area <= 0:
             raise ValueError("Luas lahan harus bernilai positif.")
-        self.land_area = land_area
+        self.land_area = resolved_land_area
         
         self.submission_date = submission_date
         self.status = status
         self.buffer_sla = buffer_sla
         self.elapsed_days = elapsed_days
 
-        # Assign all other attributes
         self.applicant_type = applicant_type
         self.applicant_name = applicant_name or developer_name
         self.applicant_nik = applicant_nik
@@ -206,8 +236,6 @@ class Permohonan:
         self.consultant_company_name = consultant_company_name
         self.consultant_pic_name = consultant_pic_name
         
-
-        
         self.statement_agreed = statement_agreed
         self.polygon = polygon
         self.user_id = user_id
@@ -215,109 +243,97 @@ class Permohonan:
         self.signed_pdf_url = signed_pdf_url
         self.kabid_signature = kabid_signature
 
-    # ─── INVARIANT 1: KLASIFIKASI DOKUMEN OTOMATIS [Bogor 4, 5, 8] ────────────────
+        # ─── REVISI ATRIBUT BARU (METRIK KOMPARASI & KKPR VERDICT) ───
+        self.applicant_land_area = applicant_land_area or resolved_land_area
+        self.applicant_building_area = applicant_building_area
+        self.applicant_kdb = applicant_kdb
+        self.applicant_klb = applicant_klb
+        self.applicant_kdh = applicant_kdh
+        self.applicant_gsb = applicant_gsb
+        self.applicant_rth_area = applicant_rth_area
+
+        self.bylaw_max_kdb = bylaw_max_kdb
+        self.bylaw_max_klb = bylaw_max_klb
+        self.bylaw_min_kdh = bylaw_min_kdh
+        self.bylaw_min_gsb = bylaw_min_gsb
+        self.bylaw_min_rth_area = bylaw_min_rth_area
+
+        self.verified_kdb = verified_kdb
+        self.verified_klb = verified_klb
+        self.verified_kdh = verified_kdh
+        self.verified_gsb = verified_gsb
+        self.verified_rth_area = verified_rth_area
+
+        self.kkpr_verdict = kkpr_verdict
+        self.kkpr_verified_at = kkpr_verified_at
+        self.kkpr_verifier_name = kkpr_verifier_name
+
     @property
     def document_category(self) -> DocumentCategory:
-        """
-        Menentukan kategori dokumen pengesahan berdasarkan batasan luas lahan
-        sesuai Perbup Bogor No. 4 Tahun 2025.
-        """
-        if self.land_area is None:
+        land_area_to_check = self.applicant_land_area or self.land_area
+        if land_area_to_check is None:
             return DocumentCategory.SITE_PLAN
-        if self.land_area <= 2500:
-            return DocumentCategory.GAMBAR_SITUASI  # Maksimal 2.500 m2 [Bogor 8]
-        elif self.land_area < 500000:
-            return DocumentCategory.SITE_PLAN       # Kurang dari 50 Hektar [Bogor 4, 5]
+        if land_area_to_check <= 2500:
+            return DocumentCategory.GAMBAR_SITUASI
+        elif land_area_to_check < 500000:
+            return DocumentCategory.SITE_PLAN
         else:
-            return DocumentCategory.MASTER_PLAN     # 50 Hektar ke atas (>= 500.000 m2) [Bogor 5]
+            return DocumentCategory.MASTER_PLAN
 
-    # ─── INVARIANT 2: SLA DASAR BERDASARKAN KATEGORI [Bogor 5, 8, 16] ────────────
     @property
     def base_sla(self) -> int:
-        """Menetapkan durasi SLA dasar dalam satuan hari kerja."""
         category = self.document_category
         if category == DocumentCategory.GAMBAR_SITUASI:
-            return 7  # SLA Gambar Situasi: 7 Hari Kerja [Bogor 8]
+            return 7
         elif category == DocumentCategory.SITE_PLAN:
-            return 14 # SLA Site Plan: 14 Hari Kerja [Bogor 16]
+            return 14
         else:
-            return 30 # SLA Master Plan: 30 Hari Kerja [Bogor 5]
+            return 30
 
-    # ─── INVARIANT 3: KALKULASI SLA DINAMIS (CLOCK PAUSE) [Bogor 16, sipas-fe.txt] ─
     @property
     def remaining_sla_days(self) -> int:
-        """
-        Menghitung sisa hari pengerjaan SLA secara dinamis.
-        Membekukan penghitungan waktu (Clock Pause) jika berkas membutuhkan revisi.
-        """
         from datetime import date
-        # SLA dibekukan (paused) jika status DRAFT atau DITOLAK (revisi pemohon) [Bogor 16, sipas-fe.txt]
         if self.status in [SubmissionStatus.DRAFT, SubmissionStatus.DITOLAK]:
             total_allocated = self.base_sla + self.buffer_sla
-            # Gunakan elapsed_days statis yang telah dikunci saat status berpindah ke DITOLAK
             return max(0, total_allocated - self.elapsed_days)
-            
+
         total_sla = self.base_sla + self.buffer_sla
-        # Hitung elapsed days aktif secara dinamis sejak tanggal submission_date
         active_elapsed = max(self.elapsed_days, (date.today() - self.submission_date).days)
         return max(0, total_sla - active_elapsed)
 
     def add_complexity_buffer(self, days: int) -> None:
-        """Menambahkan hari kompensasi (SLA Buffer) akibat kompleksitas wilayah [Purworejo 1]."""
         if days < 0:
             raise ValueError("Tambahan hari kompleksitas tidak boleh negatif.")
         self.buffer_sla += days
 
-    # ─── INVARIANT 4: ATURAN TRANSISI STATUS BERJENJANG [sipas-fe.txt] ────────────
     def transition_status(self, new_status: SubmissionStatus) -> None:
-        """
-        Mengontrol mutasi status secara ketat untuk mencegah bypass tahapan
-        penilaian legalitas (Aparatur -> Tim Teknis -> KABID -> KADIS) [sipas-fe.txt].
-        """
-        # ─── MATRIKS TRANSISI STATUS (STATE MACHINE) ──────────────────────────────
-        # Setiap kunci adalah status SAAT INI; nilai adalah daftar status TARGET yang
-        # diizinkan. Jalur mundur (reversion) internal ditambahkan agar petugas dinas
-        # dapat mengembalikan berkas ke tahapan sebelumnya TANPA memulai ulang SLA
-        # pemohon (hanya DITOLAK yang membekukan SLA — lihat guard di bawah).
         allowed_transitions = {
             SubmissionStatus.DRAFT: [SubmissionStatus.MENUNGGU_VERIFIKASI],
-
             SubmissionStatus.MENUNGGU_VERIFIKASI: [
                 SubmissionStatus.VERIFIKASI_ADMINISTRASI,
                 SubmissionStatus.VERIFIKASI_TEKNIS,
                 SubmissionStatus.DITOLAK,
             ],
-
             SubmissionStatus.VERIFIKASI_ADMINISTRASI: [
                 SubmissionStatus.VERIFIKASI_TEKNIS,
                 SubmissionStatus.DITOLAK,
             ],
-
             SubmissionStatus.VERIFIKASI_TEKNIS: [
                 SubmissionStatus.MENUNGGU_PERSETUJUAN,
                 SubmissionStatus.DITOLAK,
-                # ── JALUR MUNDUR INTERNAL: Tim Teknis → Admin SIPAS ──────────────
-                # Digunakan saat Tim Teknis menemukan masalah administratif klerikal
-                # yang harus diperbaiki oleh Admin sebelum audit spasial dilanjutkan.
                 SubmissionStatus.VERIFIKASI_ADMINISTRASI,
             ],
-
             SubmissionStatus.MENUNGGU_PERSETUJUAN: [
                 SubmissionStatus.PROSES_TTE,
                 SubmissionStatus.DITOLAK,
-                # ── JALUR MUNDUR INTERNAL: Kabid → Tim Teknis ────────────────────
-                # Digunakan saat Kepala Bidang menemukan catatan teknis minor yang
-                # perlu diklarifikasi ulang oleh Tim Teknis sebelum TTE diterbitkan.
                 SubmissionStatus.VERIFIKASI_TEKNIS,
             ],
-
             SubmissionStatus.PROSES_TTE: [
                 SubmissionStatus.DISETUJUI,
                 SubmissionStatus.MENUNGGU_PERSETUJUAN,
             ],
-
-            SubmissionStatus.DISETUJUI: [],  # State terminal — tidak dapat bermutasi lagi
-            SubmissionStatus.DITOLAK: [SubmissionStatus.MENUNGGU_VERIFIKASI],  # Dapat diajukan ulang oleh Pemohon
+            SubmissionStatus.DISETUJUI: [],
+            SubmissionStatus.DITOLAK: [SubmissionStatus.MENUNGGU_VERIFIKASI],
         }
 
         if new_status not in allowed_transitions[self.status]:
@@ -325,7 +341,6 @@ class Permohonan:
                 f"Ilegal: Tidak diizinkan melakukan transisi status dari '{self.status.value}' langsung ke '{new_status.value}'."
             )
         
-        # Kunci penghitungan hari aktif (elapsed_days) saat status berpindah ke DITOLAK
         if new_status == SubmissionStatus.DITOLAK and self.status not in [SubmissionStatus.DRAFT, SubmissionStatus.DITOLAK]:
             from datetime import date
             self.elapsed_days = max(self.elapsed_days, (date.today() - self.submission_date).days)
@@ -333,13 +348,14 @@ class Permohonan:
         self.status = new_status
 
     def attach_signature(self, hash: str, url: str) -> None:
-        """
-        Melakukan mutasi status akhir ke DISETUJUI secara aman sekaligus menyematkan bukti kriptografi.
-        """
         self.transition_status(SubmissionStatus.DISETUJUI)
         self.signature_hash = hash
         self.signed_pdf_url = url
 
+    def compute_applicant_kdb_percentage(self) -> Optional[float]:
+        if self.applicant_land_area and self.applicant_building_area:
+            return (self.applicant_building_area / self.applicant_land_area) * 100.0
+        return self.applicant_kdb
 
 class IllegalStateTransitionError(Exception):
     pass
