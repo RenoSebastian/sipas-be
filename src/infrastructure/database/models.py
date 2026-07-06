@@ -50,6 +50,7 @@ class PermohonanModel(Base):
     status: Mapped[str] = mapped_column(String(50), nullable=False)
     buffer_sla: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     elapsed_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    sla_start_date: Mapped[date] = mapped_column(Date, nullable=False, default=date.today)
 
     # ─── TAHAP 1: DATA PEMOHON (APPLICANT) ────────────────────────────────────
     applicant_type: Mapped[str] = mapped_column(String(50), nullable=False, default="PERORANGAN") # PERORANGAN | BADAN_USAHA

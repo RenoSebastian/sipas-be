@@ -46,6 +46,7 @@ class PermohonanRepository(PermohonanRepositoryPort):
             status=SubmissionStatus(str(model.status)),
             buffer_sla=int(model.buffer_sla),
             elapsed_days=int(model.elapsed_days),
+            sla_start_date=model.sla_start_date,
             
             # Tahap 1
             applicant_type=str(model.applicant_type) if model.applicant_type else None,
@@ -158,6 +159,7 @@ class PermohonanRepository(PermohonanRepositoryPort):
             status=entity.status.value,
             buffer_sla=entity.buffer_sla,
             elapsed_days=entity.elapsed_days,
+            sla_start_date=entity.sla_start_date,
             
             # Tahap 1
             applicant_type=entity.applicant_type,
@@ -262,6 +264,7 @@ class PermohonanRepository(PermohonanRepositoryPort):
             existing_model.status = permohonan.status.value
             existing_model.buffer_sla = permohonan.buffer_sla
             existing_model.elapsed_days = permohonan.elapsed_days
+            existing_model.sla_start_date = permohonan.sla_start_date
             existing_model.housing_name = permohonan.housing_name
             existing_model.developer_name = permohonan.developer_name
             existing_model.land_area = permohonan.land_area

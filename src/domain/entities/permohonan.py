@@ -39,6 +39,7 @@ class Permohonan:
         status: SubmissionStatus = SubmissionStatus.DRAFT,
         buffer_sla: int = 0,
         elapsed_days: int = 0,
+        sla_start_date: Optional[date] = None,
         
         # ─── TAHAP 1: DATA PEMOHON (APPLICANT) ────────────────────────────────────
         applicant_type: str = "PERORANGAN",
@@ -137,6 +138,7 @@ class Permohonan:
         self.status = status
         self.buffer_sla = buffer_sla
         self.elapsed_days = elapsed_days
+        self.sla_start_date = sla_start_date or submission_date
 
         # Assign all other attributes
         self.applicant_type = applicant_type
@@ -234,33 +236,28 @@ class Permohonan:
     # ─── INVARIANT 2: SLA DASAR BERDASARKAN KATEGORI [Bogor 5, 8, 16] ────────────
     @property
     def base_sla(self) -> int:
-        """Menetapkan durasi SLA dasar dalam satuan hari kerja."""
-        category = self.document_category
-        if category == DocumentCategory.GAMBAR_SITUASI:
-            return 7  # SLA Gambar Situasi: 7 Hari Kerja [Bogor 8]
-        elif category == DocumentCategory.SITE_PLAN:
-            return 14 # SLA Site Plan: 14 Hari Kerja [Bogor 16]
-        else:
-            return 30 # SLA Master Plan: 30 Hari Kerja [Bogor 5]
+        """Menetapkan durasi SLA dasar dalam satuan hari (selalu 30 hari/1 bulan)."""
+        return 30
 
     # ─── INVARIANT 3: KALKULASI SLA DINAMIS (CLOCK PAUSE) [Bogor 16, sipas-fe.txt] ─
     @property
     def remaining_sla_days(self) -> int:
         """
-        Menghitung sisa hari pengerjaan SLA secara dinamis.
+        Menghitung sisa hari pengerjaan SLA secara dinamis untuk tahap saat ini.
         Membekukan penghitungan waktu (Clock Pause) jika berkas membutuhkan revisi.
+        Mendukung nilai negatif (terlambat) untuk menandakan SLA terlampaui.
         """
         from datetime import date
-        # SLA dibekukan (paused) jika status DRAFT atau DITOLAK (revisi pemohon) [Bogor 16, sipas-fe.txt]
+        # SLA dibekukan (paused) jika status DRAFT atau DITOLAK (revisi pemohon)
         if self.status in [SubmissionStatus.DRAFT, SubmissionStatus.DITOLAK]:
             total_allocated = self.base_sla + self.buffer_sla
             # Gunakan elapsed_days statis yang telah dikunci saat status berpindah ke DITOLAK
-            return max(0, total_allocated - self.elapsed_days)
+            return total_allocated - self.elapsed_days
             
         total_sla = self.base_sla + self.buffer_sla
-        # Hitung elapsed days aktif secara dinamis sejak tanggal submission_date
-        active_elapsed = max(self.elapsed_days, (date.today() - self.submission_date).days)
-        return max(0, total_sla - active_elapsed)
+        # Hitung elapsed days aktif secara dinamis sejak tanggal sla_start_date
+        active_elapsed = (date.today() - self.sla_start_date).days
+        return total_sla - active_elapsed
 
     def add_complexity_buffer(self, days: int) -> None:
         """Menambahkan hari kompensasi (SLA Buffer) akibat kompleksitas wilayah [Purworejo 1]."""
@@ -325,10 +322,23 @@ class Permohonan:
                 f"Ilegal: Tidak diizinkan melakukan transisi status dari '{self.status.value}' langsung ke '{new_status.value}'."
             )
         
-        # Kunci penghitungan hari aktif (elapsed_days) saat status berpindah ke DITOLAK
+        from datetime import date
+
+        # Kunci penghitungan hari aktif (elapsed_days) saat status berpindah ke DITOLAK (paused)
         if new_status == SubmissionStatus.DITOLAK and self.status not in [SubmissionStatus.DRAFT, SubmissionStatus.DITOLAK]:
-            from datetime import date
-            self.elapsed_days = max(self.elapsed_days, (date.today() - self.submission_date).days)
+            self.elapsed_days = max(self.elapsed_days, (date.today() - self.sla_start_date).days)
+        
+        # Reset SLA (1 bulan/30 hari baru) saat berpindah ke tahap peninjauan yang berbeda
+        RESET_SLA_STATUSES = [
+            SubmissionStatus.MENUNGGU_VERIFIKASI,
+            SubmissionStatus.VERIFIKASI_TEKNIS,
+            SubmissionStatus.MENUNGGU_PERSETUJUAN,
+            SubmissionStatus.PROSES_TTE
+        ]
+        if new_status in RESET_SLA_STATUSES:
+            self.sla_start_date = date.today()
+            self.elapsed_days = 0
+            self.buffer_sla = 0
 
         self.status = new_status
 
