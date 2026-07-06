@@ -1,9 +1,10 @@
 """
 ============================================================================
-SIPAS USE CASE — Submit Permohonan [submit_permohonan.py]
+SIPAS USE CASE — Submit Permohonan [submit_permohonan.py] (REVISED v3)
 ============================================================================
 Peran: Mengorkestrasikan alur pendaftaran permohonan baru satu pintu,
        menegakkan validasi skema dasar, menyimpan entitas ke repositori,
+       menyimpan metrik komparasi tata ruang awal (KDB, KLB, KDH, GSB, RTH),
        dan mendaftarkan log audit perdana [Bogor 4, 7, sipas-fe.txt].
 ============================================================================
 """
@@ -14,7 +15,7 @@ from typing import Optional, List, Any
 from dataclasses import dataclass
 import os
 
-from src.domain.entities.permohonan import Permohonan, SubmissionStatus
+from src.domain.entities.permohonan import Permohonan, SubmissionStatus, KKPRVerdict
 
 # ─── SECTION: PORT ABSTRAKSI (DEPENDENCY INVERSION) ───────────────────────
 
@@ -76,88 +77,88 @@ class AuditTrailRepositoryPort(ABC):
 class SubmitPermohonanInputDto:
     id_permohonan: str
     submission_no: str
-    housing_name: Optional[str]
-    developer_name: Optional[str]
-    land_area: Optional[float]
-    actor_name: str
-    role: str
+    housing_name: Optional[str] = None
+    developer_name: Optional[str] = None
+    land_area: Optional[float] = None
+    actor_name: str = ""
+    role: str = ""
 
     # Tahap 1
-    applicant_type: Optional[str]
-    applicant_nik: Optional[str]
-    applicant_nib: Optional[str]
-    applicant_npwp: Optional[str]
-    applicant_director_name: Optional[str]
-    applicant_phone: Optional[str]
-    applicant_email: Optional[str]
-    applicant_address: Optional[str]
+    applicant_type: Optional[str] = "PERORANGAN"
+    applicant_name: Optional[str] = None
+    applicant_nik: Optional[str] = None
+    applicant_nib: Optional[str] = None
+    applicant_npwp: Optional[str] = None
+    applicant_director_name: Optional[str] = None
+    applicant_phone: Optional[str] = None
+    applicant_email: Optional[str] = None
+    applicant_address: Optional[str] = None
 
     # Tahap 2
-    submission_type: Optional[str]
-    submission_category: Optional[str]
+    submission_type: Optional[str] = "BARU"
+    submission_category: Optional[str] = "PERUMAHAN"
 
     # Tahap 3
-    location_name: Optional[str]
-    location_village: Optional[str]
-    location_district: Optional[str]
-    location_city: Optional[str]
-    location_province: Optional[str]
-    location_full_address: Optional[str]
-    location_ownership_status: Optional[str]
-    location_certificate_number: Optional[str]
-    location_certificate_owner: Optional[str]
+    location_name: Optional[str] = None
+    location_village: Optional[str] = None
+    location_district: Optional[str] = None
+    location_city: Optional[str] = "Kabupaten Bogor"
+    location_province: Optional[str] = "Jawa Barat"
+    location_full_address: Optional[str] = None
+    location_ownership_status: Optional[str] = "SHM"
+    location_certificate_number: Optional[str] = None
+    location_certificate_owner: Optional[str] = None
 
     # Tahap 4
-    cad_file_name: Optional[str]
-    cad_param_a: Optional[float]
-    cad_param_b: Optional[float]
-    cad_param_tx: Optional[float]
-    cad_param_ty: Optional[float]
-    cad_scale: Optional[float]
-    cad_rotation: Optional[float]
+    cad_file_name: Optional[str] = None
+    cad_param_a: Optional[float] = None
+    cad_param_b: Optional[float] = None
+    cad_param_tx: Optional[float] = None
+    cad_param_ty: Optional[float] = None
+    cad_scale: Optional[float] = None
+    cad_rotation: Optional[float] = None
 
     # Tahap 5
-    spatial_kkpr_number: Optional[str]
-    spatial_land_use: Optional[str]
-    spatial_green_area: Optional[float]
+    spatial_kkpr_number: Optional[str] = None
+    spatial_land_use: Optional[str] = None
+    spatial_green_area: Optional[float] = 0.0
 
     # Tahap 6
-    tech_lot_count: Optional[int]
-    tech_housing_type: Optional[str]
-    tech_cemetery_area: Optional[float]
-    tech_road_row_main: Optional[str]
-    tech_road_row_local: Optional[str]
-    tech_water_system: Optional[str]
+    tech_lot_count: Optional[int] = None
+    tech_housing_type: Optional[str] = None
+    tech_cemetery_area: Optional[float] = None
+    tech_road_row_main: Optional[str] = None
+    tech_road_row_local: Optional[str] = None
+    tech_water_system: Optional[str] = None
 
-    # (tech non-perumahan)
-    tech_building_blocks: Optional[int]
-    tech_kdb: Optional[float]
-    tech_klb: Optional[float]
-    tech_kdh: Optional[float]
-    tech_parking_capacity: Optional[int]
-    tech_max_floors: Optional[int]
-    tech_total_floor_area: Optional[float]
+    tech_building_blocks: Optional[int] = None
+    tech_kdb: Optional[float] = None
+    tech_klb: Optional[float] = None
+    tech_kdh: Optional[float] = None
+    tech_parking_capacity: Optional[int] = None
+    tech_max_floors: Optional[int] = None
+    tech_total_floor_area: Optional[float] = None
 
-    tech_facility_type: Optional[str]
-    tech_capacity: Optional[int]
-    tech_disabled_access: Optional[str]
-    tech_special_parking: Optional[str]
-    tech_fire_protection: Optional[str]
+    tech_facility_type: Optional[str] = None
+    tech_capacity: Optional[int] = None
+    tech_disabled_access: Optional[str] = None
+    tech_special_parking: Optional[str] = None
+    tech_fire_protection: Optional[str] = None
 
-    tech_warehouse_count: Optional[int]
-    tech_road_load_mst: Optional[str]
-    tech_electricity_power: Optional[str]
-    tech_ipal_capacity: Optional[str]
-    tech_green_buffer_area: Optional[float]
-    tech_tps_b3_provision: Optional[str]
+    tech_warehouse_count: Optional[int] = None
+    tech_road_load_mst: Optional[str] = None
+    tech_electricity_power: Optional[str] = None
+    tech_ipal_capacity: Optional[str] = None
+    tech_green_buffer_area: Optional[float] = None
+    tech_tps_b3_provision: Optional[str] = None
 
     # Tahap 7
-    consultant_name: Optional[str]
-    consultant_company_name: Optional[str]
-    consultant_pic_name: Optional[str]
+    consultant_name: Optional[str] = None
+    consultant_company_name: Optional[str] = None
+    consultant_pic_name: Optional[str] = None
 
     # Tahap 10
-    statement_agreed: bool
+    statement_agreed: bool = False
     polygon: Optional[list] = None
     user_id: Optional[int] = None
     is_draft: bool = False
@@ -174,6 +175,21 @@ class SubmitPermohonanInputDto:
     photo_east: Optional[str] = None
     photo_west: Optional[str] = None
     photo_access: Optional[str] = None
+
+    # ─── REVISI: METRIK INTENSITAS SPASIAL PEMOHON (PROPOSED VS BYLAW) ───
+    applicant_land_area: Optional[float] = None
+    applicant_building_area: Optional[float] = None
+    applicant_kdb: Optional[float] = None
+    applicant_klb: Optional[float] = None
+    applicant_kdh: Optional[float] = None
+    applicant_gsb: Optional[float] = None
+    applicant_rth_area: Optional[float] = None
+
+    bylaw_max_kdb: Optional[float] = None
+    bylaw_max_klb: Optional[float] = None
+    bylaw_min_kdh: Optional[float] = None
+    bylaw_min_gsb: Optional[float] = None
+    bylaw_min_rth_area: Optional[float] = None
 
 # ─── SECTION: USE CASE INTERACTOR ─────────────────────────────────────────
 
@@ -197,21 +213,21 @@ class SubmitPermohonanUseCase:
 
     def execute(self, input_dto: SubmitPermohonanInputDto) -> Permohonan:
         """Menjalankan orkestrasi pendaftaran permohonan satu pintu [Bogor 4]."""
-        
-        # 1. Inisialisasi Entitas Domain Murni (Kalkulasi Kategori & SLA berjalan otomatis)
+
         permohonan = Permohonan(
             id_permohonan=input_dto.id_permohonan,
             submission_no=input_dto.submission_no,
             housing_name=input_dto.housing_name,
             developer_name=input_dto.developer_name,
-            land_area=input_dto.land_area,
+            land_area=input_dto.applicant_land_area or input_dto.land_area,
             submission_date=date.today(),
             status=SubmissionStatus.DRAFT,
             buffer_sla=0,
             elapsed_days=0,
-            
+
             # Tahap 1
             applicant_type=input_dto.applicant_type,
+            applicant_name=input_dto.applicant_name or input_dto.developer_name,
             applicant_nik=input_dto.applicant_nik,
             applicant_nib=input_dto.applicant_nib,
             applicant_npwp=input_dto.applicant_npwp,
@@ -219,11 +235,11 @@ class SubmitPermohonanUseCase:
             applicant_phone=input_dto.applicant_phone,
             applicant_email=input_dto.applicant_email,
             applicant_address=input_dto.applicant_address,
-            
+
             # Tahap 2
             submission_type=input_dto.submission_type,
             submission_category=input_dto.submission_category,
-            
+
             # Tahap 3
             location_name=input_dto.location_name,
             location_village=input_dto.location_village,
@@ -234,7 +250,7 @@ class SubmitPermohonanUseCase:
             location_ownership_status=input_dto.location_ownership_status,
             location_certificate_number=input_dto.location_certificate_number,
             location_certificate_owner=input_dto.location_certificate_owner,
-            
+
             # Tahap 4
             cad_file_name=input_dto.cad_file_name,
             cad_param_a=input_dto.cad_param_a,
@@ -243,12 +259,12 @@ class SubmitPermohonanUseCase:
             cad_param_ty=input_dto.cad_param_ty,
             cad_scale=input_dto.cad_scale,
             cad_rotation=input_dto.cad_rotation,
-            
+
             # Tahap 5
             spatial_kkpr_number=input_dto.spatial_kkpr_number,
             spatial_land_use=input_dto.spatial_land_use,
             spatial_green_area=input_dto.spatial_green_area,
-            
+
             # Tahap 6
             tech_lot_count=input_dto.tech_lot_count,
             tech_housing_type=input_dto.tech_housing_type,
@@ -256,7 +272,7 @@ class SubmitPermohonanUseCase:
             tech_road_row_main=input_dto.tech_road_row_main,
             tech_road_row_local=input_dto.tech_road_row_local,
             tech_water_system=input_dto.tech_water_system,
-            
+
             tech_building_blocks=input_dto.tech_building_blocks,
             tech_kdb=input_dto.tech_kdb,
             tech_klb=input_dto.tech_klb,
@@ -264,43 +280,43 @@ class SubmitPermohonanUseCase:
             tech_parking_capacity=input_dto.tech_parking_capacity,
             tech_max_floors=input_dto.tech_max_floors,
             tech_total_floor_area=input_dto.tech_total_floor_area,
-            
-            tech_facility_type=input_dto.tech_facility_type,
-            tech_capacity=input_dto.tech_capacity,
-            tech_disabled_access=input_dto.tech_disabled_access,
-            tech_special_parking=input_dto.tech_special_parking,
-            tech_fire_protection=input_dto.tech_fire_protection,
-            
-            tech_warehouse_count=input_dto.tech_warehouse_count,
-            tech_road_load_mst=input_dto.tech_road_load_mst,
-            tech_electricity_power=input_dto.tech_electricity_power,
-            tech_ipal_capacity=input_dto.tech_ipal_capacity,
-            tech_green_buffer_area=input_dto.tech_green_buffer_area,
-            tech_tps_b3_provision=input_dto.tech_tps_b3_provision,
-            
+
             # Tahap 7
             consultant_name=input_dto.consultant_name,
             consultant_company_name=input_dto.consultant_company_name,
             consultant_pic_name=input_dto.consultant_pic_name,
-            
+
             # Tahap 10
             statement_agreed=input_dto.statement_agreed,
             polygon=input_dto.polygon,
-            user_id=input_dto.user_id
+            user_id=input_dto.user_id,
+
+            # ─── REVISI: METRIK INTENSITAS SPASIAL PEMOHON & BATAS RDTR ───
+            applicant_land_area=input_dto.applicant_land_area,
+            applicant_building_area=input_dto.applicant_building_area,
+            applicant_kdb=input_dto.applicant_kdb,
+            applicant_klb=input_dto.applicant_klb,
+            applicant_kdh=input_dto.applicant_kdh,
+            applicant_gsb=input_dto.applicant_gsb,
+            applicant_rth_area=input_dto.applicant_rth_area,
+
+            bylaw_max_kdb=input_dto.bylaw_max_kdb,
+            bylaw_max_klb=input_dto.bylaw_max_klb,
+            bylaw_min_kdh=input_dto.bylaw_min_kdh,
+            bylaw_min_gsb=input_dto.bylaw_min_gsb,
+            bylaw_min_rth_area=input_dto.bylaw_min_rth_area
         )
 
-        # 2. Mutasikan status draf awal ke antrean peninjauan dinas jika bukan draf
         action_name = "SAVE_DRAFT"
         status_after = SubmissionStatus.DRAFT.value
         audit_notes = f"Draf permohonan tipe '{permohonan.document_category.value}' berhasil disimpan secara mandiri."
-        
+
         if not input_dto.is_draft:
             permohonan.transition_status(SubmissionStatus.MENUNGGU_VERIFIKASI)
             action_name = "SUBMIT_UNIFIED_FORM"
             status_after = SubmissionStatus.MENUNGGU_VERIFIKASI.value
-            audit_notes = f"Berkas permohonan tipe '{permohonan.document_category.value}' berhasil didaftarkan secara mandiri."
-            
-            # Invoke future integration points via mock ports
+            audit_notes = f"Berkas permohonan tipe '{permohonan.document_category.value}' didaftarkan secara mandiri."
+
             if self.bpn_port:
                 self.bpn_port.validate_land_boundary(input_dto.polygon or [])
             if self.simtaru_port:
@@ -308,10 +324,8 @@ class SubmitPermohonanUseCase:
             if self.oss_port:
                 self.oss_port.sync_licensing_status(input_dto.id_permohonan, status_after)
 
-        # 3. Simpan entitas domain ke database menggunakan Port Repositori [sipas-fe.txt]
         saved_permohonan = self.permohonan_repo.save(permohonan)
 
-        # 3b. Simpan berkas lampiran & foto ke tabel relasional permohonan_files
         files_to_save = []
         if input_dto.document_legal_doc:
             files_to_save.append({
@@ -345,8 +359,7 @@ class SubmitPermohonanUseCase:
                 "file_path": input_dto.document_support_doc2,
                 "file_url": input_dto.document_support_doc2
             })
-        
-        # Photos
+
         if input_dto.photo_north:
             files_to_save.append({
                 "file_type": "photo",
@@ -390,7 +403,6 @@ class SubmitPermohonanUseCase:
 
         self.permohonan_repo.save_files(saved_permohonan.id_permohonan, files_to_save)
 
-        # 4. Catat jejak audit transaksional untuk jaminan hukum (Audit Trail) [Bogor 7]
         self.audit_trail_repo.log_action(
             submission_id=saved_permohonan.id_permohonan,
             actor_name=input_dto.actor_name,

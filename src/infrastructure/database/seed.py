@@ -1,11 +1,11 @@
 """
 ============================================================================
-SIPAS DATABASE UTILITY — Spatial Database Seeder [seed.py]
+SIPAS DATABASE UTILITY — Spatial Database Seeder [seed.py] (REVISED v3 - CLEAN)
 ============================================================================
 Peran: Mengisi database lokal PostgreSQL/PostGIS dengan data spasial awal
-       (WGS84 / SRID 4326) di wilayah rona Kabupaten Bogor, sekaligus
-       menyemai data kredensial pengguna awal (users) untuk kebutuhan
-       autentikasi JWT terintegrasi.
+       (WGS84 / SRID 4326) di wilayah rona Kabupaten Bogor, menyemai data 
+       batas aturan RDTR (bylaw), menyemai rincian checklist evaluasi,
+       dan mendaftarkan pengguna awal (users) untuk kebutuhan autentikasi.
 ============================================================================
 """
 
@@ -20,14 +20,18 @@ from shapely.geometry import Polygon
 from geoalchemy2.shape import from_shape
 
 from src.infrastructure.database.connection import SessionLocal
-from src.infrastructure.security.auth import hash_password  # Mengimpor modul hashing password
+from src.infrastructure.security.auth import hash_password  # Mengimpor modul Hashing Password
+from src.domain.entities.permohonan import KKPRVerdict
 from src.infrastructure.database.models import (
     UserModel,
     PermohonanModel,
     LahanKompensasiModel,
     AuditTrailModel,
     SitePlanGeometryModel,
-    PermohonanFileModel
+    PermohonanFileModel,
+    MasterRDTRModel,
+    EvaluasiChecklistItemModel,
+    ChecklistStatus
 )
 
 def clear_existing_data(db) -> None:
@@ -38,7 +42,9 @@ def clear_existing_data(db) -> None:
         db.query(LahanKompensasiModel).delete()
         db.query(SitePlanGeometryModel).delete()
         db.query(PermohonanFileModel).delete()
+        db.query(EvaluasiChecklistItemModel).delete()
         db.query(PermohonanModel).delete()
+        db.query(MasterRDTRModel).delete()
         db.query(UserModel).delete()  # Bersihkan tabel user lama
         db.commit()
         print("[SEEDER] Sukses membersihkan tabel fisik database.")
@@ -78,7 +84,7 @@ def add_mock_files_for_permohonan(db, id_permohonan: str, photos_dict: dict) -> 
         ))
 
 def seed_spatial_data() -> None:
-    """Menyemai data user dan spasial WGS84 nyata wilayah Kabupaten Bogor."""
+    """Menyemai data user, aturan RDTR, dan spasial WGS84 nyata wilayah Kabupaten Bogor."""
     db = SessionLocal()
     clear_existing_data(db)
 
@@ -86,7 +92,6 @@ def seed_spatial_data() -> None:
     try:
         # ──────────────────────────────────────────────────────────────────────
         # TAHAP 1: PENYEMAIAN DATA USER SIMULASI (Sesuai Kredensial Frontend)
-        # Password default semua user diset seragam: "password123"
         # ──────────────────────────────────────────────────────────────────────
         print("[SEEDER] Menyemai data kredensial user baru...")
         default_password_hash = hash_password("password123")
@@ -154,14 +159,46 @@ def seed_spatial_data() -> None:
         db.commit() # Commit agar ID User ter-generate secara transaksional
         print(f"[SEEDER] Sukses mendaftarkan {len(users)} user simulasi ke database.")
 
-        # Ambil reference user_id untuk relasi permohonan
         pemohon_user = db.query(UserModel).filter(UserModel.username == "pemohon@geocitra.com").first()
         pemohon_id = pemohon_user.id if pemohon_user else None
 
         # ──────────────────────────────────────────────────────────────────────
-        # TAHAP 2: PENYEMAIAN DATA SPASIAL PERMOHONAN & KOMPENSASI REAL BOGOR
+        # TAHAP 2: PENYEMAIAN DATA MASTER ATURAN RDTR KABUPATEN BOGOR (Bylaws)
         # ──────────────────────────────────────────────────────────────────────
-        print("[SEEDER] Menyemai data spasial permohonan dan kompensasi...")
+        print("[SEEDER] Menyemai data master batas aturan RDTR Kabupaten Bogor...")
+        
+        rdtr_rules = [
+            MasterRDTRModel(
+                district="Cibinong", village="Cibinong", category="PERUMAHAN",
+                max_kdb=60.0, max_klb=3.2, min_kdh=10.0, min_gsb=5.0, min_rth_area=1500.0
+            ),
+            MasterRDTRModel(
+                district="Bojonggede", village="Pabuaran", category="PERUMAHAN",
+                max_kdb=60.0, max_klb=3.0, min_kdh=10.0, min_gsb=5.0, min_rth_area=1400.0
+            ),
+            MasterRDTRModel(
+                district="Babakan Madang", village="Babakan Madang", category="PERUMAHAN",
+                max_kdb=50.0, max_klb=2.5, min_kdh=15.0, min_gsb=6.0, min_rth_area=2000.0
+            ),
+            MasterRDTRModel(
+                district="Cileungsi", village="Limus Nunggal", category="PERUMAHAN",
+                max_kdb=60.0, max_klb=3.0, min_kdh=10.0, min_gsb=5.0, min_rth_area=1400.0
+            ),
+            MasterRDTRModel(
+                district="Gunung Putri", village="Gunung Putri", category="NON_PERUMAHAN",
+                max_kdb=60.0, max_klb=3.5, min_kdh=15.0, min_gsb=6.0, min_rth_area=1000.0
+            )
+        ]
+        
+        for rule in rdtr_rules:
+            db.add(rule)
+        db.commit()
+        print(f"[SEEDER] Sukses menyemai {len(rdtr_rules)} baris batas aturan RDTR.")
+
+        # ──────────────────────────────────────────────────────────────────────
+        # TAHAP 3: PENYEMAIAN DATA SPASIAL PERMOHONAN DENGAN METRIK DETAIL
+        # ──────────────────────────────────────────────────────────────────────
+        print("[SEEDER] Menyemai data spasial permohonan komparasi...")
 
         # KASUS 1: Cibinong Green Mansion (Status: Menunggu Verifikasi)
         outer_poly_1 = Polygon([
@@ -221,7 +258,23 @@ def seed_spatial_data() -> None:
             consultant_name="Ir. Hermawan Pratama",
             consultant_company_name="CV Rencana Semesta",
             consultant_pic_name="Hermawan Pratama",
-            statement_agreed=True
+            statement_agreed=True,
+
+            # Proposed
+            applicant_land_area=30000.0,
+            applicant_building_area=16500.0,
+            applicant_kdb=55.0,
+            applicant_klb=2.1,
+            applicant_kdh=15.0,
+            applicant_gsb=5.0,
+            applicant_rth_area=4600.0,
+
+            # Bylaws (dari Cibinong-Cibinong-Perumahan)
+            bylaw_max_kdb=60.0,
+            bylaw_max_klb=3.2,
+            bylaw_min_kdh=10.0,
+            bylaw_min_gsb=5.0,
+            bylaw_min_rth_area=1500.0
         )
         db.add(permohonan_1)
         add_mock_files_for_permohonan(db, "sub-1", {
@@ -231,50 +284,6 @@ def seed_spatial_data() -> None:
             "photoWest": "https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=400&q=80",
             "photoAccess": "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=400&q=80"
         })
-
-        poly_kdb_1 = Polygon([
-            (106.8405, -6.4805),
-            (106.8425, -6.4805),
-            (106.8425, -6.4825),
-            (106.8405, -6.4825),
-            (106.8405, -6.4805)
-        ])
-        geom_kdb_1 = SitePlanGeometryModel(
-            id_permohonan="sub-1",
-            layer_name="PTSP_KDB",
-            geom=from_shape(poly_kdb_1, srid=4326)
-        )
-        db.add(geom_kdb_1)
-
-        kompensasi_1 = LahanKompensasiModel(
-            id_kompensasi="komp-101",
-            id_permohonan="sub-1",
-            tipe_kompensasi="LAHAN_MAKAM_FISIK",
-            luas_kompensasi_m2=600.0,
-            geom=from_shape(Polygon([
-                (106.8390, -6.4790),
-                (106.8398, -6.4790),
-                (106.8398, -6.4798),
-                (106.8390, -6.4798),
-                (106.8390, -6.4790)
-            ]), srid=4326),
-            status_pemenuhan="PROSES_VERIFIKASI",
-            nilai_nominal=0.0,
-            bukti_legalitas_url="https://sipas.bogor.go.id/sertifikat/komp-101.pdf"
-        )
-        db.add(kompensasi_1)
-
-        audit_1 = AuditTrailModel(
-            submission_id="sub-1",
-            actor_name="Pemohon",
-            role="Pemohon",
-            action="SUBMIT_UNIFIED_FORM",
-            status_before="Draft",
-            status_after="Menunggu Verifikasi",
-            notes="Berkas pendaftaran awal berhasil diajukan online oleh pemohon.",
-            created_at=datetime(2026, 6, 20, 9, 30, 0)
-        )
-        db.add(audit_1)
 
         # KASUS 2: Bojonggede Residence (Status: Verifikasi Administrasi)
         outer_poly_2 = Polygon([
@@ -334,7 +343,23 @@ def seed_spatial_data() -> None:
             consultant_name="Ir. Wahyu Hidayat",
             consultant_company_name="PT Wahyu Konsultan Teknik",
             consultant_pic_name="Wahyu Hidayat",
-            statement_agreed=True
+            statement_agreed=True,
+
+            # Proposed
+            applicant_land_area=15000.0,
+            applicant_building_area=8250.0,
+            applicant_kdb=55.0,
+            applicant_klb=1.8,
+            applicant_kdh=15.0,
+            applicant_gsb=5.0,
+            applicant_rth_area=2500.0,
+
+            # Bylaws
+            bylaw_max_kdb=60.0,
+            bylaw_max_klb=3.0,
+            bylaw_min_kdh=10.0,
+            bylaw_min_gsb=5.0,
+            bylaw_min_rth_area=1400.0
         )
         db.add(permohonan_2)
         add_mock_files_for_permohonan(db, "sub-2", {
@@ -344,62 +369,6 @@ def seed_spatial_data() -> None:
             "photoWest": "https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=400&q=80",
             "photoAccess": "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=400&q=80"
         })
-
-        poly_kdb_2 = Polygon([
-            (106.8005, -6.4955),
-            (106.8015, -6.4955),
-            (106.8015, -6.4965),
-            (106.8005, -6.4965),
-            (106.8005, -6.4955)
-        ])
-        geom_kdb_2 = SitePlanGeometryModel(
-            id_permohonan="sub-2",
-            layer_name="PTSP_KDB",
-            geom=from_shape(poly_kdb_2, srid=4326)
-        )
-        db.add(geom_kdb_2)
-
-        kompensasi_2 = LahanKompensasiModel(
-            id_kompensasi="komp-102",
-            id_permohonan="sub-2",
-            tipe_kompensasi="LAHAN_MAKAM_FISIK",
-            luas_kompensasi_m2=300.0,
-            geom=from_shape(Polygon([
-                (106.7990, -6.4940),
-                (106.7995, -6.4940),
-                (106.7995, -6.4945),
-                (106.7990, -6.4945),
-                (106.7990, -6.4940)
-            ]), srid=4326),
-            status_pemenuhan="PROSES_VERIFIKASI",
-            nilai_nominal=0.0,
-            bukti_legalitas_url="https://sipas.bogor.go.id/sertifikat/komp-102.pdf"
-        )
-        db.add(kompensasi_2)
-
-        audit_2a = AuditTrailModel(
-            submission_id="sub-2",
-            actor_name="Pemohon",
-            role="Pemohon",
-            action="SUBMIT_UNIFIED_FORM",
-            status_before="Draft",
-            status_after="Menunggu Verifikasi",
-            notes="Berkas pendaftaran diajukan.",
-            created_at=datetime(2026, 6, 22, 10, 10, 0)
-        )
-        db.add(audit_2a)
-
-        audit_2b = AuditTrailModel(
-            submission_id="sub-2",
-            actor_name="Admin",
-            role="Admin",
-            action="VERIFY_ADMIN_APPROVED",
-            status_before="Menunggu Verifikasi",
-            status_after="Verifikasi Administrasi",
-            notes="Dokumen administrasi valid dan lengkap.",
-            created_at=datetime(2026, 6, 23, 11, 20, 0)
-        )
-        db.add(audit_2b)
 
         # KASUS 3: Sentul Clover Garden (Status: Menunggu Persetujuan)
         outer_poly_3 = Polygon([
@@ -459,7 +428,23 @@ def seed_spatial_data() -> None:
             consultant_name="Ir. Hermawan Pratama",
             consultant_company_name="CV Rencana Semesta",
             consultant_pic_name="Hermawan Pratama",
-            statement_agreed=True
+            statement_agreed=True,
+
+            # Proposed
+            applicant_land_area=45000.0,
+            applicant_building_area=20250.0,
+            applicant_kdb=45.0,
+            applicant_klb=2.0,
+            applicant_kdh=20.0,
+            applicant_gsb=6.0,
+            applicant_rth_area=6800.0,
+
+            # Bylaws
+            bylaw_max_kdb=50.0,
+            bylaw_max_klb=2.5,
+            bylaw_min_kdh=15.0,
+            bylaw_min_gsb=6.0,
+            bylaw_min_rth_area=2000.0
         )
         db.add(permohonan_3)
         add_mock_files_for_permohonan(db, "sub-3", {
@@ -470,75 +455,7 @@ def seed_spatial_data() -> None:
             "photoAccess": "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=400&q=80"
         })
 
-        poly_kdb_3 = Polygon([
-            (106.8710, -6.5610),
-            (106.8730, -6.5610),
-            (106.8730, -6.5630),
-            (106.8710, -6.5630),
-            (106.8710, -6.5610)
-        ])
-        geom_kdb_3 = SitePlanGeometryModel(
-            id_permohonan="sub-3",
-            layer_name="PTSP_KDB",
-            geom=from_shape(poly_kdb_3, srid=4326)
-        )
-        db.add(geom_kdb_3)
-
-        kompensasi_3 = LahanKompensasiModel(
-            id_kompensasi="komp-103",
-            id_permohonan="sub-3",
-            tipe_kompensasi="LAHAN_MAKAM_FISIK",
-            luas_kompensasi_m2=900.0,
-            geom=from_shape(Polygon([
-                (106.8680, -6.5590),
-                (106.8690, -6.5590),
-                (106.8690, -6.5599),
-                (106.8680, -6.5599),
-                (106.8680, -6.5590)
-            ]), srid=4326),
-            status_pemenuhan="PROSES_VERIFIKASI",
-            nilai_nominal=0.0,
-            bukti_legalitas_url="https://sipas.bogor.go.id/sertifikat/komp-103.pdf"
-        )
-        db.add(kompensasi_3)
-
-        audit_3a = AuditTrailModel(
-            submission_id="sub-3",
-            actor_name="Pemohon",
-            role="Pemohon",
-            action="SUBMIT_UNIFIED_FORM",
-            status_before="Draft",
-            status_after="Menunggu Verifikasi",
-            notes="Berkas pendaftaran diajukan.",
-            created_at=datetime(2026, 6, 15, 9, 0, 0)
-        )
-        db.add(audit_3a)
-
-        audit_3b = AuditTrailModel(
-            submission_id="sub-3",
-            actor_name="Admin",
-            role="Admin",
-            action="VERIFY_ADMIN_APPROVED",
-            status_before="Menunggu Verifikasi",
-            status_after="Verifikasi Administrasi",
-            notes="Administrasi valid.",
-            created_at=datetime(2026, 6, 16, 10, 0, 0)
-        )
-        db.add(audit_3b)
-
-        audit_3c = AuditTrailModel(
-            submission_id="sub-3",
-            actor_name="Tim Teknis",
-            role="Tim Teknis",
-            action="VERIFY_TECHNICAL_APPROVED",
-            status_before="Verifikasi Teknis",
-            status_after="Menunggu Persetujuan",
-            notes="Kelayakan spasial diverifikasi oleh Tim Teknis, BAPL diterbitkan.",
-            created_at=datetime(2026, 6, 18, 14, 0, 0)
-        )
-        db.add(audit_3c)
-
-        # KASUS 4: Cileungsi Green Valley (Status: Disetujui)
+        # KASUS 4: Cileungsi Green Valley (Status: Disetujui / Selesai TTE)
         outer_poly_4 = Polygon([
             (106.9600, -6.3800),
             (106.9625, -6.3800),
@@ -599,7 +516,34 @@ def seed_spatial_data() -> None:
             statement_agreed=True,
             signature_hash="sha256:7b952f4c9c1b48b52f6f1947b19a3b90875638c039a7bb2e80556f8f17e7ab43",
             signed_pdf_url="/api/v1/submissions/sub-4/download",
-            kabid_signature="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGQAAAAyCAYAAACq594cAAAABmJLR0QA/wD/AP+gvaeTAAAAcUlEQVR42u3SQQ0AIBDAsOH8OUcRDyagdyfAramS5OsB2GhkJCgJCQpKQlASEhSUhAQFJSFBCUkIUFISFJSEBCUkICFBCUkIUFISFJSEBCUkICFBCUkIUFISFJSEBCUkICFBCUkIUFISFJSEBCUkICFBCUlIUFISFJSEBAUlIUEJCUZ3o2Tf566ZAAAAAElFTkSuQmCC"
+            kabid_signature="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGQAAAAyCAYAAACq594cAAAABmJLR0QA/wD/AP+gvaeTAAAAcUlEQVR42u3SQQ0AIBDAsOH8OUcRDyagdyfAramS5OsB2GhkJCgJCQpKQlASEhSUhAQFJSFBCUkIUFISFJSEBCUkICFBCUkIUFISFJSEBCUkICFBCUkIUFISFJSEBCUkICFBCUlIUFISFJSEBAUlIUEJCUZ3o2Tf566ZAAAAAElFTkSuQmCC",
+
+            # Proposed
+            applicant_land_area=20000.0,
+            applicant_building_area=11000.0,
+            applicant_kdb=55.0,
+            applicant_klb=2.2,
+            applicant_kdh=15.0,
+            applicant_gsb=5.0,
+            applicant_rth_area=3100.0,
+
+            # Bylaws
+            bylaw_max_kdb=60.0,
+            bylaw_max_klb=3.0,
+            bylaw_min_kdh=10.0,
+            bylaw_min_gsb=5.0,
+            bylaw_min_rth_area=1400.0,
+
+            # ─── REVISI: METRIK HASIL HITUNG VERIFIKATOR DINAS (VERIFIED) ───
+            verified_kdb=55.0,
+            verified_klb=2.2,
+            verified_kdh=15.0,
+            verified_gsb=5.0,
+            verified_rth_area=3100.0,
+            
+            kkpr_verdict=KKPRVerdict.SESUAI,
+            kkpr_verified_at=datetime(2026, 6, 12, 14, 0, 0),
+            kkpr_verifier_name="Tim Teknis Penataan Ruang"
         )
         db.add(permohonan_4)
         add_mock_files_for_permohonan(db, "sub-4", {
@@ -609,6 +553,18 @@ def seed_spatial_data() -> None:
             "photoWest": "https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=400&q=80",
             "photoAccess": "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=400&q=80"
         })
+
+        # Menyemai Checklist Evaluasi Untuk Kasus 4 (Lolos Semua)
+        eval_items_4 = [
+            EvaluasiChecklistItemModel(id_permohonan="sub-4", aspek_code="REQ_ZONING", aspek_label="Kesesuaian dengan RTRW/RDTR", status_kelayakan=ChecklistStatus.SESUAI, catatan_verifikator="Sesuai rencana zona perumahan"),
+            EvaluasiChecklistItemModel(id_permohonan="sub-4", aspek_code="REQ_LEGAL", aspek_label="Status & Legalitas Kepemilikan Lahan", status_kelayakan=ChecklistStatus.SESUAI, catatan_verifikator="Sertifikat SHM No. 1023 Valid"),
+            EvaluasiChecklistItemModel(id_permohonan="sub-4",
+                aspek_code="REQ_BUILD_LIMIT", aspek_label="Kesesuaian KDB, KLB, KDH, GSB",
+                status_kelayakan=ChecklistStatus.SESUAI, catatan_verifikator="KDB terhitung 55% memenuhi batas maks 60%"
+            ),
+        ]
+        for ev in eval_items_4:
+            db.add(ev)
 
         poly_kdb_4 = Polygon([
             (106.9605, -6.3805),
@@ -691,7 +647,7 @@ def seed_spatial_data() -> None:
         )
         db.add(audit_4d)
 
-        # KASUS 5: Gunung Putri Commercial Hub (Status: Ditolak)
+        # KASUS 5: Gunung Putri Commercial Hub (Status: Ditolak / Gagal Verifikasi)
         outer_poly_5 = Polygon([
             (106.9000, -6.4200),
             (106.9015, -6.4200),
@@ -700,7 +656,7 @@ def seed_spatial_data() -> None:
             (106.9000, -6.4200)
         ])
 
-        permohonan_2 = PermohonanModel(
+        permohonan_5 = PermohonanModel(
             id_permohonan="sub-5",
             user_id=pemohon_id,
             submission_no="SIPAS-2026-005",
@@ -750,9 +706,36 @@ def seed_spatial_data() -> None:
             consultant_name="Ir. Wahyu Hidayat",
             consultant_company_name="PT Wahyu Konsultan Teknik",
             consultant_pic_name="Wahyu Hidayat",
-            statement_agreed=True
+            statement_agreed=True,
+
+            # Proposed
+            applicant_land_area=12000.0,
+            applicant_building_area=7260.0,
+            applicant_kdb=60.5,
+            applicant_klb=3.2,
+            applicant_kdh=12.1,
+            applicant_gsb=6.0,
+            applicant_rth_area=1452.0,
+
+            # Bylaws
+            bylaw_max_kdb=60.0,
+            bylaw_max_klb=3.5,
+            bylaw_min_kdh=15.0,
+            bylaw_min_gsb=6.0,
+            bylaw_min_rth_area=1000.0,
+
+            # ─── REVISI: METRIK HASIL HITUNG VERIFIKATOR DINAS (VERIFIED) ───
+            verified_kdb=60.5,
+            verified_klb=3.2,
+            verified_kdh=12.1,
+            verified_gsb=6.0,
+            verified_rth_area=1452.0,
+
+            kkpr_verdict=KKPRVerdict.TIDAK_SESUAI,
+            kkpr_verified_at=datetime(2026, 6, 12, 14, 15, 0),
+            kkpr_verifier_name="Ir. Budi Santoso"
         )
-        db.add(permohonan_2)
+        db.add(permohonan_5)
         add_mock_files_for_permohonan(db, "sub-5", {
             "photoNorth": "https://images.unsplash.com/photo-1590069261209-f8e9b8642343?auto=format&fit=crop&w=400&q=80",
             "photoSouth": "https://images.unsplash.com/photo-1582407947304-fd86f028f716?auto=format&fit=crop&w=400&q=80",
@@ -793,6 +776,23 @@ def seed_spatial_data() -> None:
         )
         db.add(kompensasi_5)
 
+        # Seed Checklist Evaluasi bermasalah
+        db.add(EvaluasiChecklistItemModel(
+            id_permohonan="sub-5",
+            aspek_code="REQ_ZONING",
+            aspek_label="Kesesuaian dengan RTRW/RDTR",
+            status_kelayakan=ChecklistStatus.SESUAI,
+            catatan_verifikator="Sesuai Zona Komersial."
+        ))
+        db.add(EvaluasiChecklistItemModel(
+            id_permohonan="sub-5",
+            aspek_code="REQ_BUILD_LIMIT",
+            aspek_label="Kesesuaian KDB, KLB, KDH, GSB",
+            status_kelayakan=ChecklistStatus.TIDAK_SESUAI,
+            catatan_verifikator="KDB riil dinas adalah 60.5% (Batas Maksimal 60%) & KDH 12.1% (Batas minimal 15.0%). Melanggar intensitas zonasi.",
+            attachment_url="uploads/evaluasi/revisi_gunung_putri_kdb.pdf"
+        ))
+
         audit_5 = AuditTrailModel(
             submission_id="sub-5",
             actor_name="Tim Teknis",
@@ -800,13 +800,13 @@ def seed_spatial_data() -> None:
             action="VERIFY_TECHNICAL_REJECTED",
             status_before="Verifikasi Teknis",
             status_after="Ditolak",
-            notes="Berkas ditolak. Kavling melanggar KDB tata ruang daerah resapan air dekat aliran sungai Cileungsi.",
+            notes="Berkas ditolak. Kavling melanggar KDB & KDH tata ruang daerah resapan air dekat aliran sungai Cileungsi.",
             created_at=datetime(2026, 6, 12, 14, 15, 0)
         )
         db.add(audit_5)
 
         db.commit()
-        print("[SEEDER] Sukses menyemai seluruh data spasial, user, dan riwayat log audit.")
+        print("[SEEDER] Sukses menyemai seluruh data spasial, user, master RDTR, dan riwayat log audit.")
 
     except Exception as e:
         db.rollback()

@@ -1,20 +1,30 @@
 """
 ============================================================================
-SIPAS INFRASTRUCTURE ADAPTER — Database Models [models.py]
+SIPAS INFRASTRUCTURE ADAPTER — Database Models [models.py] (REVISED v3)
 ============================================================================
 Peran: Mendefinisikan skema tabel fisik database PostgreSQL & PostGIS
        menggunakan deklarasi tipe data statis SQLAlchemy 2.0 (Mapped).
-       Diekspansi penuh untuk menampung seluruh detail formulir 10-tahap.
+       Diekspansi penuh untuk menampung seluruh detail formulir 10-tahap,
+       metrik komparasi tiga sisi, dynamic checklist evaluasi, dan Master RDTR.
 ============================================================================
 """
 
 from datetime import datetime, date, timezone
 from typing import List, Optional, Any
-from sqlalchemy import String, Float, Integer, Date, DateTime, ForeignKey, Text, Boolean
+from sqlalchemy import String, Float, Integer, Date, DateTime, ForeignKey, Text, Boolean, Enum as SQLEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from geoalchemy2 import Geometry
 
 from src.infrastructure.database.connection import Base
+from src.domain.entities.permohonan import KKPRVerdict  # Impor langsung dari domain (Single Source of Truth)
+
+# Enum penampung status verifikasi satuan checklist dinas
+import enum
+class ChecklistStatus(str, enum.Enum):
+    SESUAI = "Sesuai"
+    SESUAI_BERSYARAT = "Sesuai Bersyarat"
+    TIDAK_SESUAI = "Tidak Sesuai"
+    PENDING = "Pending"
 
 class UserModel(Base):
     __tablename__ = "users"
@@ -136,8 +146,6 @@ class PermohonanModel(Base):
     consultant_company_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     consultant_pic_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
-
-
     # ─── TAHAP 10: PERNYATAAN KOMITMEN HUKUM (STATEMENT) ──────────────────────
     statement_agreed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
@@ -146,6 +154,38 @@ class PermohonanModel(Base):
     signed_pdf_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     kabid_signature: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
+    # ─── REVISI: METRIK INTENSITAS BANGUNAN (THREE-SIDED COMPARISON LEDGER) ──
+    # A. Pengajuan Luas Fisik Mandiri Pemohon
+    applicant_land_area: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    applicant_building_area: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+
+    # B. Parameter Teknis Pengajuan Pemohon (Proposed)
+    applicant_kdb: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    applicant_klb: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    applicant_kdh: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    applicant_gsb: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    applicant_rth_area: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+
+    # C. Batas Baku Aturan RDTR (Bylaw - Auto-populated from MasterRDTR)
+    bylaw_max_kdb: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    bylaw_max_klb: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    bylaw_min_kdh: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    bylaw_min_gsb: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    bylaw_min_rth_area: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+
+    # D. Hasil Hitung Manual Verifikator (Verified)
+    verified_kdb: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    verified_klb: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    verified_kdh: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    verified_gsb: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    verified_rth_area: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+
+    # E. Hasil Kesimpulan KKPR Akhir
+    kkpr_verdict: Mapped[Optional[KKPRVerdict]] = mapped_column(SQLEnum(KKPRVerdict), nullable=True)
+    kkpr_verified_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    kkpr_verifier_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+
+    # Relasi Anak
     kompensasi: Mapped[List["LahanKompensasiModel"]] = relationship(
         "LahanKompensasiModel", 
         back_populates="permohonan", 
@@ -156,6 +196,55 @@ class PermohonanModel(Base):
         back_populates="permohonan", 
         cascade="all, delete-orphan"
     )
+    evaluasi_items: Mapped[List["EvaluasiChecklistItemModel"]] = relationship(
+        "EvaluasiChecklistItemModel", 
+        back_populates="permohonan", 
+        cascade="all, delete-orphan"
+    )
+
+
+class EvaluasiChecklistItemModel(Base):
+    """
+    Menampung record aspek penilaian terverifikasi dinas secara individual.
+    Menghilangkan hardcoded field demi prinsip Protected Variations.
+    """
+    __tablename__ = "evaluasi_checklist"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id_permohonan: Mapped[str] = mapped_column(String(50), ForeignKey("permohonan.id_permohonan", ondelete="CASCADE"), nullable=False)
+    
+    aspek_code: Mapped[str] = mapped_column(String(50), nullable=False) # e.g. 'REQ_ZONING', 'REQ_KDB'
+    aspek_label: Mapped[str] = mapped_column(String(255), nullable=False) # e.g. "Kesesuaian dengan RTRW/RDTR"
+    
+    status_kelayakan: Mapped[ChecklistStatus] = mapped_column(
+        SQLEnum(ChecklistStatus), nullable=False, default=ChecklistStatus.PENDING
+    )
+    catatan_verifikator: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    attachment_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True) # PDF coretan atau hitung dinas
+
+    permohonan: Mapped["PermohonanModel"] = relationship("PermohonanModel", back_populates="evaluasi_items")
+
+
+class MasterRDTRModel(Base):
+    """
+    Tabel Master batas regulasi (bylaw) RDTR Kabupaten Bogor secara dinamis.
+    Bertindak sebagai Information Expert untuk membandingkan kepatuhan tata ruang.
+    """
+    __tablename__ = "master_rdtr"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    district: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    village: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    category: Mapped[str] = mapped_column(String(50), nullable=False, index=True) # PERUMAHAN | NON_PERUMAHAN | FASUM | INDUSTRI
+
+    # Batas Regulasi Daerah Baku
+    max_kdb: Mapped[float] = mapped_column(Float, nullable=False, default=60.0)
+    max_klb: Mapped[float] = mapped_column(Float, nullable=False, default=3.5)
+    min_kdh: Mapped[float] = mapped_column(Float, nullable=False, default=10.0)
+    min_gsb: Mapped[float] = mapped_column(Float, nullable=False, default=5.0)
+    min_rth_area: Mapped[float] = mapped_column(Float, nullable=False, default=1400.0)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
 
 class LahanKompensasiModel(Base):
@@ -200,10 +289,10 @@ class SitePlanGeometryModel(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     id_permohonan: Mapped[str] = mapped_column(String(50), ForeignKey("permohonan.id_permohonan", ondelete="CASCADE"), nullable=False)
     layer_name: Mapped[str] = mapped_column(String(50), nullable=False) # e.g., 'PTSP_KDB', 'PTSP_KDH', 'PTSP_PSU_JALAN'
-    
+
     # Menyimpan poligon rinci internal site plan (WGS84) hasil parsing DXF
     geom: Mapped[Any] = mapped_column(
-        Geometry(geometry_type='POLYGON', srid=4326, spatial_index=True), 
+        Geometry(geometry_type='POLYGON', srid=4326, spatial_index=True),
         nullable=False
     )
 

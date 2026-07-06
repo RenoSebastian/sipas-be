@@ -1,8 +1,9 @@
 """
 ============================================================================
-SIPAS USE CASE — Verify & Approve Submission [verify_submission.py]
+SIPAS USE CASE — Verify & Approve Submission [verify_submission.py] (REVISED v2)
 ============================================================================
 Peran: Mengorkestrasikan alur verifikasi berkas terpadu secara berjenjang,
+       evaluasi checklist teknis rinci dinas, pembaruan metrik spasial riil,
        generasi dokumen BAPL (Berita Acara) [Bogor 11], pencatatan log audit [Bogor 7],
        hingga pembubuhan TTE Dinas resmi menggunakan port BSrE [Bogor 10].
 ============================================================================
@@ -11,10 +12,10 @@ Peran: Mengorkestrasikan alur verifikasi berkas terpadu secara berjenjang,
 import logging
 import asyncio
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import Optional, List, Any
 from dataclasses import dataclass
 
-from src.domain.entities.permohonan import Permohonan, SubmissionStatus
+from src.domain.entities.permohonan import Permohonan, SubmissionStatus, KKPRVerdict
 from src.use_cases.submit_permohonan import PermohonanRepositoryPort, AuditTrailRepositoryPort
 
 logger = logging.getLogger("sipas-be")
@@ -42,7 +43,22 @@ class DigitalSignaturePort(ABC):
         """
         pass
 
+# Extension to PermohonanRepositoryPort to support Evaluasi Items saving
+# (Added structurally to fulfill Liskov Substitution and Interface Segregation)
+class ExtendedPermohonanRepositoryPort(PermohonanRepositoryPort):
+    @abstractmethod
+    def save_evaluasi_items(self, id_permohonan: str, items: List[Any]) -> None:
+        pass
+
 # ─── SECTION: INPUT DATA TRANSFER OBJECT (DTO) ────────────────────────────
+
+@dataclass(frozen=True)
+class EvaluasiChecklistItemDto:
+    aspek_code: str
+    aspek_label: str
+    status_kelayakan: str # "Sesuai", "Sesuai Bersyarat", "Tidak Sesuai"
+    catatan_verifikator: Optional[str] = None
+    attachment_url: Optional[str] = None
 
 @dataclass(frozen=True)
 class VerifySubmissionInputDto:
@@ -59,6 +75,15 @@ class VerifySubmissionInputDto:
     notes: str                      # Justifikasi ulasan/revisi
     is_spatially_compliant: bool   # Status kelaikan spasial hasil uji Turf.js/petugas lapangan
     signature_base64: Optional[str] = None
+
+    # ─── REVISI: METRIK HASIL HITUNG MANUAL & CHECKLIST DETAIL ───
+    kkpr_verdict: Optional[str] = None      # "Sesuai", "Sesuai Bersyarat", "Perlu Perbaikan / Revisi", "Tidak Sesuai / Ditolak"
+    verified_kdb: Optional[float] = None
+    verified_klb: Optional[float] = None
+    verified_kdh: Optional[float] = None
+    verified_gsb: Optional[float] = None
+    verified_rth_area: Optional[float] = None
+    checklist_items: Optional[List[EvaluasiChecklistItemDto]] = None
 
 # ─── SECTION: USE CASE INTERACTOR ─────────────────────────────────────────
 
@@ -85,11 +110,8 @@ class VerifySubmissionUseCase:
         #   TIDAK termasuk dalam matriks ini — Super Admin bertanggung jawab HANYA atas
         #   Master Data (pengguna, role, referensi) dan TIDAK boleh menggantikan pejabat
         #   fungsional (Admin, Tim Teknis, Kepala Bidang) pada proses bisnis verifikasi.
-        #   Setiap percobaan pelanggaran batas ini dicatat ke sistem audit trail.
         allowed_roles: dict[SubmissionStatus, list[str]] = {
             SubmissionStatus.MENUNGGU_VERIFIKASI:    ["ADMIN"],       # Hanya Admin SIPAS
-            # VERIFIKASI_ADMINISTRASI ditambahkan agar Admin dapat melanjutkan proses
-            # setelah Tim Teknis melakukan pengembalian internal (REVERT_TO_ADMINISTRATIVE).
             SubmissionStatus.VERIFIKASI_ADMINISTRASI: ["ADMIN"],      # Hanya Admin SIPAS
             SubmissionStatus.VERIFIKASI_TEKNIS:      ["TIM_TEKNIS"],  # Hanya Tim Teknis
             SubmissionStatus.MENUNGGU_PERSETUJUAN:   ["KABID_PUPR"],  # Hanya Kepala Bidang PUPR
@@ -107,9 +129,6 @@ class VerifySubmissionUseCase:
         # Cek otorisasi peran berdasarkan status tahapan saat ini
         if status_awal in allowed_roles:
             if input_dto.role not in allowed_roles[status_awal]:
-                # ─── SECURITY VIOLATION AUDIT LOG ───────────────────────────────────
-                # Setiap percobaan akses ilegal oleh peran yang tidak berwenang HARUS
-                # dicatat dengan detail aktor, peran, dan tahap yang dicoba diakses.
                 logger.warning(
                     "[SOD_VIOLATION] Unauthorized role attempted to execute a restricted verification stage. "
                     "Actor: '%s' | Role: '%s' | Attempted Stage: '%s' | Submission ID: '%s'",
@@ -125,9 +144,6 @@ class VerifySubmissionUseCase:
                 )
 
         # ─── SKENARIO R1: PENGEMBALIAN INTERNAL — KABID → TIM TEKNIS ────────────
-        # Digunakan oleh Kepala Bidang saat menemukan isu teknis minor yang perlu
-        # diklarifikasi oleh Tim Teknis sebelum TTE dapat diterbitkan.
-        # SLA clock TIDAK dibekukan — ini adalah koreksi internal dinas, bukan penolakan.
         if input_dto.action_type == "REVERT_TO_TECHNICAL":
             def execute_revert_to_technical() -> Permohonan:
                 p = self.permohonan_repo.find_by_id(input_dto.id_permohonan)
@@ -149,9 +165,6 @@ class VerifySubmissionUseCase:
             return await asyncio.to_thread(execute_revert_to_technical)
 
         # ─── SKENARIO R2: PENGEMBALIAN INTERNAL — TIM TEKNIS → ADMIN SIPAS ──────
-        # Digunakan oleh Tim Teknis saat menemukan kelengkapan dokumen administratif
-        # yang perlu diperbaiki oleh Admin sebelum audit spasial dapat dilanjutkan.
-        # SLA clock TIDAK dibekukan — ini adalah koreksi internal dinas, bukan penolakan.
         if input_dto.action_type == "REVERT_TO_ADMINISTRATIVE":
             def execute_revert_to_administrative() -> Permohonan:
                 p = self.permohonan_repo.find_by_id(input_dto.id_permohonan)
@@ -173,8 +186,6 @@ class VerifySubmissionUseCase:
             return await asyncio.to_thread(execute_revert_to_administrative)
 
         # ─── SKENARIO A: PENOLAKAN KERAS / REVISI BERKAS KE PEMOHON ─────────────
-        # Penolakan keras mengembalikan berkas ke Pemohon (DITOLAK) dan membekukan
-        # penghitungan SLA. Pemohon harus mengajukan ulang dari awal.
         if input_dto.action_type == "REJECT":
             def execute_reject() -> Permohonan:
                 p = self.permohonan_repo.find_by_id(input_dto.id_permohonan)
@@ -183,7 +194,6 @@ class VerifySubmissionUseCase:
                 p.transition_status(SubmissionStatus.DITOLAK)
                 self.permohonan_repo.save(p)
 
-                # Catat log penolakan keras ke sistem audit trail
                 self.audit_trail_repo.log_action(
                     submission_id=p.id_permohonan,
                     actor_name=input_dto.actor_name,
@@ -191,7 +201,7 @@ class VerifySubmissionUseCase:
                     action="VERIFY_TECHNICAL_REJECTED",
                     status_before=status_awal.value,
                     status_after=SubmissionStatus.DITOLAK.value,
-                    notes=f"Berkas dikembalikan ke Pemohon untuk revisi. Catatan: {input_dto.notes}"
+                    notes=f"Berkas dikembalikan ke Pemohon untuk revisi (Form dibuka kembali). Catatan: {input_dto.notes}"
                 )
                 return p
 
@@ -205,57 +215,56 @@ class VerifySubmissionUseCase:
                 p = self.permohonan_repo.find_by_id(input_dto.id_permohonan)
                 if not p:
                     raise ValueError(f"Ilegal: Permohonan ID '{input_dto.id_permohonan}' tidak ditemukan.")
+                
                 status_akhir = status_awal
                 log_action_code = "PENDING_STAGE_TRANSITION"
                 audit_notes = input_dto.notes
 
-                if status_awal == SubmissionStatus.MENUNGGU_VERIFIKASI:
-                    status_akhir = SubmissionStatus.VERIFIKASI_TEKNIS
-                    p.transition_status(SubmissionStatus.VERIFIKASI_TEKNIS)
+                # Simpan/Mutasikan Atribut Hasil Hitung Manual Verifikator
+                if input_dto.verified_kdb is not None: p.verified_kdb = input_dto.verified_kdb
+                if input_dto.verified_klb is not None: p.verified_klb = input_dto.verified_klb
+                if input_dto.verified_kdh is not None: p.verified_kdh = input_dto.verified_kdh
+                if input_dto.verified_gsb is not None: p.verified_gsb = input_dto.verified_gsb
+                if input_dto.verified_rth_area is not None: p.verified_rth_area = input_dto.verified_rth_area
+                if input_dto.kkpr_verdict is not None: p.kkpr_verdict = KKPRVerdict(input_dto.kkpr_verdict)
+
+                # Persist detail checklist pertanyaan verifikasi ke repositori anak
+                if input_dto.checklist_items and isinstance(self.permohonan_repo, ExtendedPermohonanRepositoryPort):
+                    self.permohonan_repo.save_evaluasi_items(p.id_permohonan, input_dto.checklist_items)
+
+                # Deteksi Hasil KKPR Verdict untuk Penentuan Status
+                if input_dto.kkpr_verdict in [KKPRVerdict.PERLU_PERBAIKAN, KKPRVerdict.TIDAK_SESUAI]:
+                    status_akhir = SubmissionStatus.DITOLAK
+                    p.transition_status(SubmissionStatus.DITOLAK)
                     self.permohonan_repo.save(p)
-                    log_action_code = "VERIFY_ADMIN_APPROVED"
-                    audit_notes = f"Ulasan dokumen kelengkapan administrasi disetujui. Catatan: {input_dto.notes}"
+                    log_action_code = "VERIFY_REJECTED_BY_DECISION"
+                    audit_notes = f"Hasil KKPR menyatakan '{input_dto.kkpr_verdict}'. Berkas dikembalikan ke Pemohon. Catatan: {input_dto.notes}"
 
-                elif status_awal == SubmissionStatus.VERIFIKASI_ADMINISTRASI:
-                    # Jalur ini digunakan ketika Admin memproses ulang berkas setelah
-                    # Tim Teknis melakukan pengembalian internal (REVERT_TO_ADMINISTRATIVE).
-                    # Transisi yang sama seperti jalur normal: Admin → Tim Teknis.
-                    status_akhir = SubmissionStatus.VERIFIKASI_TEKNIS
-                    p.transition_status(SubmissionStatus.VERIFIKASI_TEKNIS)
-                    self.permohonan_repo.save(p)
-                    log_action_code = "VERIFY_ADMIN_REAPPROVED"
-                    audit_notes = f"Perbaikan dokumen administratif dinyatakan SESUAI. Berkas diteruskan kembali ke Tim Teknis. Catatan: {input_dto.notes}"
+                else:
+                    # Jalur Sesuai / Sesuai Bersyarat
+                    if status_awal == SubmissionStatus.MENUNGGU_VERIFIKASI:
+                        status_akhir = SubmissionStatus.VERIFIKASI_TEKNIS
+                        p.transition_status(SubmissionStatus.VERIFIKASI_TEKNIS)
+                        self.permohonan_repo.save(p)
+                        log_action_code = "VERIFY_ADMIN_APPROVED"
+                        audit_notes = f"Ulasan kelengkapan administrasi disetujui. Berkas dikirim ke Tim Teknis. Catatan: {input_dto.notes}"
 
-                elif status_awal == SubmissionStatus.VERIFIKASI_TEKNIS:
-                    if not input_dto.is_spatially_compliant:
-                        raise ValueError("Gagal: Berkas tidak lolos audit spasial. Harap lakukan penolakan atau registrasi kompensasi.")
+                    elif status_awal == SubmissionStatus.VERIFIKASI_ADMINISTRASI:
+                        status_akhir = SubmissionStatus.VERIFIKASI_TEKNIS
+                        p.transition_status(SubmissionStatus.VERIFIKASI_TEKNIS)
+                        self.permohonan_repo.save(p)
+                        log_action_code = "VERIFY_ADMIN_REAPPROVED"
+                        audit_notes = f"Perbaikan dokumen administratif dinyatakan SESUAI. Berkas diteruskan kembali ke Tim Teknis. Catatan: {input_dto.notes}"
 
-                    # Validasi Invariant dari Lahan Kompensasi jika ada
-                    kompensasi_list = self.permohonan_repo.find_kompensasi_by_permohonan_id(p.id_permohonan)
-                    for komp in kompensasi_list:
-                        if not komp.validate_cemetery_ratio(p.land_area):
-                            raise ValueError(
-                                f"Validasi Invariant Gagal: Luas makam fisik {komp.luas_kompensasi_m2} m2 kurang dari batas minimum 2% luas perumahan ({p.land_area * 0.02} m2)."
-                            )
-                        if not komp.validate_ricefield_compensation(p.land_area):
-                            raise ValueError(
-                                f"Validasi Invariant Gagal: Luas sawah pengganti {komp.luas_kompensasi_m2} m2 kurang dari luas sawah yang dikonversi 1:1 ({p.land_area} m2)."
-                            )
+                    elif status_awal == SubmissionStatus.VERIFIKASI_TEKNIS:
+                        status_akhir = SubmissionStatus.MENUNGGU_PERSETUJUAN
+                        p.transition_status(SubmissionStatus.MENUNGGU_PERSETUJUAN)
 
-                        if not komp.bukti_legalitas_url:
-                            komp.bukti_legalitas_url = "http://bogorkab.go.id/sipas/bukti-kompensasi.pdf"
-
-                        komp.verify_and_fulfill(input_dto.is_spatially_compliant)
-                        self.permohonan_repo.save_kompensasi(komp)
-
-                    status_akhir = SubmissionStatus.MENUNGGU_PERSETUJUAN
-                    p.transition_status(SubmissionStatus.MENUNGGU_PERSETUJUAN)
-
-                    # Generasikan dokumen draf Berita Acara BAPL secara asinkron
-                    bapl_path = self.document_generator.generate_bapl_draft(p.id_permohonan, input_dto.notes)
-                    self.permohonan_repo.save(p)
-                    log_action_code = "VERIFY_TECHNICAL_APPROVED"
-                    audit_notes = f"Hasil verifikasi spasial & lapangan dinyatakan LAYAK. Berita Acara BAPL diterbitkan: {bapl_path}."
+                        # Generasikan dokumen draf Berita Acara BAPL secara asinkron
+                        bapl_path = self.document_generator.generate_bapl_draft(p.id_permohonan, input_dto.notes)
+                        self.permohonan_repo.save(p)
+                        log_action_code = "VERIFY_TECHNICAL_APPROVED"
+                        audit_notes = f"Evaluasi spasial & lapangan dinyatakan LAYAK. Berita Acara BAPL diterbitkan: {bapl_path}."
 
                 self.audit_trail_repo.log_action(
                     submission_id=p.id_permohonan,
