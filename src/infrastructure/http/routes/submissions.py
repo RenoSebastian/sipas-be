@@ -152,6 +152,8 @@ class DocumentDto(BaseModel):
     technicalDoc: Optional[str] = Field(default=None)
     supportDoc: Optional[str] = Field(default=None)
     supportDoc2: Optional[str] = Field(default=None)
+    skaDoc: Optional[str] = Field(default=None)
+    cadDoc: Optional[str] = Field(default=None)
 
 class PhotoDto(BaseModel):
     photoNorth: Optional[str] = Field(default=None)
@@ -381,6 +383,8 @@ def submit_permohonan(
             document_technical_doc=req.document.technicalDoc if req.document else None,
             document_support_doc=req.document.supportDoc if req.document else None,
             document_support_doc2=req.document.supportDoc2 if req.document else None,
+            document_ska_doc=req.document.skaDoc if req.document else None,
+            document_cad_doc=req.document.cadDoc if req.document else None,
             
             # Tahap 9
             photo_north=req.photo.photoNorth if req.photo else None,
@@ -708,7 +712,9 @@ def get_submission_by_id(id_permohonan: str, db: Session = Depends(get_db), curr
         "legalDoc": None,
         "technicalDoc": None,
         "supportDoc": None,
-        "supportDoc2": None
+        "supportDoc2": None,
+        "skaDoc": None,
+        "cadDoc": None
     }
     for f in db_files:
         if f.file_type == "document":
@@ -717,7 +723,8 @@ def get_submission_by_id(id_permohonan: str, db: Session = Depends(get_db), curr
                 "name": f.file_name,
                 "type": f.file_name.split('.')[-1] if '.' in f.file_name else 'pdf',
                 "url": f.file_url,
-                "uploadedAt": f.uploaded_at.isoformat()
+                "uploadedAt": f.uploaded_at.isoformat(),
+                "key": f.file_key
             })
             docs_dict[f.file_key] = f.file_url
         elif f.file_type == "photo":

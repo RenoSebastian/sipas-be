@@ -14,8 +14,23 @@ from datetime import date
 from typing import Optional, List, Any
 from dataclasses import dataclass
 import os
+import urllib.parse
 
 from src.domain.entities.permohonan import Permohonan, SubmissionStatus, KKPRVerdict
+
+def extract_filename_and_clean_url(url: str) -> tuple[str, str]:
+    if not url:
+        return "", ""
+    parsed = urllib.parse.urlparse(url)
+    query_params = urllib.parse.parse_qs(parsed.query)
+    original_name = query_params.get("name")
+    if original_name:
+        name = original_name[0]
+    else:
+        name = os.path.basename(parsed.path)
+    # Reconstruct clean url without query parameters
+    clean_url = urllib.parse.urlunparse((parsed.scheme, parsed.netloc, parsed.path, '', '', ''))
+    return name, clean_url
 
 # ─── SECTION: PORT ABSTRAKSI (DEPENDENCY INVERSION) ───────────────────────
 
@@ -168,6 +183,8 @@ class SubmitPermohonanInputDto:
     document_technical_doc: Optional[str] = None
     document_support_doc: Optional[str] = None
     document_support_doc2: Optional[str] = None
+    document_ska_doc: Optional[str] = None
+    document_cad_doc: Optional[str] = None
 
     # Tahap 9 (Foto-foto)
     photo_north: Optional[str] = None
@@ -328,77 +345,104 @@ class SubmitPermohonanUseCase:
 
         files_to_save = []
         if input_dto.document_legal_doc:
+            name, clean_url = extract_filename_and_clean_url(input_dto.document_legal_doc)
             files_to_save.append({
                 "file_type": "document",
                 "file_key": "legalDoc",
-                "file_name": os.path.basename(input_dto.document_legal_doc),
-                "file_path": input_dto.document_legal_doc,
-                "file_url": input_dto.document_legal_doc
+                "file_name": name,
+                "file_path": clean_url,
+                "file_url": clean_url
             })
         if input_dto.document_technical_doc:
+            name, clean_url = extract_filename_and_clean_url(input_dto.document_technical_doc)
             files_to_save.append({
                 "file_type": "document",
                 "file_key": "technicalDoc",
-                "file_name": os.path.basename(input_dto.document_technical_doc),
-                "file_path": input_dto.document_technical_doc,
-                "file_url": input_dto.document_technical_doc
+                "file_name": name,
+                "file_path": clean_url,
+                "file_url": clean_url
             })
         if input_dto.document_support_doc:
+            name, clean_url = extract_filename_and_clean_url(input_dto.document_support_doc)
             files_to_save.append({
                 "file_type": "document",
                 "file_key": "supportDoc",
-                "file_name": os.path.basename(input_dto.document_support_doc),
-                "file_path": input_dto.document_support_doc,
-                "file_url": input_dto.document_support_doc
+                "file_name": name,
+                "file_path": clean_url,
+                "file_url": clean_url
             })
         if input_dto.document_support_doc2:
+            name, clean_url = extract_filename_and_clean_url(input_dto.document_support_doc2)
             files_to_save.append({
                 "file_type": "document",
                 "file_key": "supportDoc2",
-                "file_name": os.path.basename(input_dto.document_support_doc2),
-                "file_path": input_dto.document_support_doc2,
-                "file_url": input_dto.document_support_doc2
+                "file_name": name,
+                "file_path": clean_url,
+                "file_url": clean_url
+            })
+        if input_dto.document_ska_doc:
+            name, clean_url = extract_filename_and_clean_url(input_dto.document_ska_doc)
+            files_to_save.append({
+                "file_type": "document",
+                "file_key": "skaDoc",
+                "file_name": name,
+                "file_path": clean_url,
+                "file_url": clean_url
+            })
+        if input_dto.document_cad_doc:
+            name, clean_url = extract_filename_and_clean_url(input_dto.document_cad_doc)
+            files_to_save.append({
+                "file_type": "document",
+                "file_key": "cadDoc",
+                "file_name": name,
+                "file_path": clean_url,
+                "file_url": clean_url
             })
 
         if input_dto.photo_north:
+            name, clean_url = extract_filename_and_clean_url(input_dto.photo_north)
             files_to_save.append({
                 "file_type": "photo",
                 "file_key": "photoNorth",
-                "file_name": os.path.basename(input_dto.photo_north),
-                "file_path": input_dto.photo_north,
-                "file_url": input_dto.photo_north
+                "file_name": name,
+                "file_path": clean_url,
+                "file_url": clean_url
             })
         if input_dto.photo_south:
+            name, clean_url = extract_filename_and_clean_url(input_dto.photo_south)
             files_to_save.append({
                 "file_type": "photo",
                 "file_key": "photoSouth",
-                "file_name": os.path.basename(input_dto.photo_south),
-                "file_path": input_dto.photo_south,
-                "file_url": input_dto.photo_south
+                "file_name": name,
+                "file_path": clean_url,
+                "file_url": clean_url
             })
         if input_dto.photo_east:
+            name, clean_url = extract_filename_and_clean_url(input_dto.photo_east)
             files_to_save.append({
                 "file_type": "photo",
                 "file_key": "photoEast",
-                "file_name": os.path.basename(input_dto.photo_east),
-                "file_path": input_dto.photo_east,
-                "file_url": input_dto.photo_east
+                "file_name": name,
+                "file_path": clean_url,
+                "file_url": clean_url
             })
         if input_dto.photo_west:
+            name, clean_url = extract_filename_and_clean_url(input_dto.photo_west)
             files_to_save.append({
                 "file_type": "photo",
                 "file_key": "photoWest",
-                "file_name": os.path.basename(input_dto.photo_west),
-                "file_path": input_dto.photo_west,
-                "file_url": input_dto.photo_west
+                "file_name": name,
+                "file_path": clean_url,
+                "file_url": clean_url
             })
         if input_dto.photo_access:
+            name, clean_url = extract_filename_and_clean_url(input_dto.photo_access)
             files_to_save.append({
                 "file_type": "photo",
                 "file_key": "photoAccess",
-                "file_name": os.path.basename(input_dto.photo_access),
-                "file_path": input_dto.photo_access,
-                "file_url": input_dto.photo_access
+                "file_name": name,
+                "file_path": clean_url,
+                "file_url": clean_url
             })
 
         self.permohonan_repo.save_files(saved_permohonan.id_permohonan, files_to_save)
