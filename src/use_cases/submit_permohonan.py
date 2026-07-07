@@ -185,6 +185,8 @@ class SubmitPermohonanInputDto:
     document_support_doc2: Optional[str] = None
     document_ska_doc: Optional[str] = None
     document_cad_doc: Optional[str] = None
+    document_ktp_doc: Optional[str] = None
+    document_nib_doc: Optional[str] = None
 
     # Tahap 9 (Foto-foto)
     photo_north: Optional[str] = None
@@ -394,6 +396,24 @@ class SubmitPermohonanUseCase:
             files_to_save.append({
                 "file_type": "document",
                 "file_key": "cadDoc",
+                "file_name": name,
+                "file_path": clean_url,
+                "file_url": clean_url
+            })
+        if input_dto.document_ktp_doc:
+            name, clean_url = extract_filename_and_clean_url(input_dto.document_ktp_doc)
+            files_to_save.append({
+                "file_type": "document",
+                "file_key": "ktpDoc",
+                "file_name": name,
+                "file_path": clean_url,
+                "file_url": clean_url
+            })
+        if input_dto.document_nib_doc:
+            name, clean_url = extract_filename_and_clean_url(input_dto.document_nib_doc)
+            files_to_save.append({
+                "file_type": "document",
+                "file_key": "nibDoc",
                 "file_name": name,
                 "file_path": clean_url,
                 "file_url": clean_url

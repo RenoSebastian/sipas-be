@@ -18,6 +18,7 @@ import random
 import shutil
 import uuid
 import os
+import urllib.parse
 
 # Adapter Koneksi & Repositori Database
 from src.infrastructure.database.connection import get_db, get_bpn_port, get_oss_port, get_simtaru_port
@@ -154,6 +155,8 @@ class DocumentDto(BaseModel):
     supportDoc2: Optional[str] = Field(default=None)
     skaDoc: Optional[str] = Field(default=None)
     cadDoc: Optional[str] = Field(default=None)
+    ktpDoc: Optional[str] = Field(default=None)
+    nibDoc: Optional[str] = Field(default=None)
 
 class PhotoDto(BaseModel):
     photoNorth: Optional[str] = Field(default=None)
@@ -398,6 +401,8 @@ def submit_permohonan(
             document_support_doc2=req.document.supportDoc2 if req.document else None,
             document_ska_doc=req.document.skaDoc if req.document else None,
             document_cad_doc=req.document.cadDoc if req.document else None,
+            document_ktp_doc=req.document.ktpDoc if req.document else None,
+            document_nib_doc=req.document.nibDoc if req.document else None,
             
             # Tahap 9
             photo_north=req.photo.photoNorth if req.photo else None,
@@ -727,7 +732,9 @@ def get_submission_by_id(id_permohonan: str, db: Session = Depends(get_db), curr
         "supportDoc": None,
         "supportDoc2": None,
         "skaDoc": None,
-        "cadDoc": None
+        "cadDoc": None,
+        "ktpDoc": None,
+        "nibDoc": None
     }
     for f in db_files:
         if f.file_type == "document":
