@@ -230,6 +230,17 @@ class VerifyRequest(BaseModel):
 async def upload_file(request: Request, file: UploadFile = File(...)):
     """Mengunggah berkas lampiran secara lokal ke storage backend [uploads/permohonan]"""
     try:
+        # Enforce 20MB file size limit
+        MAX_FILE_SIZE = 20 * 1024 * 1024
+        await file.seek(0, 2)
+        size = await file.tell()
+        await file.seek(0)
+        if size > MAX_FILE_SIZE:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Ukuran berkas melebihi batas maksimal 20MB."
+            )
+
         upload_dir = "uploads/permohonan"
         os.makedirs(upload_dir, exist_ok=True)
         
@@ -250,6 +261,8 @@ async def upload_file(request: Request, file: UploadFile = File(...)):
             "file_path": file_path,
             "file_url": file_url
         }
+    except HTTPException as e:
+        raise e
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -726,9 +739,11 @@ def get_submission_by_id(id_permohonan: str, db: Session = Depends(get_db), curr
                 "uploadedAt": f.uploaded_at.isoformat(),
                 "key": f.file_key
             })
-            docs_dict[f.file_key] = f.file_url
+            if f.file_url:
+                docs_dict[f.file_key] = f"{f.file_url}?name={urllib.parse.quote(f.file_name)}"
         elif f.file_type == "photo":
-            photos_dict[f.file_key] = f.file_url
+            if f.file_url:
+                photos_dict[f.file_key] = f"{f.file_url}?name={urllib.parse.quote(f.file_name)}"
 
     # Ambil Checklist Evaluasi manual jika ada
     db_evaluations = db.query(EvaluasiChecklistItemModel).filter(
@@ -927,9 +942,13 @@ async def ocr_ktp(
         from src.infrastructure.ocr.tesseract_adapter import TesseractOcrAdapter
         
         content = await file.read()
+        if len(content) > 20 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail="Ukuran berkas melebihi batas maksimal 20MB.")
         adapter = TesseractOcrAdapter()
         data = adapter.extract_ktp_data(content)
         return data
+    except HTTPException as e:
+        raise e
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Gagal memproses OCR KTP: {str(e)}")
 
@@ -943,8 +962,12 @@ async def ocr_nib(
         from src.infrastructure.ocr.tesseract_adapter import TesseractOcrAdapter
         
         content = await file.read()
+        if len(content) > 20 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail="Ukuran berkas melebihi batas maksimal 20MB.")
         adapter = TesseractOcrAdapter()
         data = adapter.extract_nib_data(content)
         return data
+    except HTTPException as e:
+        raise e
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Gagal memproses OCR NIB: {str(e)}")
