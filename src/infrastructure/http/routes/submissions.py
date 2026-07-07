@@ -232,9 +232,9 @@ async def upload_file(request: Request, file: UploadFile = File(...)):
     try:
         # Enforce 20MB file size limit
         MAX_FILE_SIZE = 20 * 1024 * 1024
-        await file.seek(0, 2)
-        size = await file.tell()
-        await file.seek(0)
+        file.file.seek(0, 2)
+        size = file.file.tell()
+        file.file.seek(0)
         if size > MAX_FILE_SIZE:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
