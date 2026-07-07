@@ -53,26 +53,72 @@ def clear_existing_data(db) -> None:
         print(f"[SEEDER_ERROR] Gagal membersihkan database: {str(e)}")
         sys.exit(1)
 
-def add_mock_files_for_permohonan(db, id_permohonan: str, photos_dict: dict) -> None:
-    # Add mock documents
-    db.add(PermohonanFileModel(
-        id_permohonan=id_permohonan,
-        file_type="document",
-        file_key="legalDoc",
-        file_name="Surat Permohonan & KTP.pdf",
-        file_path="uploads/permohonan/mock_legalDoc.pdf",
-        file_url="#"
-    ))
-    db.add(PermohonanFileModel(
-        id_permohonan=id_permohonan,
-        file_type="document",
-        file_key="technicalDoc",
-        file_name="Rencana Site Plan.pdf",
-        file_path="uploads/permohonan/mock_technicalDoc.pdf",
-        file_url="#"
-    ))
+def add_mock_files_for_permohonan(db, id_permohonan: str, photos_dict: dict, category: str = "PERUMAHAN") -> None:
+    """
+    Menyisipkan 8 berkas dokumen terintegrasi secara lengkap ke dalam database.
+    Nama file diatur menggunakan identitas yang manusiawi untuk menghindari visualisasi UUID yang membingungkan.
+    """
+    # Menentukan dokumen teknis dan andalalin secara kondisional berdasarkan kategori pengajuan (Slide 6)
+    tech_doc_name = "AMDAL_Kawasan_Industri_Gunung_Putri.pdf" if category == "INDUSTRI" else "Rencana_Sistem_PSU_Kawasan_Hunian.pdf"
+    support2_name = "Persetujuan_Teknis_Air_Limbah_Industri.pdf" if category == "INDUSTRI" else "Kajian_Andalalin_Dishub_Approved.pdf"
+
+    documents = [
+        {
+            "file_key": "legalDoc",
+            "file_name": "Sertifikat_Tanah_BPN_SHM_No_1023.pdf",
+            "file_path": "uploads/permohonan/mock_legalDoc.pdf"
+        },
+        {
+            "file_key": "technicalDoc",
+            "file_name": tech_doc_name,
+            "file_path": f"uploads/permohonan/mock_technicalDoc_{category.lower()}.pdf"
+        },
+        {
+            "file_key": "supportDoc",
+            "file_name": "SK_KKPR_Persetujuan_Awal_Dinas.pdf",
+            "file_path": "uploads/permohonan/mock_supportDoc.pdf"
+        },
+        {
+            "file_key": "supportDoc2",
+            "file_name": support2_name,
+            "file_path": "uploads/permohonan/mock_supportDoc2.pdf"
+        },
+        {
+            "file_key": "skaDoc",
+            "file_name": "Sertifikat_Keahlian_Arsitek_SKEA_IAI.pdf",
+            "file_path": "uploads/permohonan/mock_skaDoc.pdf"
+        },
+        {
+            "file_key": "cadDoc",
+            "file_name": "site_plan_autocad_vector_coordinates.dxf",
+            "file_path": "uploads/permohonan/mock_cadDoc.dxf"
+        },
+        {
+            "file_key": "ktpDoc",
+            "file_name": "KTP_Direktur_Utama_Budi_Santoso.jpg",
+            "file_path": "uploads/permohonan/mock_ktpDoc.jpg"
+        },
+        {
+            "file_key": "nibDoc",
+            "file_name": "NIB_Lembaga_OSS_Maju_Bersama_Jaya.pdf",
+            "file_path": "uploads/permohonan/mock_nibDoc.pdf"
+        }
+    ]
+
+    # Menyimpan dokumen ke tabel fisik permohonan_files
+    for doc in documents:
+        # Konstruksi file url lokal
+        file_url = f"http://localhost:8000/{doc['file_path']}"
+        db.add(PermohonanFileModel(
+            id_permohonan=id_permohonan,
+            file_type="document",
+            file_key=doc["file_key"],
+            file_name=doc["file_name"],
+            file_path=doc["file_path"],
+            file_url=file_url
+        ))
     
-    # Add photos
+    # Menyimpan dokumentasi foto lapangan (5 penjuru arah mata angin)
     for k, url in photos_dict.items():
         db.add(PermohonanFileModel(
             id_permohonan=id_permohonan,
@@ -283,7 +329,7 @@ def seed_spatial_data() -> None:
             "photoEast": "https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=400&q=80",
             "photoWest": "https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=400&q=80",
             "photoAccess": "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=400&q=80"
-        })
+        }, category="PERUMAHAN")
 
         # KASUS 2: Bojonggede Residence (Status: Verifikasi Administrasi)
         outer_poly_2 = Polygon([
@@ -368,7 +414,7 @@ def seed_spatial_data() -> None:
             "photoEast": "https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=400&q=80",
             "photoWest": "https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=400&q=80",
             "photoAccess": "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=400&q=80"
-        })
+        }, category="PERUMAHAN")
 
         # KASUS 3: Sentul Clover Garden (Status: Menunggu Persetujuan)
         outer_poly_3 = Polygon([
@@ -453,7 +499,7 @@ def seed_spatial_data() -> None:
             "photoEast": "https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=400&q=80",
             "photoWest": "https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=400&q=80",
             "photoAccess": "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=400&q=80"
-        })
+        }, category="PERUMAHAN")
 
         # KASUS 4: Cileungsi Green Valley (Status: Disetujui / Selesai TTE)
         outer_poly_4 = Polygon([
@@ -552,7 +598,7 @@ def seed_spatial_data() -> None:
             "photoEast": "https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=400&q=80",
             "photoWest": "https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=400&q=80",
             "photoAccess": "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=400&q=80"
-        })
+        }, category="PERUMAHAN")
 
         # Menyemai Checklist Evaluasi Untuk Kasus 4 (Lolos Semua)
         eval_items_4 = [
@@ -742,7 +788,7 @@ def seed_spatial_data() -> None:
             "photoEast": "https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=400&q=80",
             "photoWest": "https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=400&q=80",
             "photoAccess": "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=400&q=80"
-        })
+        }, category="NON_PERUMAHAN")
 
         poly_kdb_5 = Polygon([
             (106.9005, -6.4205),
