@@ -1,19 +1,19 @@
 """
 ============================================================================
-SIPAS INFRASTRUCTURE ADAPTER — Background Task Runner [tasks.py]
+SIPAS INFRASTRUCTURE ADAPTER — Background Task Runner [tasks.py] (REVISED v2)
 ============================================================================
 Peran: Menggantikan fungsi Celery Worker dengan thread independen di dalam
        proses aplikasi utama menggunakan FastAPI BackgroundTasks.
        Membaca CAD lokal, mentranslasikannya ke koordinat bumi WGS84
        berdasarkan parameter titik ikat yang dikirim secara dinamis, 
        menyimpannya ke tabel spasial PostGIS, lalu mengaktifkan sinkronisasi 
-       WMS/WFS di GeoServer pasca-transaksi database selesai.
+       WMS/WFS di GeoServer pasca-transaksi database selesai [Bogor 3].
 ============================================================================
 """
 
 import os
 import logging
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Tuple, List
 from pathlib import Path
 
 from shapely.geometry import Polygon
@@ -54,7 +54,8 @@ def execute_cad_parsing_background(
 
     db = SessionLocal()
     try:
-        # 1. Ekstrak data mentah koordinat lokal dari berkas CAD
+        # 1. Ekstrak data mentah koordinat lokal dari berkas CAD.
+        # Melalui CadParser (v2), data layer yang dikembalikan sudah berupa nama sistem yang sah (resolved) [Buku 3 11].
         parser = CadParser()
         raw_cad_layers = parser.parse_and_extract_layers(file_path)
 
@@ -79,25 +80,45 @@ def execute_cad_parsing_background(
         saved_count = 0
         for layer_name, polylines in raw_cad_layers.items():
             for polyline in polylines:
-                # Lakukan transformasi Helmert 2D ke WGS84 per titik
-                calibrated_coords = []
+                # Lakukan transformasi Helmert 2D ke WGS84 per titik [Jakarta 5]
+                calibrated_coords: List[Tuple[float, float]] = []
                 for x, y in polyline:
                     world_coord = transform_params.transform(x, y)
                     calibrated_coords.append((world_coord.longitude, world_coord.latitude))
 
-                # Pastikan poligon tertutup secara matematis
+                # Pastikan poligon tertutup secara matematis (GeoJSON Standard)
                 if calibrated_coords[0] != calibrated_coords[-1]:
                     calibrated_coords.append(calibrated_coords[0])
 
+                # ─── GEOMETRY DEGENERACY GUARD (Data Integrity) ───
+                # Saring data kotor: Poligon minimal membutuhkan 3 koordinat unik sebelum dapat ditutup
+                unique_coords = set(calibrated_coords)
+                if len(unique_coords) < 3:
+                    logger.warning(
+                        f"[BG_TASK_WARNING] Poligon pada layer '{layer_name}' "
+                        f"memiliki kurang dari 3 titik unik {list(unique_coords)}. Dilewati untuk mencegah crash PostGIS."
+                    )
+                    continue
+
                 # Konversi menjadi objek geometri spasial PostGIS menggunakan Shapely
-                shapely_polygon = Polygon(calibrated_coords)
-                spatial_record = SitePlanGeometryModel(
-                    id_permohonan=id_permohonan,
-                    layer_name=layer_name,
-                    geom=from_shape(shapely_polygon, srid=4326)
-                )
-                db.add(spatial_record)
-                saved_count += 1
+                try:
+                    shapely_polygon = Polygon(calibrated_coords)
+                    
+                    # Tambahan keamanan: pastikan poligon valid (tidak ada self-intersection)
+                    if not shapely_polygon.is_valid:
+                        from shapely.validation import make_valid
+                        shapely_polygon = make_valid(shapely_polygon)
+
+                    spatial_record = SitePlanGeometryModel(
+                        id_permohonan=id_permohonan,
+                        layer_name=layer_name,
+                        geom=from_shape(shapely_polygon, srid=4326)
+                    )
+                    db.add(spatial_record)
+                    saved_count += 1
+                except Exception as geom_err:
+                    logger.error(f"[BG_TASK_ERROR] Gagal membuat struktur geometri Shapely: {str(geom_err)}")
+                    continue
 
         # 5. Eksekusi komit transaksi database fisik PostGIS
         db.commit()
@@ -110,7 +131,7 @@ def execute_cad_parsing_background(
             logger.info(f"[BG_TASK] Memicu publikasi layer peta di GeoServer untuk permohonan ID: {id_permohonan}")
             geoserver_client = GeoServerClient()
             geoserver_client.publish_submission_layers(id_permohonan)
-            logger.info(f"[BG_TASK] Sinkronisasi visual GeoServer berhasil dilewati.")
+            logger.info(f"[BG_TASK] Sinkronisasi visual GeoServer berhasil diselesaikan.")
         except Exception as geoserver_error:
             # Sesuai prinsip Protected Variations, kegagalan integrasi eksternal
             # tidak boleh menggagalkan status keberhasilan komit database internal
