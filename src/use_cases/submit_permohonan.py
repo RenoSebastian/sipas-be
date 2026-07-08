@@ -145,6 +145,7 @@ class SubmitPermohonanInputDto:
     tech_road_row_main: Optional[str] = None
     tech_road_row_local: Optional[str] = None
     tech_water_system: Optional[str] = None
+    tech_water_source: Optional[str] = None
 
     tech_building_blocks: Optional[int] = None
     tech_kdb: Optional[float] = None
@@ -291,6 +292,7 @@ class SubmitPermohonanUseCase:
             tech_road_row_main=input_dto.tech_road_row_main,
             tech_road_row_local=input_dto.tech_road_row_local,
             tech_water_system=input_dto.tech_water_system,
+            tech_water_source=input_dto.tech_water_source,
 
             tech_building_blocks=input_dto.tech_building_blocks,
             tech_kdb=input_dto.tech_kdb,

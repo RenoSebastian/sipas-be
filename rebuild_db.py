@@ -35,18 +35,20 @@ def main():
         print(f" [FAIL] Alembic migration failed: {str(e)}")
         sys.exit(1)
 
-    # 3. Add custom columns to users
-    print("[3/5] Adding custom columns (nip, company, phone) to users table...")
-    statements_users = [
+    # 3. Add custom columns to users & permohonan
+    print("[3/5] Adding custom columns to users and permohonan tables...")
+    statements_custom = [
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS nip VARCHAR(50);",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS company VARCHAR(255);",
-        "ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR(50);"
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR(50);",
+        "ALTER TABLE permohonan ADD COLUMN IF NOT EXISTS tech_water_source VARCHAR(255);",
+        "ALTER TABLE permohonan ADD COLUMN IF NOT EXISTS kabid_signature TEXT;"
     ]
     try:
         with engine.begin() as conn:
-            for sql in statements_users:
+            for sql in statements_custom:
                 conn.execute(text(sql))
-        print(" [OK] Custom user columns added.")
+        print(" [OK] Custom columns added.")
     except Exception as e:
         print(f" [FAIL] Failed to add custom user columns: {str(e)}")
         sys.exit(1)

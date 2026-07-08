@@ -1,79 +1,144 @@
 import sys
+import math
+import random
 import ezdxf
+from shapely.geometry import Polygon, LineString, Point, MultiPolygon
+
+# Real-world surveyed irregular parcel boundary vertices (non-convex, notches, tails)
+BOUNDARY_VERTICES = [
+    (0, 0),
+    (140, 15),
+    (155, -45),
+    (240, -30),
+    (220, 70),
+    (280, 110),
+    (190, 160),
+    (110, 115),
+    (80, 140),
+    (-40, 100),
+    (-20, 50),
+    (-60, 30),
+    (0, 0)
+]
+
+def add_geometry_to_dxf(msp, geom, layer):
+    """Recursively adds Shapely Polygons or MultiPolygons to DXF as closed polylines."""
+    if geom.is_empty:
+        return
+    
+    if geom.geom_type == 'Polygon':
+        coords = list(geom.exterior.coords)[:-1]
+        msp.add_lwpolyline(coords, dxfattribs={'layer': layer, 'flags': 1})
+        for interior in geom.interiors:
+            icoords = list(interior.coords)[:-1]
+            msp.add_lwpolyline(icoords, dxfattribs={'layer': layer, 'flags': 1})
+    elif geom.geom_type == 'MultiPolygon':
+        for poly in geom.geoms:
+            add_geometry_to_dxf(msp, poly, layer)
+    elif geom.geom_type == 'LineString':
+        coords = list(geom.coords)
+        msp.add_lwpolyline(coords, dxfattribs={'layer': layer, 'flags': 0})
+    elif geom.geom_type == 'MultiLineString':
+        for line in geom.geoms:
+            add_geometry_to_dxf(msp, line, layer)
 
 def main():
-    print("[MOCK_CAD] Creating a highly detailed DXF file using ezdxf...")
+    print("[MOCK_CAD] Generating a highly irregular, realistic site plan in local CAD space...")
     try:
-        # Create a new DXF R2018 document
+        # 1. Initialize DXF Document
         doc = ezdxf.new('R2018')
         msp = doc.modelspace()
 
-        # Define allowed OGC standard layers in Kabupaten Bogor
+        # Define layers
         layers = [
-            ("PTSP_KDB", 1),       # Red for Building Footprint (KDB)
-            ("PTSP_KDH", 3),       # Green for Open Green Space (KDH)
-            ("PTSP_PSU_JALAN", 5), # Blue for Internal Roads
-            ("PTSP_PSU_MAKAM", 2), # Yellow for Cemetery Area
+            ("PTSP_KDB", 1),          # Red for Building Footprint
+            ("PTSP_KDH", 3),          # Green for Open Green Space
+            ("PTSP_PSU_JALAN", 5),    # Blue for Roads
+            ("PTSP_PSU_MAKAM", 2),    # Yellow for Cemetery Area
+            ("PTSP_BATAS_LAHAN", 7),  # Property boundary line
         ]
-
-        # Add layers to the document
         for name, color in layers:
             doc.layers.new(name, dxfattribs={'color': color})
-            print(f" - Created layer: {name} (color: {color})")
 
-        # Utility function to draw a closed rectangular polyline (LWPOLYLINE)
-        def draw_box(x, y, w, h, layer):
-            msp.add_lwpolyline(
-                [(x, y), (x + w, y), (x + w, y + h), (x, y + h)],
-                dxfattribs={'layer': layer, 'flags': 1}
-            )
+        # 2. Generate Organic Outer Boundary
+        boundary = Polygon(BOUNDARY_VERTICES)
+        add_geometry_to_dxf(msp, boundary, 'PTSP_BATAS_LAHAN')
 
-        # 1. Add Building Footprints (PTSP_KDB) - 48 houses (6m x 12m each)
-        # Organized across 8 blocks: A, B, C, D, E, F, G, H
-        # West blocks (x=10..46), East blocks (x=58..94)
-        x_offsets_west = [10, 16, 22, 28, 34, 40]
-        x_offsets_east = [58, 64, 70, 76, 82, 88]
-        y_rows = [
-            (10, "Block A/B"),  # Row 1 (y=10..22)
-            (28, "Block C/D"),  # Row 2 (y=28..40)
-            (50, "Block E/F"),  # Row 3 (y=50..62)
-            (68, "Block G/H")   # Row 4 (y=68..80)
-        ]
+        # 3. Create Wavy Main Road running through the middle of the irregular shape
+        road_points = []
+        for rx in range(-100, 320, 10):
+            ry = 45 + 20 * math.sin(rx / 60.0)
+            road_points.append((rx, ry))
+        road_line = LineString(road_points)
+        road_poly = road_line.buffer(8)  # 16m wide street
+        road_inside = boundary.intersection(road_poly)
+        add_geometry_to_dxf(msp, road_inside, 'PTSP_PSU_JALAN')
 
-        for y, label in y_rows:
-            # West block
-            for x in x_offsets_west:
-                draw_box(x, y, 6, 12, 'PTSP_KDB')
-            # East block
-            for x in x_offsets_east:
-                draw_box(x, y, 6, 12, 'PTSP_KDB')
+        # 4. Create Green Park (KDH)
+        park_center = (50, 95)
+        park_poly = Point(park_center).buffer(22)
+        park_inside = boundary.intersection(park_poly).difference(road_poly)
+        add_geometry_to_dxf(msp, park_inside, 'PTSP_KDH')
 
-        # 2. Add Open Green Spaces / RTH (PTSP_KDH)
-        # North-West central park
-        draw_box(0, 80, 46, 15, 'PTSP_KDH')
-        # North-East park
-        draw_box(58, 80, 62, 15, 'PTSP_KDH')
-        # West side buffer strip
-        draw_box(0, 0, 10, 80, 'PTSP_KDH')
+        # 5. Create Cemetery Area (MAKAM)
+        cemetery_center = (200, 20)
+        cemetery_poly = Point(cemetery_center).buffer(18)
+        cemetery_inside = boundary.intersection(cemetery_poly).difference(road_poly).difference(park_poly)
+        add_geometry_to_dxf(msp, cemetery_inside, 'PTSP_PSU_MAKAM')
 
-        # 3. Add Internal Road Network (PTSP_PSU_JALAN)
-        # Main horizontally running avenue (10m wide)
-        draw_box(0, 40, 120, 10, 'PTSP_PSU_JALAN')
-        # Horizontal street 1 (6m wide)
-        draw_box(0, 22, 120, 6, 'PTSP_PSU_JALAN')
-        # Horizontal street 3 (6m wide)
-        draw_box(0, 62, 120, 6, 'PTSP_PSU_JALAN')
-        # Main vertical street connecting blocks (12m wide)
-        draw_box(46, 0, 12, 95, 'PTSP_PSU_JALAN')
+        # 6. Generate House Blocks (KDB) inside boundary
+        placed_houses = []
+        boundary_buffered = boundary.buffer(-6) # 6m safety setback from irregular boundary
 
-        # 4. Add Cemetery Area (PTSP_PSU_MAKAM)
-        # South-East corner dedicated cemetery area (20m x 25m)
-        draw_box(98, 10, 20, 25, 'PTSP_PSU_MAKAM')
+        # Grid scanning properties adjusted to irregular boundary size
+        x_start, x_end = -80, 300
+        y_start, y_end = -60, 180
+        x_step, y_step = 10, 15
+
+        random.seed(42)
+        for hx in range(x_start, x_end, x_step):
+            for hy in range(y_start, y_end, y_step):
+                hw, hh = 6, 12
+                # Calculate organic rotation
+                rot = math.radians(5 if hy > 45 else -5)
+                
+                # Construct rotated rectangle vertices
+                rect_coords = [
+                    (-hw/2, -hh/2), (hw/2, -hh/2), (hw/2, hh/2), (-hw/2, hh/2)
+                ]
+                rotated_coords = []
+                for rx, ry in rect_coords:
+                    nx = hx + (rx * math.cos(rot) - ry * math.sin(rot))
+                    ny = hy + (rx * math.sin(rot) + ry * math.cos(rot))
+                    rotated_coords.append((nx, ny))
+                
+                house_poly = Polygon(rotated_coords)
+                
+                # Check spatial constraints:
+                if not boundary_buffered.contains(house_poly):
+                    continue
+                if house_poly.intersects(road_poly):
+                    continue
+                if house_poly.intersects(park_poly):
+                    continue
+                if house_poly.intersects(cemetery_poly):
+                    continue
+                
+                overlapping = False
+                for other_house in placed_houses:
+                    if house_poly.intersects(other_house.buffer(2)): # Spacing
+                        overlapping = True
+                        break
+                if overlapping:
+                    continue
+                
+                placed_houses.append(house_poly)
+                add_geometry_to_dxf(msp, house_poly, 'PTSP_KDB')
 
         # Save to the root workspace directory
         output_path = "../sample_siteplan.dxf"
         doc.saveas(output_path)
-        print(f"[MOCK_CAD] Success! Generated highly detailed mock CAD file at: {output_path}")
+        print(f"[MOCK_CAD] Success! Generated organic mock DXF file with {len(placed_houses)} houses at: {output_path}")
 
     except Exception as e:
         print(f"[MOCK_CAD_ERROR] Failed to generate mock CAD file: {str(e)}")

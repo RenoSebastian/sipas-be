@@ -95,6 +95,7 @@ class Permohonan:
         tech_road_row_main: Optional[str] = None,
         tech_road_row_local: Optional[str] = None,
         tech_water_system: Optional[str] = None,
+        tech_water_source: Optional[str] = None,
         
         tech_building_blocks: Optional[int] = None,
         tech_kdb: Optional[float] = None,
@@ -212,6 +213,7 @@ class Permohonan:
         self.tech_road_row_main = tech_road_row_main
         self.tech_road_row_local = tech_road_row_local
         self.tech_water_system = tech_water_system
+        self.tech_water_source = tech_water_source
         
         self.tech_building_blocks = tech_building_blocks
         self.tech_kdb = tech_kdb

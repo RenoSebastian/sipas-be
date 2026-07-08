@@ -246,14 +246,56 @@ def seed_spatial_data() -> None:
         # ──────────────────────────────────────────────────────────────────────
         print("[SEEDER] Menyemai data spasial permohonan komparasi...")
 
+        # helper to convert local CAD coordinates to WGS84
+        import math
+        
+        BOUNDARY_VERTICES_1 = [
+            (0, 0),
+            (140, 15),
+            (155, -45),
+            (240, -30),
+            (220, 70),
+            (280, 110),
+            (190, 160),
+            (110, 115),
+            (80, 140),
+            (-40, 100),
+            (-20, 50),
+            (-60, 30),
+            (0, 0)
+        ]
+        
+        BOUNDARY_VERTICES_2 = [
+            (0, 0),
+            (90, -10),
+            (110, -50),
+            (180, -30),
+            (160, 40),
+            (200, 70),
+            (130, 120),
+            (80, 85),
+            (50, 100),
+            (-30, 70),
+            (-10, 35),
+            (-40, 20),
+            (0, 0)
+        ]
+
+        def cad_to_wgs84_seed(vertices, base_lon, base_lat, rotation_deg=12):
+            rad = math.radians(rotation_deg)
+            lat_len = 111132.95
+            lon_len = 111132.95 * math.cos(math.radians(base_lat))
+            wgs84_coords = []
+            for x, y in vertices:
+                x_rot = x * math.cos(rad) - y * math.sin(rad)
+                y_rot = x * math.sin(rad) + y * math.cos(rad)
+                lon = base_lon + (x_rot / lon_len)
+                lat = base_lat + (y_rot / lat_len)
+                wgs84_coords.append((lon, lat))
+            return Polygon(wgs84_coords)
+
         # KASUS 1: Cibinong Green Mansion (Status: Menunggu Verifikasi)
-        outer_poly_1 = Polygon([
-            (106.8400, -6.4800),
-            (106.8430, -6.4800),
-            (106.8430, -6.4830),
-            (106.8400, -6.4830),
-            (106.8400, -6.4800)
-        ])
+        outer_poly_1 = cad_to_wgs84_seed(BOUNDARY_VERTICES_1, base_lon=106.8400, base_lat=-6.4800, rotation_deg=12)
 
         permohonan_1 = PermohonanModel(
             id_permohonan="sub-1",
@@ -300,7 +342,8 @@ def seed_spatial_data() -> None:
             tech_cemetery_area=600.0,
             tech_road_row_main="12 Meter",
             tech_road_row_local="8 Meter",
-            tech_water_system="PDAM Tirta Kahuripan",
+            tech_water_system="ADA",
+            tech_water_source="PDAM Tirta Kahuripan",
             consultant_name="Ir. Hermawan Pratama",
             consultant_company_name="CV Rencana Semesta",
             consultant_pic_name="Hermawan Pratama",
@@ -332,13 +375,7 @@ def seed_spatial_data() -> None:
         }, category="PERUMAHAN")
 
         # KASUS 2: Bojonggede Residence (Status: Verifikasi Administrasi)
-        outer_poly_2 = Polygon([
-            (106.8000, -6.4950),
-            (106.8020, -6.4950),
-            (106.8020, -6.4970),
-            (106.8000, -6.4970),
-            (106.8000, -6.4950)
-        ])
+        outer_poly_2 = cad_to_wgs84_seed(BOUNDARY_VERTICES_2, base_lon=106.8000, base_lat=-6.4950, rotation_deg=5)
 
         permohonan_2 = PermohonanModel(
             id_permohonan="sub-2",
@@ -385,7 +422,8 @@ def seed_spatial_data() -> None:
             tech_cemetery_area=300.0,
             tech_road_row_main="10 Meter",
             tech_road_row_local="8 Meter",
-            tech_water_system="Sumur Bor Terstandar",
+            tech_water_system="ADA",
+            tech_water_source="Sumur Bor Terstandar",
             consultant_name="Ir. Wahyu Hidayat",
             consultant_company_name="PT Wahyu Konsultan Teknik",
             consultant_pic_name="Wahyu Hidayat",
@@ -417,13 +455,7 @@ def seed_spatial_data() -> None:
         }, category="PERUMAHAN")
 
         # KASUS 3: Sentul Clover Garden (Status: Menunggu Persetujuan)
-        outer_poly_3 = Polygon([
-            (106.8700, -6.5600),
-            (106.8740, -6.5600),
-            (106.8740, -6.5640),
-            (106.8700, -6.5640),
-            (106.8700, -6.5600)
-        ])
+        outer_poly_3 = cad_to_wgs84_seed(BOUNDARY_VERTICES_1, base_lon=106.8700, base_lat=-6.5600, rotation_deg=15)
 
         permohonan_3 = PermohonanModel(
             id_permohonan="sub-3",
@@ -470,7 +502,8 @@ def seed_spatial_data() -> None:
             tech_cemetery_area=900.0,
             tech_road_row_main="14 Meter",
             tech_road_row_local="8 Meter",
-            tech_water_system="PDAM Tirta Kahuripan",
+            tech_water_system="ADA",
+            tech_water_source="PDAM Tirta Kahuripan",
             consultant_name="Ir. Hermawan Pratama",
             consultant_company_name="CV Rencana Semesta",
             consultant_pic_name="Hermawan Pratama",
@@ -502,13 +535,7 @@ def seed_spatial_data() -> None:
         }, category="PERUMAHAN")
 
         # KASUS 4: Cileungsi Green Valley (Status: Disetujui / Selesai TTE)
-        outer_poly_4 = Polygon([
-            (106.9600, -6.3800),
-            (106.9625, -6.3800),
-            (106.9625, -6.3825),
-            (106.9600, -6.3825),
-            (106.9600, -6.3800)
-        ])
+        outer_poly_4 = cad_to_wgs84_seed(BOUNDARY_VERTICES_2, base_lon=106.9600, base_lat=-6.3800, rotation_deg=8)
 
         permohonan_4 = PermohonanModel(
             id_permohonan="sub-4",
@@ -555,7 +582,8 @@ def seed_spatial_data() -> None:
             tech_cemetery_area=400.0,
             tech_road_row_main="10 Meter",
             tech_road_row_local="8 Meter",
-            tech_water_system="Sumur Bor Bersama",
+            tech_water_system="ADA",
+            tech_water_source="Sumur Bor Bersama",
             consultant_name="Ir. Wahyu Hidayat",
             consultant_company_name="PT Wahyu Konsultan Teknik",
             consultant_pic_name="Wahyu Hidayat",
@@ -612,13 +640,9 @@ def seed_spatial_data() -> None:
         for ev in eval_items_4:
             db.add(ev)
 
-        poly_kdb_4 = Polygon([
-            (106.9605, -6.3805),
-            (106.9618, -6.3805),
-            (106.9618, -6.3818),
-            (106.9605, -6.3818),
-            (106.9605, -6.3805)
-        ])
+        # Construct a KDB building footprint block inside Cileungsi Green Valley
+        kdb_coords_local = [(x * 0.6 + 20, y * 0.6 + 20) for x, y in BOUNDARY_VERTICES_2]
+        poly_kdb_4 = cad_to_wgs84_seed(kdb_coords_local, base_lon=106.9600, base_lat=-6.3800, rotation_deg=8)
         geom_kdb_4 = SitePlanGeometryModel(
             id_permohonan="sub-4",
             layer_name="PTSP_KDB",

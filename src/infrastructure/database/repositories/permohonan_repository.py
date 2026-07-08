@@ -96,6 +96,7 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
             tech_road_row_main=str(model.tech_road_row_main) if model.tech_road_row_main else None,
             tech_road_row_local=str(model.tech_road_row_local) if model.tech_road_row_local else None,
             tech_water_system=str(model.tech_water_system) if model.tech_water_system else None,
+            tech_water_source=str(model.tech_water_source) if model.tech_water_source else None,
 
             tech_building_blocks=int(model.tech_building_blocks) if model.tech_building_blocks is not None else None,
             tech_kdb=float(model.tech_kdb) if model.tech_kdb is not None else None,
@@ -233,6 +234,7 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
             tech_road_row_main=entity.tech_road_row_main,
             tech_road_row_local=entity.tech_road_row_local,
             tech_water_system=entity.tech_water_system,
+            tech_water_source=entity.tech_water_source,
 
             tech_building_blocks=entity.tech_building_blocks,
             tech_kdb=entity.tech_kdb,
@@ -363,6 +365,7 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
             existing_model.tech_road_row_main = permohonan.tech_road_row_main
             existing_model.tech_road_row_local = permohonan.tech_road_row_local
             existing_model.tech_water_system = permohonan.tech_water_system
+            existing_model.tech_water_source = permohonan.tech_water_source
 
             existing_model.tech_building_blocks = permohonan.tech_building_blocks
             existing_model.tech_kdb = permohonan.tech_kdb

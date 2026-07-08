@@ -108,6 +108,7 @@ class TechnicalDetailsDto(BaseModel):
     roadRowMain: Optional[str] = Field(default=None, examples=["12 Meter"])
     roadRowLocal: Optional[str] = Field(default=None, examples=["8 Meter"])
     waterSystem: Optional[str] = Field(default=None, examples=["PDAM"])
+    waterSource: Optional[str] = Field(default=None, examples=["PDAM Tirta Kahuripan"])
 
     # B. Kategori Non-Perumahan
     buildingBlocks: Optional[int] = Field(default=None, examples=[3])
@@ -367,6 +368,7 @@ def submit_permohonan(
             tech_road_row_main=req.technical.roadRowMain,
             tech_road_row_local=req.technical.roadRowLocal,
             tech_water_system=req.technical.waterSystem,
+            tech_water_source=req.technical.waterSource,
             
             tech_building_blocks=req.technical.buildingBlocks,
             tech_kdb=req.technical.kdb,
@@ -657,6 +659,7 @@ def get_all_submissions(db: Session = Depends(get_db), current_user: UserModel =
                 "roadRowMain": r.tech_road_row_main,
                 "roadRowLocal": r.tech_road_row_local,
                 "waterSystem": r.tech_water_system,
+                "waterSource": r.tech_water_source,
                 "buildingBlocks": r.tech_building_blocks,
                 "kdb": r.tech_kdb,
                 "klb": r.tech_klb,
@@ -684,7 +687,12 @@ def get_all_submissions(db: Session = Depends(get_db), current_user: UserModel =
             "consultant": {
                 "consultantName": r.consultant_name,
                 "consultantCompanyName": r.consultant_company_name,
-                "consultantPicName": r.consultant_pic_name
+                "companyName": r.consultant_company_name,
+                "consultantPicName": r.consultant_pic_name,
+                "picName": r.consultant_pic_name
+            },
+            "statement": {
+                "agreed": r.statement_agreed
             },
             "location": {
                 "lat": -6.595189,
@@ -821,6 +829,7 @@ def get_submission_by_id(id_permohonan: str, db: Session = Depends(get_db), curr
             "roadRowMain": r.tech_road_row_main,
             "roadRowLocal": r.tech_road_row_local,
             "waterSystem": r.tech_water_system,
+            "waterSource": r.tech_water_source,
             "buildingBlocks": r.tech_building_blocks,
             "kdb": r.tech_kdb,
             "klb": r.tech_klb,
@@ -848,7 +857,12 @@ def get_submission_by_id(id_permohonan: str, db: Session = Depends(get_db), curr
         "consultant": {
             "consultantName": r.consultant_name,
             "consultantCompanyName": r.consultant_company_name,
-            "consultantPicName": r.consultant_pic_name
+            "companyName": r.consultant_company_name,
+            "consultantPicName": r.consultant_pic_name,
+            "picName": r.consultant_pic_name
+        },
+        "statement": {
+            "agreed": r.statement_agreed
         },
         "location": {
             "lat": -6.595189,

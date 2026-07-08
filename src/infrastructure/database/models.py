@@ -116,6 +116,7 @@ class PermohonanModel(Base):
     tech_road_row_main: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     tech_road_row_local: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     tech_water_system: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    tech_water_source: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
     # B. Kategori Non-Perumahan (Gedung/Komersial)
     tech_building_blocks: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
