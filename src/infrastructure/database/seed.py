@@ -1,13 +1,13 @@
-# --- FILE: src/infrastructure/database/seed.py ---
 """
 ============================================================================
-SIPAS DATABASE UTILITY — Spatial Database Seeder [seed.py] (REVISED v5)
+SIPAS DATABASE UTILITY — Spatial Database Seeder [seed.py] (REVISED v6)
 ============================================================================
 Peran: Mengisi database lokal PostgreSQL/PostGIS dengan data spasial awal
        (WGS84 / SRID 4326) di wilayah rona Kabupaten Bogor, menyemai data 
        batas aturan RDTR (bylaw), menyemai rincian checklist evaluasi,
        mendaftarkan pengguna awal (users) untuk kebutuhan autentikasi, serta
-       membuat snapshot historis dokumen Telaah Staf JSONB secara transaksional.
+       membuat snapshot historis dokumen Telaah Staf & SkDraft JSONB secara 
+       transaksional (Unit of Work).
        Bebas dari peringatan Pylance Optional Member Access (Type-Safe).
 ============================================================================
 """
@@ -35,6 +35,7 @@ from src.infrastructure.database.models import (
     MasterRDTRModel,
     EvaluasiChecklistItemModel,
     TelaahStafModel,
+    SkDraftModel,  # <--- IMPOR BARU (Tahap 2 & 6)
     ChecklistStatus
 )
 
@@ -47,10 +48,11 @@ def clear_existing_data(db) -> None:
         db.query(SitePlanGeometryModel).delete()
         db.query(PermohonanFileModel).delete()
         db.query(EvaluasiChecklistItemModel).delete()
-        db.query(TelaahStafModel).delete()  # Bersihkan tabel baru Telaah Staf (Fase 1)
+        db.query(TelaahStafModel).delete()  # Bersihkan tabel Telaah Staf
+        db.query(SkDraftModel).delete()     # <--- BERSIHKAN SK_DRAFT (Cegah FK Constraint Error)
         db.query(PermohonanModel).delete()
         db.query(MasterRDTRModel).delete()
-        db.query(UserModel).delete()  # Bersihkan tabel user lama
+        db.query(UserModel).delete()        # Bersihkan tabel user
         db.commit()
         print("[SEEDER] Sukses membersihkan tabel fisik database.")
     except Exception as e:
@@ -63,7 +65,6 @@ def add_mock_files_for_permohonan(db, id_permohonan: str, photos_dict: dict, cat
     Menyisipkan 8 berkas dokumen terintegrasi secara lengkap ke dalam database.
     Nama file diatur menggunakan identitas yang manusiawi untuk menghindari visualisasi UUID yang membingungkan.
     """
-    # Menentukan dokumen teknis dan andalalin secara kondisional berdasarkan kategori pengajuan (Slide 6)
     tech_doc_name = "AMDAL_Kawasan_Industri_Gunung_Putri.pdf" if category == "INDUSTRI" else "Rencana_Sistem_PSU_Kawasan_Hunian.pdf"
     support2_name = "Persetujuan_Teknis_Air_Limbah_Industri.pdf" if category == "INDUSTRI" else "Kajian_Andalalin_Dishub_Approved.pdf"
 
@@ -110,7 +111,6 @@ def add_mock_files_for_permohonan(db, id_permohonan: str, photos_dict: dict, cat
         }
     ]
 
-    # Menyimpan dokumen ke tabel fisik permohonan_files
     for doc in documents:
         file_url = f"http://localhost:8000/{doc['file_path']}"
         db.add(PermohonanFileModel(
@@ -122,7 +122,6 @@ def add_mock_files_for_permohonan(db, id_permohonan: str, photos_dict: dict, cat
             file_url=file_url
         ))
     
-    # Menyimpan dokumentasi foto lapangan (5 penjuru arah mata angin)
     for k, url in photos_dict.items():
         db.add(PermohonanFileModel(
             id_permohonan=id_permohonan,
@@ -141,7 +140,7 @@ def seed_spatial_data() -> None:
     print("[SEEDER] Memulai penyemaian data baru...")
     try:
         # ──────────────────────────────────────────────────────────────────────
-        # TAHAP 1: PENYEMAIAN DATA USER SIMULASI (Sesuai Kredensial Frontend & Peran Baru)
+        # TAHAP 1: PENYEMAIAN DATA USER SIMULASI
         # ──────────────────────────────────────────────────────────────────────
         print("[SEEDER] Menyemai data kredensial user baru...")
         default_password_hash = hash_password("password123")
@@ -172,7 +171,6 @@ def seed_spatial_data() -> None:
                 company="Dinas PUPR Kabupaten Bogor", phone="081199887766"
             ),
             UserModel(
-                # ─── BARU: KEPALA DINAS (KADIS) SEBAGAI OTORITAS FINAL TTE ───
                 username="kadis@geocitra.com", email="kadis@geocitra.com",
                 hashed_password=default_password_hash, full_name="Kepala Dinas DPMPTSP",
                 role="KADIS", is_active=True, nip="197503112000031001",
@@ -191,14 +189,12 @@ def seed_spatial_data() -> None:
         db.commit()
         print(f"[SEEDER] Sukses mendaftarkan {len(users)} user simulasi ke database.")
 
-        # Ambil record ID untuk pemetaan relasi
         pemohon_raw = db.query(UserModel).filter(UserModel.username == "pemohon@geocitra.com").first()
         admin_raw = db.query(UserModel).filter(UserModel.username == "admin@geocitra.com").first()
         tim_teknis_raw = db.query(UserModel).filter(UserModel.username == "tim_teknis@geocitra.com").first()
         kabid_raw = db.query(UserModel).filter(UserModel.username == "kabid@geocitra.com").first()
         kadis_raw = db.query(UserModel).filter(UserModel.username == "kadis@geocitra.com").first()
 
-        # ─── TYPE NARROWING FOR PYLANCE (Menghilangkan reportOptionalMemberAccess) ───
         assert pemohon_raw is not None, "Gagal: User pemohon wajib terdaftar."
         assert admin_raw is not None, "Gagal: User admin wajib terdaftar."
         assert tim_teknis_raw is not None, "Gagal: User tim_teknis wajib terdaftar."
@@ -212,7 +208,7 @@ def seed_spatial_data() -> None:
         kadis: UserModel = kadis_raw
 
         # ──────────────────────────────────────────────────────────────────────
-        # TAHAP 2: PENYEMAIAN DATA MASTER ATURAN RDTR KABUPATEN BOGOR (Bylaws)
+        # TAHAP 2: PENYEMAIAN DATA MASTER ATURAN RDTR
         # ──────────────────────────────────────────────────────────────────────
         print("[SEEDER] Menyemai data master batas aturan RDTR Kabupaten Bogor...")
         
@@ -298,7 +294,6 @@ def seed_spatial_data() -> None:
             tech_water_source="PDAM Tirta Kahuripan", consultant_name="Ir. Hermawan Pratama",
             consultant_company_name="CV Rencana Semesta", consultant_pic_name="Hermawan Pratama", statement_agreed=True,
             
-            # Proposed & Bylaw snapshots
             applicant_land_area=30000.0, applicant_building_area=16500.0, applicant_kdb=55.0,
             applicant_klb=2.1, applicant_kdh=15.0, applicant_gsb=5.0, applicant_rth_area=4600.0,
             bylaw_max_kdb=60.0, bylaw_max_klb=3.2, bylaw_min_kdh=10.0, bylaw_min_gsb=5.0, bylaw_min_rth_area=1500.0
@@ -368,7 +363,6 @@ def seed_spatial_data() -> None:
             consultant_pic_name="Wahyu Hidayat",
             statement_agreed=True,
 
-            # Proposed & Bylaw
             applicant_land_area=15000.0, applicant_building_area=8250.0, applicant_kdb=55.0,
             applicant_klb=1.8, applicant_kdh=15.0, applicant_gsb=5.0, applicant_rth_area=2500.0,
             bylaw_max_kdb=60.0, bylaw_max_klb=3.0, bylaw_min_kdh=10.0, bylaw_min_gsb=5.0, bylaw_min_rth_area=1400.0
@@ -383,8 +377,7 @@ def seed_spatial_data() -> None:
         }, category="PERUMAHAN")
 
 
-        # KASUS 3: Sentul Clover Garden (─── BARU: Menunggu Rekomendasi ───)
-        # Skenario: Tim Teknis telah memformulasikan draf, kini antre ulasan Kabid
+        # KASUS 3: Sentul Clover Garden (Menunggu Rekomendasi)
         outer_poly_3 = cad_to_wgs84_seed(BOUNDARY_VERTICES_1, base_lon=106.8700, base_lat=-6.5600, rotation_deg=15)
 
         permohonan_3 = PermohonanModel(
@@ -395,7 +388,7 @@ def seed_spatial_data() -> None:
             developer_name="PT Sentul City Sentosa",
             land_area=45000.0,
             submission_date=date(2026, 6, 15),
-            status="Menunggu Rekomendasi",  # Status Baru (Review Kabid)
+            status="Menunggu Rekomendasi",
             buffer_sla=3,
             elapsed_days=3,
             applicant_type="BADAN_USAHA",
@@ -439,7 +432,6 @@ def seed_spatial_data() -> None:
             consultant_pic_name="Hermawan Pratama",
             statement_agreed=True,
 
-            # Proposed & Bylaw
             applicant_land_area=45000.0, applicant_building_area=20250.0, applicant_kdb=45.0,
             applicant_klb=2.0, applicant_kdh=20.0, applicant_gsb=6.0, applicant_rth_area=6800.0,
             bylaw_max_kdb=50.0, bylaw_max_klb=2.5, bylaw_min_kdh=15.0, bylaw_min_gsb=6.0, bylaw_min_rth_area=2000.0
@@ -455,7 +447,6 @@ def seed_spatial_data() -> None:
 
 
         # KASUS 4: Cileungsi Green Valley (Status: Disetujui / Selesai TTE)
-        # Skenario: Berkas disahkan, paraf Kabid & TTE Kadis tertanam lengkap!
         outer_poly_4 = cad_to_wgs84_seed(BOUNDARY_VERTICES_2, base_lon=106.9600, base_lat=-6.3800, rotation_deg=8)
 
         permohonan_4 = PermohonanModel(
@@ -510,13 +501,12 @@ def seed_spatial_data() -> None:
             consultant_pic_name="Wahyu Hidayat",
             statement_agreed=True,
             
-            # Bukti Hukum TTE (Pembaruan: ditandatangani Kadis, diparaf Kabid)
+            # Bukti Hukum TTE
             signature_hash="sha256:7b952f4c9c1b48b52f6f1947b19a3b90875638c039a7bb2e80556f8f17e7ab43",
             signed_pdf_url="/api/v1/submissions/sub-4/download",
             
-            # Paraf verifikasi internal Kabid
-            kabid_signature="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGQAAAAyCAYAAACq594cAAAABmJLR0QA/wD/AP+gvaeTAAAAcUlEQVR42u3SQQ0AIBDAsOH8OUcRDyagdyfAramS5OsB2GhkJCgJCQpKQlASEhSUhAQFJSFBCUkIUFISFJSEBCUkICFBCUkIUFISFJSEBCUkICFBCUkIUFISFJSEBCUkICFBCUkIUFISFJSEBCUkICFBCUlIUFISFJSEBAUlIUEJCUZ3o2Tf566ZAAAAAElFTkSuQmCC",
-            # TTE Kriptografis Final Kepala Dinas (Kadis)
+            # Paraf verifikasi internal Kabid & TTE Kadis
+            kabid_signature="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGQAAAAyCAYAAACq594cAAAABmJLR0QA/wD/AP+gvaeTAAAAcUlEQVR42u3SQQ0AIBDAsOH8OUcRDyagdyfAramS5OsB2GhkJCgJCQpKQlASEhSUhAQFJSFBCUkIUFISFJSEBCUkICFBCUkIUFISFJSEBCUkICFBCUlIUFISFJSEBAUlIUEJCUZ3o2Tf566ZAAAAAElFTkSuQmCC",
             kadis_signature="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAABmJLR0QA/wD/AP+gvaeTAAAAbElEQVR42u3SARAAMAgDwOL8O0cZ8CAgN5fAralV8noALBoJBYKQCAlBQUgICgpCQoICkhCghCQEKSkJCEpCAhIQEJCAhAQlJCFISELb7u869fTkyZOnp0+f9jM8CQpKQoISkhCgpCQoKAnBy90A81GjdSve4/sAAAAASUVORK5CYII=",
 
             # Snapshot perbandingan intensitas
@@ -527,16 +517,12 @@ def seed_spatial_data() -> None:
             
             kkpr_verdict=KKPRVerdict.SESUAI,
             kkpr_verified_at=datetime(2026, 6, 12, 14, 0, 0),
-            kkpr_verifier_name="Tim Teknis Penataan Ruang"
+            kkpr_verifier_name="Tim Teknis Penataan Ruang",
+
+            # ─── UPDATE FASE 3: REFERENSI NOMOR SK TER-GENERATE DI MODEL PERMOHONAN ───
+            sk_number="600/249/415.19/2026"
         )
         db.add(permohonan_4)
-        add_mock_files_for_permohonan(db, "sub-4", {
-            "photoNorth": "https://images.unsplash.com/photo-1590069261209-f8e9b8642343?auto=format&fit=crop&w=400&q=80",
-            "photoSouth": "https://images.unsplash.com/photo-1582407947304-fd86f028f716?auto=format&fit=crop&w=400&q=80",
-            "photoEast": "https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=400&q=80",
-            "photoWest": "https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=400&q=80",
-            "photoAccess": "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=400&q=80"
-        }, category="PERUMAHAN")
 
         # Seeding Checklist Evaluasi bersertifikat audit kelayakan
         eval_items_4 = [
@@ -625,13 +611,81 @@ def seed_spatial_data() -> None:
             document_payload=telaah_4_payload
         ))
 
-        # Seeding log audit birokrasi berjenjang (Fase 1 status update)
+        # ─── UPDATE BARU: PENYEMAIAN DATA DRAF SURAT KEPUTUSAN (SkDraftModel) UNTUK SUB-4 (TAHAP 6) ───
+        sk_payload_4 = {
+            "id_sk": "sk-sub-4",
+            "id_permohonan": "sub-4",
+            "sk_number": "600/249/415.19/2026",
+            "sequence_no": 249,
+            "classification_code": "600",
+            "office_code": "415.19",
+            "created_at": "2026-06-13T10:00:00Z",
+            "verdict": "DAPAT_DISETUJUI",
+            "custom_notes": "Seluruh pemeriksaan teknis spasial dan pemenuhan makam fisik TPU 2% dinyatakan lengkap dan sah.",
+            "signer": {
+                "name": kadis.full_name,
+                "nip": kadis.nip,
+                "office_title": "Kepala Dinas Penanaman Modal dan Pelayanan Terpadu Satu Pintu",
+                "signed_at": "2026-06-14T16:00:00Z",
+                "signature_base64": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAABmJLR0QA/wD/AP+gvaeTAAAAbElEQVR42u3SARAAMAgDwOL8O0cZ8CAgN5fAralV8noALBoJBYKQCAlBQUgICgpCQoICkhCghCQEKSkJCEpCAhIQEJCAhAQlJCFISELb7u869fTkyZOnp0+f9jM8CQpKQoISkhCgpCQoKAnBy90A81GjdSve4/sAAAAASUVORK5CYII="
+            },
+            "considerations": {
+                "menimbang": [
+                    "Bahwa untuk memberikan kepastian hukum pembangunan fisik dan penyediaan perumahan yang layak, sehat, aman, dan selaras dengan lingkungan, perlu diterbitkan keputusan persetujuan rencana tapak (site plan).",
+                    "Bahwa berdasarkan hasil pemeriksaan berkas dan peninjauan lapangan, pengajuan rencana tapak tersebut telah memenuhi kriteria kelayakan administratif dan teknis."
+                ],
+                "mengingat": [
+                    "Undang-Undang Nomor 1 Tahun 2011 tentang Perumahan dan Kawasan Permukiman.",
+                    "Undang-Undang Nomor 26 Tahun 2007 tentang Penataan Ruang.",
+                    "Peraturan Daerah Kabupaten Bogor tentang Rencana Detail Tata Ruang (RDTR).",
+                    "Peraturan Bupati tentang Penyelenggaraan Pelayanan Pengesahan Rencana Tapak Digital."
+                ],
+                "memperhatikan": [
+                    "Surat Permohonan dari Developer tanggal 10 Juni 2026.",
+                    "Persetujuan Pernyataan Kesanggupan Pengelolaan Lingkungan Hidup (SPPL) Nomor: 503/KKPR/PUPR/2026/084.",
+                    "Dokumen hasil evaluasi teknis dan Lembar Telaah Staf Nomor: TS-SIPAS-2026-004."
+                ]
+            },
+            "diktum_hunian": [
+                {
+                    "tipe_rumah": "Rumah Hunian Efektif (MBR / Subsidi)",
+                    "jumlah_unit": 90,
+                    "luas_m2": 11000.0
+                }
+            ],
+            "diktum_psu": {
+                "total_psu_area_m2": 3100.0,
+                "allocation_details": "Jaringan Jalan, Ruang Terbuka Hijau (Taman), Fasos, dan Sarana Umum",
+                "cemetery_scheme": "Penyediaan lahan makam TPU fisik seluas 400 m²",
+                "road_row_min": 8.0,
+                "road_row_max": 10.0,
+                "drainage_type": "Saluran drainase terbuka dengan konstruksi Udich"
+            },
+            "diktum_intensity": {
+                "kdb_max": 60.0,
+                "klb_max": 3.0,
+                "kdh_min": 10.0
+            }
+        }
+
+        db.add(SkDraftModel(
+            id_sk="sk-sub-4",
+            id_permohonan="sub-4",
+            sk_number="600/249/415.19/2026",
+            verdict="DAPAT_DISETUJUI",
+            is_overridden=False,
+            override_reason=None,
+            created_at=datetime(2026, 6, 13, 10, 0, 0),
+            document_payload=sk_payload_4
+        ))
+
+        # Seeding log audit birokrasi berjenjang
         audits_sub_4 = [
             AuditTrailModel(submission_id="sub-4", actor_name="Pemohon", role="Pemohon", action="SUBMIT_UNIFIED_FORM", status_before="Draft", status_after="Menunggu Verifikasi", notes="Berkas pendaftaran berhasil diserahkan ke loket.", created_at=datetime(2026, 6, 10, 9, 0)),
             AuditTrailModel(submission_id="sub-4", actor_name=admin.full_name, role="Admin", action="VERIFY_ADMIN_APPROVED", status_before="Menunggu Verifikasi", status_after="Verifikasi Administrasi", notes="Pemeriksaan dokumen administrasi valid. Berkas diteruskan.", created_at=datetime(2026, 6, 11, 10, 10)),
             AuditTrailModel(submission_id="sub-4", actor_name=tim_teknis.full_name, role="Tim Teknis", action="VERIFY_TECHNICAL_APPROVED", status_before="Verifikasi Teknis", status_after="Menunggu Rekomendasi", notes="Hasil analisis spasial terlampir lengkap pada draf Telaah Staf. Dikirim ke Kabid.", created_at=datetime(2026, 6, 12, 14, 0)),
-            AuditTrailModel(submission_id="sub-4", actor_name=kabid.full_name, role="KABID_PUPR", action="ENDORSE_TELAAH", status_before="Menunggu Rekomendasi", status_after="Menunggu Persetujuan", notes="Dokumen Telaah Staf disetujui. Rekomendasi draf SK dikirim ke Kepala Dinas.", created_at=datetime(2026, 6, 13, 9, 35)),
-            AuditTrailModel(submission_id="sub-4", actor_name=kadis.full_name, role="KADIS", action="APPROVE_KADIS_TTE", status_before="Proses TTE", status_after="Disetujui", notes="SK Site Plan disahkan secara hukum menggunakan TTE Dinas resmi.", digital_signature_hash="sha256:7b952f4c9c1b48b52f6f1947b19a3b90875638c039a7bb2e80556f8f17e7ab43", created_at=datetime(2026, 6, 14, 16, 0))
+            AuditTrailModel(submission_id="sub-4", actor_name=kabid.full_name, role="KABID_PUPR", action="ENDORSE_TELAAH", status_before="Menunggu Rekomendasi", status_after="Menunggu Persetujuan", notes="Dokumen Telaah Staf disetujui. Rekomendasi draf SK Nomor '600/249/415.19/2026' dikirim ke Kepala Dinas.", created_at=datetime(2026, 6, 13, 9, 35)),
+            AuditTrailModel(submission_id="sub-4", actor_name=kadis.full_name, role="KADIS", action="APPROVE_KADIS_TTE", status_before="Proses TTE", status_after="Disetujui", notes="SK Site Plan Nomor '600/249/415.19/2026' resmi disahkan secara hukum menggunakan TTE Dinas resmi.", digital_signature_hash="sha256:7b952f4c9c1b48b52f6f1947b19a3b90875638c039a7bb2e80556f8f17e7ab43", created_at=datetime(2026, 6, 14, 16, 0))
         ]
         for au in audits_sub_4:
             db.add(au)
@@ -694,7 +748,6 @@ def seed_spatial_data() -> None:
             consultant_pic_name="Wahyu Hidayat",
             statement_agreed=True,
 
-            # Proposed
             applicant_land_area=12000.0,
             applicant_building_area=7260.0,
             applicant_kdb=60.5,
@@ -703,14 +756,12 @@ def seed_spatial_data() -> None:
             applicant_gsb=6.0,
             applicant_rth_area=1452.0,
 
-            # Bylaws
             bylaw_max_kdb=60.0,
             bylaw_max_klb=3.5,
             bylaw_min_kdh=15.0,
             bylaw_min_gsb=6.0,
             bylaw_min_rth_area=1000.0,
 
-            # Verified
             verified_kdb=60.5,
             verified_klb=3.2,
             verified_kdh=12.1,
@@ -746,7 +797,6 @@ def seed_spatial_data() -> None:
         )
         db.add(kompensasi_5)
 
-        # Seed Checklist Evaluasi bermasalah (Fase 1 verifier audit)
         db.add(EvaluasiChecklistItemModel(
             id_permohonan="sub-5", aspek_code="M1_ZONING", aspek_label="Kesesuaian Rencana Pola Ruang",
             status_kelayakan=ChecklistStatus.SESUAI, catatan_verifikator="Sesuai rencana tata wilayah",
@@ -759,7 +809,6 @@ def seed_spatial_data() -> None:
             verified_by_id=tim_teknis.id, verified_at=datetime(2026, 6, 12, 14, 10)
         ))
 
-        # Seeding snapshot dokumen Telaah Staf untuk sub-5 (Ditolak)
         telaah_5_payload = {
             "id_telaah": "tel-sub-5",
             "id_permohonan": "sub-5",
@@ -804,7 +853,6 @@ def seed_spatial_data() -> None:
             document_payload=telaah_5_payload
         ))
 
-        # Log audit birokrasi penolakan
         audit_5 = AuditTrailModel(
             submission_id="sub-5",
             actor_name="Tim Teknis",
@@ -818,7 +866,7 @@ def seed_spatial_data() -> None:
         db.add(audit_5)
 
         db.commit()
-        print("[SEEDER] Sukses menyemai seluruh data spasial, user, master RDTR, dokumen Telaah Staf, dan riwayat log audit.")
+        print("[SEEDER] Sukses menyemai seluruh data spasial, user, master RDTR, dokumen Telaah Staf, SkDraft terstruktur, dan riwayat log audit.")
 
     except Exception as e:
         db.rollback()

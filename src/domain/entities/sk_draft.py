@@ -6,8 +6,8 @@ Peran: Entitas domain murni (Pure Python) yang merepresentasikan draf Surat
        Keputusan (SK) Persetujuan Rencana Tapak (Site Plan) Kabupaten Jombang / 
        Kabupaten Bogor.
        Menangani pembentukan Konsiderans (Menimbang, Mengingat, Memperhatikan),
-       Diktum Keputusan, penomoran dinas otomatis sekuensial, serta visual
-       tanda tangan (TTD Coret) Kepala Dinas.
+       Diktum Keputusan, penomoran dinas otomatis sekuensial, pelacakan 
+       hak veto (override) Kabid, serta visual tanda tangan (TTD Coret) Kepala Dinas.
 ============================================================================
 """
 
@@ -126,7 +126,9 @@ class SkDraft:
         diktum_intensity: Optional[SkDiktumIntensity] = None,
         signer: Optional[SkSignerInfo] = None,
         verdict: SkVerdict = SkVerdict.DAPAT_DISETUJUI,
-        custom_notes: Optional[str] = None
+        custom_notes: Optional[str] = None,
+        is_overridden: bool = False,
+        override_reason: Optional[str] = None
     ):
         self._id_sk = id_sk
         self._id_permohonan = id_permohonan
@@ -144,6 +146,10 @@ class SkDraft:
         self._verdict = verdict
         self._custom_notes = custom_notes
 
+        # Audit Pelacakan Hak Veto (Override) Kabid
+        self._is_overridden = is_overridden
+        self._override_reason = override_reason
+
         self._validate_invariants()
 
     def _validate_invariants(self) -> None:
@@ -154,6 +160,11 @@ class SkDraft:
             raise ValueError("ID Permohonan rujukan eksternal wajib ditambatkan.")
         if self._sequence_no <= 0:
             raise ValueError("Nomor urut sekuensial SK dinas harus bernilai positif.")
+
+        # Validasi konsistensi logika veto/override eksekutif
+        if self._is_overridden:
+            if not self._override_reason or not self._override_reason.strip():
+                raise ValueError("Gagal: Alasan tertulis (override_reason) wajib disertakan jika SK ini merupakan hasil veto Kabid.")
 
     # ─── SECTION: INFORMATION EXPERT (AUTOMATIC SK NUMBER GENERATOR) ───────────
     @property
@@ -211,6 +222,14 @@ class SkDraft:
     def custom_notes(self) -> Optional[str]:
         return self._custom_notes
 
+    @property
+    def is_overridden(self) -> bool:
+        return self._is_overridden
+
+    @property
+    def override_reason(self) -> Optional[str]:
+        return self._override_reason
+
     # ─── DOMAIN BEHAVIOR: SIKLUS PENANDATANGANAN TTE KADIS ──────────────────────
     def apply_drawn_signature(self, kadis_name: str, kadis_nip: str, signature_base64: str) -> None:
         """
@@ -226,6 +245,19 @@ class SkDraft:
             signed_at=datetime.now(),
             signature_base64=signature_base64
         )
+        self._validate_invariants()
+
+    # ─── DOMAIN BEHAVIOR: EKSEKUSI OVERRIDE VETO KABID ─────────────────────────
+    def apply_override(self, new_verdict: SkVerdict, reason: str) -> None:
+        """
+        Mengeksekusi hak veto administratif oleh Kabid untuk mengubah arah keputusan hukum.
+        """
+        if not reason or not reason.strip():
+            raise ValueError("Gagal: Justifikasi hukum wajib disertakan saat melakukan override SK.")
+        
+        self._verdict = new_verdict
+        self._is_overridden = True
+        self._override_reason = reason
         self._validate_invariants()
 
     # ─── DOMAIN BEHAVIOR: EXPORT TO SERIALIZED DATA ────────────────────────────
@@ -244,6 +276,8 @@ class SkDraft:
             "created_at": self._created_at.isoformat(),
             "verdict": self._verdict.value,
             "custom_notes": self._custom_notes,
+            "is_overridden": self._is_overridden,
+            "override_reason": self._override_reason,
             "signer": {
                 "name": self._signer.name,
                 "nip": self._signer.nip,

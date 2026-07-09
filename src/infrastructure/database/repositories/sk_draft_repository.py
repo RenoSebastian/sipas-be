@@ -109,7 +109,7 @@ class SkDraftRepository(SkDraftRepositoryPort):
         return SkDraft(
             id_sk=str(model.id_sk),
             id_permohonan=str(model.id_permohonan),
-            sequence_no=int(model.sequence_no),
+            sequence_no=int(payload.get("sequence_no", 0)),
             created_at=model.created_at,
             classification_code=str(payload.get("classification_code", "600")),
             office_code=str(payload.get("office_code", "415.19")),
@@ -201,10 +201,12 @@ class SkDraftRepository(SkDraftRepositoryPort):
         try:
             current_year = datetime.now().year
             
-            # Query: SELECT MAX(sequence_no) FROM sk_draft WHERE EXTRACT(YEAR FROM created_at) = current_year
-            max_sequence = self.db.query(func.max(SkDraftModel.sequence_no))\
-                .filter(extract('year', SkDraftModel.created_at) == current_year)\
-                .scalar()
+            from sqlalchemy import cast as sql_cast, Integer
+            
+            # Query: SELECT MAX((document_payload->>'sequence_no')::integer) FROM sk_draft WHERE EXTRACT(YEAR FROM created_at) = current_year
+            max_sequence = self.db.query(
+                func.max(sql_cast(SkDraftModel.document_payload['sequence_no'].astext, Integer))
+            ).filter(extract('year', SkDraftModel.created_at) == current_year).scalar()
                 
             return (max_sequence or 0) + 1
         except Exception as e:

@@ -1,6 +1,6 @@
 """
 ============================================================================
-SIPAS HTTP CONTROLLER — Submissions Router [submissions.py] (REVISED v6)
+SIPAS HTTP CONTROLLER — Submissions Router [submissions.py] (REVISED v7)
 ============================================================================
 Peran: Menyediakan REST endpoints bertingkat untuk mengelola pendaftaran
        10-tahap terpadu, kalibrasi, audit spasial, dan verifikasi berjenjang.
@@ -202,7 +202,7 @@ class CalibrateRequest(BaseModel):
 class EvaluasiChecklistItemDto(BaseModel):
     aspek_code: str = Field(..., examples=["M3_KDB", "legalDoc"])
     aspek_label: str = Field(..., examples=["Koefisien Dasar Bangunan (KDB)", "Sertifikat Tanah BPN"])
-    status_kelayakan: str = Field(..., pattern="^(Sesuai|Sesuai Bersyarat|Tidak Sesuai|Pending)$", examples=["Sesuai"])
+    status_kelayakan: str = Field(..., pattern="^(Sesuai|Sesuai Bersyarat|Tidak Sesuai|Pending|SESUAI|SESUAI_BERSYARAT|TIDAK_SESUAI|PENDING)$", examples=["Sesuai"])
     catatan_verifikator: Optional[str] = Field(default=None, examples=["Memenuhi batas aman"])
     attachment_url: Optional[str] = Field(default=None, examples=["/uploads/evaluasi/revisi_kdb.pdf"])
 
@@ -215,7 +215,7 @@ class VerifyRequest(BaseModel):
     signature_base64: Optional[str] = Field(default=None, description="Visual signature coretan tangan")
 
     # Parameter Penilaian Spasial & Komparasi Tiga Sisi
-    kkpr_verdict: Optional[str] = Field(default=None, pattern="^(Sesuai|Sesuai Bersyarat|Perlu Perbaikan / Revisi|Tidak Sesuai / Ditolak)$")
+    kkpr_verdict: Optional[str] = Field(default=None, pattern="^(Sesuai|Sesuai Bersyarat|Perlu Perbaikan / Revisi|Tidak Sesuai / Ditolak|SESUAI|SESUAI_BERSYARAT|PERLU_PERBAIKAN|TIDAK_SESUAI)$")
     verified_kdb: Optional[float] = None
     verified_klb: Optional[float] = None
     verified_kdh: Optional[float] = None
@@ -528,6 +528,7 @@ async def verify_submission(
         permohonan_repo = PermohonanRepository(db)
         telaah_staf_repo = TelaahStafRepository(db)
         audit_trail_repo = AuditTrailRepository(db)
+        sk_draft_repo = SkDraftRepository(db)  # <--- SUNTIKAN BARU UNTUK KONSISTENSI SK
         
         # ─── PERBAIKAN PYLANCE nominal type check: Gunakan type annotation formal Port (DIP) ───
         doc_generator: DocumentGeneratorPort = HtmlToPdfEngine()
@@ -536,6 +537,7 @@ async def verify_submission(
         use_case = VerifySubmissionUseCase(
             permohonan_repo=permohonan_repo,
             telaah_staf_repo=telaah_staf_repo,
+            sk_draft_repo=sk_draft_repo,  # <--- SUNTIKAN BARU KONTRAK REPOSITORI
             document_generator=doc_generator,
             digital_signature_client=bsre_client,
             audit_trail_repo=audit_trail_repo
@@ -588,7 +590,7 @@ async def verify_submission(
     except PermissionError as pe:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(pe))
     except Exception as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e))
 
 @router.get("/rdtr-limits", status_code=status.HTTP_200_OK)
 def get_rdtr_limits(
@@ -752,7 +754,9 @@ def get_submission_by_id(id_permohonan: str, db: Session = Depends(get_db), curr
 
     db_files = db.query(PermohonanFileModel).filter(PermohonanFileModel.id_permohonan == id_permohonan).all()
     docs_list = []
-    photos_dict = {
+    
+    # ─── REVISI: DEKLARASI TIPE EKSPLISIT UNTUK MENCEGAH REPORTE_ARGUMENT_TYPE (Pylance compilation fix) ───
+    photos_dict: Dict[str, Optional[str]] = {
         "photoNorth": None,
         "photoSouth": None,
         "photoEast": None,
@@ -772,15 +776,13 @@ def get_submission_by_id(id_permohonan: str, db: Session = Depends(get_db), curr
     for f in db_files:
         if f.file_type == "document":
             docs_list.append({
-                "id": f"doc-{r.id_permohonan}-{f.id}",
-                "name": f.file_name,
-                "type": f.file_name.split('.')[-1] if '.' in f.file_name else 'pdf',
-                "url": f.file_url,
-                "uploadedAt": f.uploaded_at.isoformat(),
-                "key": f.file_key
+                "id": f.id,
+                "file_key": f.file_key,
+                "file_name": f.file_name,
+                "file_url": f.file_url
             })
-            if f.file_url:
-                docs_dict[f.file_key] = f"{f.file_url}?name={urllib.parse.quote(f.file_name)}"
+            if f.file_key in docs_dict:
+                docs_dict[f.file_key] = f.file_url
         elif f.file_type == "photo":
             if f.file_url:
                 photos_dict[f.file_key] = f"{f.file_url}?name={urllib.parse.quote(f.file_name)}"
@@ -803,7 +805,7 @@ def get_submission_by_id(id_permohonan: str, db: Session = Depends(get_db), curr
         for item in db_evaluations
     ]
 
-    # ─── BARU: SNAPSHOT DOKUMEN TELAAH STAF DI API DETAIL (Fase 4 REST) ──────
+    # Snapshot dokumen Telaah Staf
     telaah_staf_data = None
     telaah_model = db.query(TelaahStafModel).filter(TelaahStafModel.id_permohonan == id_permohonan).first()
     if telaah_model:
@@ -814,6 +816,20 @@ def get_submission_by_id(id_permohonan: str, db: Session = Depends(get_db), curr
             "overrideReason": telaah_model.override_reason,
             "createdAt": telaah_model.created_at.isoformat(),
             "payload": telaah_model.document_payload
+        }
+
+    # ─── BARU: SINKRONISASI TAFSIRAN PAYLOAD DRAFT SK UNTUK DETAIL KADIS (TAHAP 5) ───
+    sk_draft_data = None
+    sk_model = db.query(SkDraftModel).filter(SkDraftModel.id_permohonan == id_permohonan).first()
+    if sk_model:
+        sk_draft_data = {
+            "idSk": sk_model.id_sk,
+            "skNumber": sk_model.sk_number,
+            "verdict": sk_model.verdict,
+            "isOverridden": sk_model.is_overridden,
+            "overrideReason": sk_model.override_reason,
+            "createdAt": sk_model.created_at.isoformat(),
+            "payload": sk_model.document_payload
         }
 
     return {
@@ -934,6 +950,7 @@ def get_submission_by_id(id_permohonan: str, db: Session = Depends(get_db), curr
         "verifiedRthArea": r.verified_rth_area,
         "evaluationChecklist": evaluation_list,
         "telaahStaf": telaah_staf_data,  # Payload snapshot Telaah Staf utuh
+        "skDraft": sk_draft_data,        # Payload draf Surat Keputusan (SK) utuh
 
         "history": (lambda: [
             {
@@ -959,7 +976,7 @@ def get_submission_geometries(
     """Mendapatkan data poligon CAD detail (jalan, RTH, PSU, kaveling) dari PostGIS."""
     from src.infrastructure.database.models import SitePlanGeometryModel
     from geoalchemy2.shape import to_shape
-    
+
     geoms = db.query(SitePlanGeometryModel).filter(
         SitePlanGeometryModel.id_permohonan == id_permohonan
     ).all()
@@ -1036,3 +1053,28 @@ async def ocr_nib(
         raise e
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Gagal memproses OCR NIB: {str(e)}")
+
+from fastapi.responses import FileResponse
+from pathlib import Path
+
+@router.get("/{id_permohonan}/download", response_class=FileResponse)
+async def download_signed_pdf(id_permohonan: str, db: Session = Depends(get_db)):
+    """Mengunduh berkas Surat Keputusan (SK) resmi hasil TTE Kadis."""
+    # Pastikan file ada di folder docs
+    pdf_path = Path("docs") / f"SK_Pengesahan_Site_Plan_{id_permohonan}.pdf"
+    
+    # Fallback ke draf jika final tidak ditemukan
+    if not pdf_path.exists():
+        pdf_path = Path("docs") / f"DRAFT_SK_Pengesahan_Site_Plan_{id_permohonan}.pdf"
+        
+    if not pdf_path.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Berkas Surat Keputusan (SK) belum diterbitkan atau tidak ditemukan."
+        )
+        
+    return FileResponse(
+        path=str(pdf_path),
+        filename=pdf_path.name,
+        media_type="application/pdf"
+    )

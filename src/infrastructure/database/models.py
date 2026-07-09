@@ -24,10 +24,10 @@ from src.domain.entities.permohonan import KKPRVerdict  # Impor langsung dari do
 # Enum penampung status verifikasi satuan checklist dinas
 import enum
 class ChecklistStatus(str, enum.Enum):
-    SESUAI = "Sesuai"
-    SESUAI_BERSYARAT = "Sesuai Bersyarat"
-    TIDAK_SESUAI = "Tidak Sesuai"
-    PENDING = "Pending"
+    SESUAI = "SESUAI"
+    SESUAI_BERSYARAT = "SESUAI_BERSYARAT"
+    TIDAK_SESUAI = "TIDAK_SESUAI"
+    PENDING = "PENDING"
 
 
 class UserModel(Base):

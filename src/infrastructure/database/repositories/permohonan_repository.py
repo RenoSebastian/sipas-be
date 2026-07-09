@@ -563,9 +563,8 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
     def save_evaluasi_items(self, id_permohonan: str, items: List[Any]) -> None:
         """
         Menyimpan atau memperbarui detail checklist pemeriksaan yang dikirim verifikator.
-        Melacak penambat verified_by_id dan verified_at demi akuntabilitas audit (Fase 1).
+        Melakukan normalisasi string ke UPPERCASE demi kompatibilitas Enum PostgreSQL.
         """
-        # 1. Bersihkan data evaluasi lama milik permohonan ini yang kodenya sama dengan data baru (Idempotent)
         if items:
             item_codes = [item.aspek_code for item in items]
             self.db.query(EvaluasiChecklistItemModel).filter(
@@ -573,17 +572,17 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
                 EvaluasiChecklistItemModel.aspek_code.in_(item_codes)
             ).delete(synchronize_session=False)
 
-        # 2. Masukkan data evaluasi baru
         for item in items:
+            # Normalisasi string masukan dari FE (misal "Sesuai Bersyarat" -> "SESUAI_BERSYARAT")
+            raw_status = str(item.status_kelayakan).strip().upper().replace(" ", "_")
+            
             db_item = EvaluasiChecklistItemModel(
                 id_permohonan=id_permohonan,
                 aspek_code=item.aspek_code,
                 aspek_label=item.aspek_label,
-                status_kelayakan=ChecklistStatus(item.status_kelayakan),
+                status_kelayakan=ChecklistStatus(raw_status), # <-- Terjamin Lolos dari ValueError
                 catatan_verifikator=item.catatan_verifikator,
                 attachment_url=item.attachment_url,
-                
-                # UPDATE FASE 1: Mengaitkan data audit verifikator checklist secara dinamis & tipe-aman
                 verified_by_id=getattr(item, "verified_by_id", None),
                 verified_at=getattr(item, "verified_at", None)
             )

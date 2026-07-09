@@ -36,10 +36,10 @@ class DocumentCategory(str, Enum):
 
 class KKPRVerdict(str, Enum):
     """Kesimpulan penilaian tata ruang yang dirumuskan oleh Tim Teknis."""
-    SESUAI = "Sesuai"
-    SESUAI_BERSYARAT = "Sesuai Bersyarat"
-    PERLU_PERBAIKAN = "Perlu Perbaikan / Revisi"
-    TIDAK_SESUAI = "Tidak Sesuai / Ditolak"
+    SESUAI = "SESUAI"
+    SESUAI_BERSYARAT = "SESUAI_BERSYARAT"
+    PERLU_PERBAIKAN = "PERLU_PERBAIKAN"
+    TIDAK_SESUAI = "TIDAK_SESUAI"
 
 
 class Permohonan:
