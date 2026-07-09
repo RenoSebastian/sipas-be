@@ -27,7 +27,9 @@ dependencies = [
     "python-multipart (>=0.0.32,<0.0.33)",
     "pillow (>=12.2.0,<13.0.0)",
     "pytesseract (>=0.3.13,<0.4.0)",
-    "httpx (>=0.28.1,<0.29.0)"
+    "httpx (>=0.28.1,<0.29.0)",
+    "jinja2 (>=3.1.6,<4.0.0)",
+    "weasyprint (>=69.0,<70.0)"
 ]
 
 [build-system]

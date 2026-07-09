@@ -1,12 +1,14 @@
+# --- FILE: src/infrastructure/database/repositories/permohonan_repository.py ---
 """
 ============================================================================
-SIPAS INFRASTRUCTURE ADAPTER — Permohonan Repository [permohonan_repository.py] (REVISED v3)
+SIPAS INFRASTRUCTURE ADAPTER — Permohonan Repository [permohonan_repository.py] (REVISED v4)
 ============================================================================
 Peran: Mengimplementasikan ExtendedPermohonanRepositoryPort untuk berinteraksi dengan
-       database transaksional PostgreSQL secara aman.
+       database transaksional PostgreSQL & PostGIS secara aman.
        Mendukung pemetaan metrik tiga sisi (Proposed vs Bylaw vs Verified),
-       menyimpan checklist verifikasi evaluasi manual secara idempotent,
-       serta melindungi integritas data 10-tahap dari galat tipe data.
+       menyimpan checklist verifikasi evaluasi manual beserta audit verifikator
+       (verified_by_id, verified_at) secara idempotent, serta mengamankan visual
+       TTE Kepala Dinas (kadis_signature).
 ============================================================================
 """
 
@@ -17,13 +19,14 @@ from src.use_cases.verify_submission import ExtendedPermohonanRepositoryPort
 from src.domain.entities.permohonan import Permohonan, SubmissionStatus, KKPRVerdict
 from src.infrastructure.database.models import PermohonanModel, EvaluasiChecklistItemModel, ChecklistStatus
 
+
 class PermohonanRepository(ExtendedPermohonanRepositoryPort):
     def __init__(self, db: Session):
         self.db = db
 
     def _to_domain(self, model: PermohonanModel) -> Permohonan:
         """
-        Konversi dari Model Database ke Entitas Domain Murni.
+        Konversi dari Model Database ke Entitas Domain Murni (Mapping To Domain).
         Mengambil seluruh variabel yang dibutuhkan oleh domain logic dan administrative data.
         """
         polygon_coords = None
@@ -49,7 +52,7 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
             elapsed_days=int(model.elapsed_days),
             sla_start_date=model.sla_start_date,
             
-            # Tahap 1
+            # Tahap 1: Data Pemohon
             applicant_type=str(model.applicant_type) if model.applicant_type else "PERORANGAN",
             applicant_name=str(model.applicant_name) if model.applicant_name else None,
             applicant_nik=str(model.applicant_nik) if model.applicant_nik else None,
@@ -60,11 +63,11 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
             applicant_email=str(model.applicant_email) if model.applicant_email else None,
             applicant_address=str(model.applicant_address) if model.applicant_address else None,
 
-            # Tahap 2
+            # Tahap 2: Data Pengajuan
             submission_type=str(model.submission_type) if model.submission_type else "BARU",
             submission_category=str(model.submission_category) if model.submission_category else "PERUMAHAN",
 
-            # Tahap 3
+            # Tahap 3: Lokasi Administratif
             location_name=str(model.location_name) if model.location_name else None,
             location_village=str(model.location_village) if model.location_village else None,
             location_district=str(model.location_district) if model.location_district else None,
@@ -75,7 +78,7 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
             location_certificate_number=str(model.location_certificate_number) if model.location_certificate_number else None,
             location_certificate_owner=str(model.location_certificate_owner) if model.location_certificate_owner else None,
 
-            # Tahap 4 (CAD Helmert parameters)
+            # Tahap 4: Parameter Kalibrasi CAD Helmert
             cad_file_name=str(model.cad_file_name) if model.cad_file_name else None,
             cad_param_a=float(model.cad_param_a) if model.cad_param_a is not None else None,
             cad_param_b=float(model.cad_param_b) if model.cad_param_b is not None else None,
@@ -84,12 +87,12 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
             cad_scale=float(model.cad_scale) if model.cad_scale is not None else None,
             cad_rotation=float(model.cad_rotation) if model.cad_rotation is not None else None,
 
-            # Tahap 5
+            # Tahap 5: Informasi Spasial Tata Ruang
             spatial_kkpr_number=str(model.spatial_kkpr_number) if model.spatial_kkpr_number else None,
             spatial_land_use=str(model.spatial_land_use) if model.spatial_land_use else None,
             spatial_green_area=float(model.spatial_green_area),
 
-            # Tahap 6
+            # Tahap 6: Parameter Teknis Bersyarat
             tech_lot_count=int(model.tech_lot_count) if model.tech_lot_count is not None else None,
             tech_housing_type=str(model.tech_housing_type) if model.tech_housing_type else None,
             tech_cemetery_area=float(model.tech_cemetery_area) if model.tech_cemetery_area is not None else None,
@@ -119,18 +122,19 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
             tech_green_buffer_area=float(model.tech_green_buffer_area) if model.tech_green_buffer_area is not None else None,
             tech_tps_b3_provision=str(model.tech_tps_b3_provision) if model.tech_tps_b3_provision else None,
 
-            # Tahap 7
+            # Tahap 7: Konsultan Perencana
             consultant_name=str(model.consultant_name) if model.consultant_name else None,
             consultant_company_name=str(model.consultant_company_name) if model.consultant_company_name else None,
             consultant_pic_name=str(model.consultant_pic_name) if model.consultant_pic_name else None,
 
-            # Tahap 10
+            # Tahap 10: Komitmen Hukum & Integrasi TTE BSrE (Kadis & Kabid)
             statement_agreed=bool(model.statement_agreed),
             polygon=polygon_coords,
             user_id=int(model.user_id) if model.user_id is not None else None,
             signature_hash=model.signature_hash,
             signed_pdf_url=model.signed_pdf_url,
             kabid_signature=model.kabid_signature,
+            kadis_signature=model.kadis_signature,  # Sinkronisasi visual TTE Kadis
 
             # ─── REVISI: METRIK INTENSITAS BANGUNAN KOMPARASI TIGA SISI ───
             applicant_land_area=float(model.applicant_land_area) if model.applicant_land_area is not None else None,
@@ -160,7 +164,7 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
 
     def _to_model(self, entity: Permohonan) -> PermohonanModel:
         """
-        Konversi dari Entitas Domain ke Model Database.
+        Konversi dari Entitas Domain ke Model Database (Mapping To Model).
         """
         geom = None
         if entity.polygon:
@@ -262,12 +266,13 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
             consultant_company_name=entity.consultant_company_name,
             consultant_pic_name=entity.consultant_pic_name,
 
-            # Tahap 10
+            # Tahap 10: TTE & Penandatanganan
             statement_agreed=entity.statement_agreed,
             user_id=entity.user_id,
             signature_hash=entity.signature_hash,
             signed_pdf_url=entity.signed_pdf_url,
             kabid_signature=entity.kabid_signature,
+            kadis_signature=entity.kadis_signature,  # Menyimpan coretan tanda tangan Kadis
 
             # ─── REVISI: METRIK INTENSITAS SPASIAL PEMOHON & BATAS RDTR ───
             applicant_land_area=entity.applicant_land_area,
@@ -399,6 +404,7 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
             existing_model.signature_hash = permohonan.signature_hash
             existing_model.signed_pdf_url = permohonan.signed_pdf_url
             existing_model.kabid_signature = permohonan.kabid_signature
+            existing_model.kadis_signature = permohonan.kadis_signature
 
             # ─── REVISI: METRIK INTENSITAS SPASIAL PEMOHON & BATAS RDTR ───
             existing_model.applicant_land_area = permohonan.applicant_land_area
@@ -549,11 +555,15 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
     def save_evaluasi_items(self, id_permohonan: str, items: List[Any]) -> None:
         """
         Menyimpan atau memperbarui detail checklist pemeriksaan yang dikirim verifikator.
+        Melacak penambat verified_by_id dan verified_at demi akuntabilitas audit (Fase 1).
         """
-        # 1. Bersihkan data evaluasi lama milik permohonan ini (Idempotent)
-        self.db.query(EvaluasiChecklistItemModel).filter(
-            EvaluasiChecklistItemModel.id_permohonan == id_permohonan
-        ).delete()
+        # 1. Bersihkan data evaluasi lama milik permohonan ini yang kodenya sama dengan data baru (Idempotent)
+        if items:
+            item_codes = [item.aspek_code for item in items]
+            self.db.query(EvaluasiChecklistItemModel).filter(
+                EvaluasiChecklistItemModel.id_permohonan == id_permohonan,
+                EvaluasiChecklistItemModel.aspek_code.in_(item_codes)
+            ).delete(synchronize_session=False)
 
         # 2. Masukkan data evaluasi baru
         for item in items:
@@ -563,11 +573,21 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
                 aspek_label=item.aspek_label,
                 status_kelayakan=ChecklistStatus(item.status_kelayakan),
                 catatan_verifikator=item.catatan_verifikator,
-                attachment_url=item.attachment_url
+                attachment_url=item.attachment_url,
+                
+                # UPDATE FASE 1: Mengaitkan data audit verifikator checklist secara dinamis & tipe-aman
+                verified_by_id=getattr(item, "verified_by_id", None),
+                verified_at=getattr(item, "verified_at", None)
             )
             self.db.add(db_item)
 
         self.db.flush()
+
+    def get_evaluasi_items(self, id_permohonan: str) -> List[EvaluasiChecklistItemModel]:
+        """Mendapatkan seluruh detail checklist evaluasi (administrasi & teknis)."""
+        return self.db.query(EvaluasiChecklistItemModel).filter(
+            EvaluasiChecklistItemModel.id_permohonan == id_permohonan
+        ).all()
 
     def commit(self) -> None:
         """Commit transaksi database yang sedang aktif secara eksplisit."""

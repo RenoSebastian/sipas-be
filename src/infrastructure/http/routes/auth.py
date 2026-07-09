@@ -1,3 +1,14 @@
+# --- FILE: src/infrastructure/http/routes/auth.py ---
+"""
+============================================================================
+SIPAS HTTP CONTROLLER — Auth Router [auth.py] (REVISED v5)
+============================================================================
+Peran: Menyediakan REST endpoints otentikasi, pendaftaran user baru, 
+       pemutakhiran profil, serta otorisasi administrasi pengguna.
+       Pembaruan: Penyelarasan decorator requires_roles menggunakan Enum UserRole.
+============================================================================
+"""
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, Field
@@ -11,7 +22,8 @@ from src.infrastructure.security.auth import (
     verify_password,
     create_access_token,
     get_current_active_user,
-    requires_roles
+    requires_roles,
+    UserRole # Perbaikan: Impor kelas Enum UserRole resmi dari modul keamanan
 )
 
 router = APIRouter(prefix="/api/v1/auth", tags=["Authentication & User Management"])
@@ -23,7 +35,7 @@ class UserCreate(BaseModel):
     email: str = Field(..., examples=["ahmad@geocitra.co.id"])
     password: str = Field(..., min_length=6, examples=["password123"])
     full_name: str = Field(..., examples=["Ahmad Fauzi"])
-    role: str = Field(default="PEMOHON", pattern="^(PEMOHON|ADMIN|TIM_TEKNIS|KABID_PUPR)$", examples=["PEMOHON"])
+    role: str = Field(default="PEMOHON", pattern="^(PEMOHON|ADMIN|TIM_TEKNIS|KABID_PUPR|KADIS)$", examples=["PEMOHON"])
     nip: Optional[str] = Field(default=None, examples=["9120301938192"])
     company: Optional[str] = Field(default=None, examples=["PT Geocitra Raya"])
     phone: Optional[str] = Field(default=None, examples=["081234567890"])
@@ -169,7 +181,7 @@ def update_profile(req: ProfileUpdate, db: Session = Depends(get_db), current_us
     }
 
 @router.get("/users", response_model=List[UserProfileResponse])
-def list_users(db: Session = Depends(get_db), token_payload: dict = Depends(requires_roles(["ADMIN"]))):
+def list_users(db: Session = Depends(get_db), token_payload: dict = Depends(requires_roles([UserRole.ADMIN]))):
     """Mendapatkan daftar semua pengguna terdaftar (Hanya Admin)."""
     users = db.query(UserModel).all()
     return [
@@ -186,7 +198,7 @@ def list_users(db: Session = Depends(get_db), token_payload: dict = Depends(requ
     ]
 
 @router.put("/users/{username}/status")
-def update_user_status(username: str, req: UserStatusUpdate, db: Session = Depends(get_db), token_payload: dict = Depends(requires_roles(["ADMIN"]))):
+def update_user_status(username: str, req: UserStatusUpdate, db: Session = Depends(get_db), token_payload: dict = Depends(requires_roles([UserRole.ADMIN]))):
     """Mengubah status keaktifan user (Hanya Admin)."""
     user = db.query(UserModel).filter(UserModel.username == username).first()
     if not user:

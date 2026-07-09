@@ -1,10 +1,12 @@
+# --- FILE: src/infrastructure/http/routes/submissions.py ---
 """
 ============================================================================
-SIPAS HTTP CONTROLLER — Submissions Router [submissions.py] (REVISED v3)
+SIPAS HTTP CONTROLLER — Submissions Router [submissions.py] (REVISED v5)
 ============================================================================
 Peran: Menyediakan REST endpoints bertingkat untuk mengelola pendaftaran
-       10-tahap terpadu, kalibrasi, audit spasial manual-sentris, dan
-       peninjauan berjenjang [sipas-fe.txt].
+       10-tahap terpadu, kalibrasi, audit spasial, dan verifikasi berjenjang.
+       Menegakkan otorisasi SoD API-Level untuk penandatanganan TTE Kadis,
+       serta memetakan 13 matriks aspek secara type-safe dan Pylance-compliant.
 ============================================================================
 """
 
@@ -25,19 +27,24 @@ from src.infrastructure.database.connection import get_db, get_bpn_port, get_oss
 from src.use_cases.ports.integration_ports import BpnValidationPort, OssSyncPort, SimtaruSyncPort
 from src.infrastructure.database.repositories.permohonan_repository import PermohonanRepository
 from src.infrastructure.database.repositories.audit_trail_repository import AuditTrailRepository
+from src.infrastructure.database.repositories.telaah_staf_repository import TelaahStafRepository
 from src.infrastructure.database.models import (
     PermohonanModel, 
     AuditTrailModel, 
     PermohonanFileModel, 
     MasterRDTRModel, 
     EvaluasiChecklistItemModel, 
+    TelaahStafModel,
     ChecklistStatus
 )
 
 # Adapter Eksternal Spasial, Geoserver, dan BSrE
 from src.infrastructure.gis.cad_parser import CadParser
 from src.infrastructure.security.bsre_client import BsreClient
-from src.infrastructure.document.mock_generator import MockDocumentGenerator
+from src.infrastructure.document.pdf_engine import HtmlToPdfEngine
+
+# Import Kontrak Port Abstraksi untuk Nominal Typing (Anti-ReportArgumentType)
+from src.use_cases.ports.document_generator_port import DocumentGeneratorPort
 
 # Import Use Cases (Clean Architecture Interactors)
 from src.use_cases.submit_permohonan import SubmitPermohonanUseCase, SubmitPermohonanInputDto
@@ -47,14 +54,14 @@ from src.use_cases.verify_submission import VerifySubmissionUseCase, VerifySubmi
 # Penanganan Background Task Pengurai CAD
 from src.infrastructure.queue.tasks import execute_cad_parsing_background
 
-# Utilitas Keamanan / Autentikasi JWT
-from src.infrastructure.security.auth import get_current_user
+# Utilitas Keamanan / Autentikasi JWT (Aligning KADIS)
+from src.infrastructure.security.auth import get_current_user, UserRole
 from src.infrastructure.database.models import UserModel
 
 logger = logging.getLogger("sipas-be")
 router = APIRouter(prefix="/api/v1/submissions", tags=["Submissions Core"])
 
-# ─── SECTION 1: SUB-DTO SCHEMAS (Pydantic V2 Standards) ───────────────────
+# ─── SECTION 1: REQUEST & RESPONSE SCHEMAS (Pydantic V2) ──────────────────
 
 class ApplicantDto(BaseModel):
     type: Optional[str] = Field(default="PERORANGAN", pattern="^(PERORANGAN|BADAN_USAHA)$", examples=["BADAN_USAHA"])
@@ -65,7 +72,7 @@ class ApplicantDto(BaseModel):
     directorName: Optional[str] = Field(default=None, examples=["Ahmad Fauzi"])
     phone: Optional[str] = Field(default=None, examples=["081234567890"])
     email: Optional[str] = Field(default=None, examples=["ahmad.fauzi@geocitra.co.id"])
-    address: Optional[str] = Field(default=None, examples=["Gedung Sentosa Lt. 4, Jl. Jend. Sudirman No. 10, Jakarta Pusat"])
+    address: Optional[str] = Field(default=None, examples=["Gedung Sentosa Lt. 4, Jakarta Pusat"])
 
 class SubmissionDetailsDto(BaseModel):
     submissionType: Optional[str] = Field(default="BARU", pattern="^(BARU|REVISI|PERPANJANGAN)$", examples=["BARU"])
@@ -78,7 +85,7 @@ class LocationDetailsDto(BaseModel):
     district: Optional[str] = Field(default=None, examples=["Bogor Timur"])
     city: Optional[str] = Field(default="Kabupaten Bogor", examples=["Kabupaten Bogor"])
     province: Optional[str] = Field(default="Jawa Barat", examples=["Jawa Barat"])
-    fullAddress: Optional[str] = Field(default=None, examples=["Jl. Raya Pajajaran No.21, Baranangsiang, Kec. Bogor Timur"])
+    fullAddress: Optional[str] = Field(default=None, examples=["Jl. Raya Pajajaran No.21, Kec. Bogor Timur"])
     landArea: Optional[float] = Field(default=None, examples=[25000.0])
     ownershipStatus: Optional[str] = Field(default="SHM", pattern="^(SHM|HGB|HAK_PAKAI|LAINNYA)$", examples=["SHM"])
     certificateNumber: Optional[str] = Field(default=None, examples=["SHM No. 10293/Baranangsiang"])
@@ -101,7 +108,6 @@ class SpatialDetailsDto(BaseModel):
     greenArea: Optional[float] = Field(default=0.0, examples=[3850.0])
 
 class TechnicalDetailsDto(BaseModel):
-    # A. Kategori Perumahan
     lotCount: Optional[int] = Field(default=None, examples=[120])
     housingType: Optional[str] = Field(default=None, examples=["NON_SUBSIDI"])
     cemeteryArea: Optional[float] = Field(default=None, examples=[500.0])
@@ -109,8 +115,6 @@ class TechnicalDetailsDto(BaseModel):
     roadRowLocal: Optional[str] = Field(default=None, examples=["8 Meter"])
     waterSystem: Optional[str] = Field(default=None, examples=["PDAM"])
     waterSource: Optional[str] = Field(default=None, examples=["PDAM Tirta Kahuripan"])
-
-    # B. Kategori Non-Perumahan
     buildingBlocks: Optional[int] = Field(default=None, examples=[3])
     kdb: Optional[float] = Field(default=None, examples=[55.2])
     klb: Optional[float] = Field(default=None, examples=[2.1])
@@ -118,15 +122,11 @@ class TechnicalDetailsDto(BaseModel):
     parkingCapacity: Optional[int] = Field(default=None, examples=[150])
     maxFloors: Optional[int] = Field(default=None, examples=[5])
     totalFloorArea: Optional[float] = Field(default=None, examples=[24000.0])
-
-    # C. Kategori Fasum
     facilityType: Optional[str] = Field(default=None)
     capacity: Optional[int] = Field(default=None)
     disabledAccess: Optional[str] = Field(default=None)
     specialParking: Optional[str] = Field(default=None)
     fireProtection: Optional[str] = Field(default=None)
-
-    # D. Kategori Industri
     warehouseCount: Optional[int] = Field(default=None)
     roadLoadMst: Optional[str] = Field(default=None)
     electricityPower: Optional[str] = Field(default=None)
@@ -134,7 +134,7 @@ class TechnicalDetailsDto(BaseModel):
     greenBufferArea: Optional[float] = Field(default=None)
     tpsB3Provision: Optional[str] = Field(default=None)
 
-    # ─── BARU: DEKLARASI DETAIL SPASIAL PEMOHON (Proposed) ───
+    # Metrik Proposed Pengembang
     applicantBuildingArea: Optional[float] = Field(default=None, examples=[13750.0])
     applicantGsb: Optional[float] = Field(default=None, examples=[5.0])
     applicantRthArea: Optional[float] = Field(default=None, examples=[2500.0])
@@ -146,8 +146,6 @@ class ConsultantDto(BaseModel):
 
 class StatementDto(BaseModel):
     agreed: bool = Field(default=True)
-
-# ─── SECTION 2: NESTED ROOT REQUEST DTO ───────────────────────────────────
 
 class DocumentDto(BaseModel):
     legalDoc: Optional[str] = Field(default=None)
@@ -197,36 +195,37 @@ class CalibrateRequest(BaseModel):
     anchor_cad_2: Tuple[float, float] = Field(examples=[(120.0, 95.0)])
     anchor_map_1: Tuple[float, float] = Field(examples=[(106.8272, -6.5971)])
     anchor_map_2: Tuple[float, float] = Field(examples=[(106.8295, -6.5990)])
-    actor_name: Optional[str] = Field(default=None, examples=["Andi Setiawan"])
-    role: Optional[str] = Field(default=None, examples=["TIM_TEKNIS"])
 
-# ─── REVISI: DTO UNTUK ARRAY CHECKLIST EVALUASI VERIFIKATOR ───
+# ─── SECTION 2: SKEMA CHECKLIST & VERIFY DTO (13 Matriks Aspek) ────────────
 
 class EvaluasiChecklistItemDto(BaseModel):
-    aspek_code: str = Field(..., examples=["REQ_KDB"])
-    aspek_label: str = Field(..., examples=["Koefisien Dasar Bangunan (KDB)"])
+    aspek_code: str = Field(..., examples=["M3_KDB", "legalDoc"])
+    aspek_label: str = Field(..., examples=["Koefisien Dasar Bangunan (KDB)", "Sertifikat Tanah BPN"])
     status_kelayakan: str = Field(..., pattern="^(Sesuai|Sesuai Bersyarat|Tidak Sesuai|Pending)$", examples=["Sesuai"])
-    catatan_verifikator: Optional[str] = Field(default=None, examples=["Luas jalan belakang belum terhitung"])
+    catatan_verifikator: Optional[str] = Field(default=None, examples=["Memenuhi batas aman"])
     attachment_url: Optional[str] = Field(default=None, examples=["/uploads/evaluasi/revisi_kdb.pdf"])
 
 class VerifyRequest(BaseModel):
-    actor_name: Optional[str] = Field(default=None, examples=["Dr. Hendra Wijaya"])
-    role: Optional[str] = Field(default=None, pattern="^(KABID_PUPR|TIM_TEKNIS|ADMIN)$")
-    nip: Optional[str] = Field(default=None, examples=["198402122010011003"])
+    # actor_name & role ditiadakan dari body request demi mencegah Spoofing Peran.
+    # Data penandatangan wajib ditarik langsung dari session token JWT Kepala Dinas / Kabid.
+    nip: Optional[str] = Field(default=None, examples=["197503112000031001"])
     passphrase: Optional[SecretStr] = Field(default=None, min_length=6, json_schema_extra={"writeOnly": True}, examples=["P@ssw0rdPejabat!"])
-    action_type: str = Field(pattern="^(APPROVE|REJECT|REVERT_TO_TECHNICAL|REVERT_TO_ADMINISTRATIVE)$")
+    action_type: str = Field(pattern="^(APPROVE|REJECT|REVERT_TO_TECHNICAL|REVERT_TO_ADMINISTRATIVE|OVERRIDE_VERDICT|SAVE_TECHNICAL_MATRIX)$")
     notes: str = Field(...)
     is_spatially_compliant: bool = Field(default=True)
-    signature_base64: Optional[str] = Field(default=None, description="Base64 image data of drawn signature")
+    signature_base64: Optional[str] = Field(default=None, description="Visual signature coretan tangan")
 
-    # ─── REVISI: METRIK HASIL HITUNG MANUAL & KESIMPULAN KKPR AKHIR ───
+    # Parameter Penilaian Spasial & Komparasi Tiga Sisi
     kkpr_verdict: Optional[str] = Field(default=None, pattern="^(Sesuai|Sesuai Bersyarat|Perlu Perbaikan / Revisi|Tidak Sesuai / Ditolak)$")
     verified_kdb: Optional[float] = None
     verified_klb: Optional[float] = None
     verified_kdh: Optional[float] = None
     verified_gsb: Optional[float] = None
     verified_rth_area: Optional[float] = None
+    
+    # Array checklist formal kelengkapan berkas & 13 matriks teknis daerah (Fase 2)
     checklist_items: Optional[List[EvaluasiChecklistItemDto]] = None
+
 
 # ─── SECTION 3: HTTP ROUTE HANDLERS ───────────────────────────────────────
 
@@ -234,7 +233,6 @@ class VerifyRequest(BaseModel):
 async def upload_file(request: Request, file: UploadFile = File(...)):
     """Mengunggah berkas lampiran secara lokal ke storage backend [uploads/permohonan]"""
     try:
-        # Enforce 20MB file size limit
         MAX_FILE_SIZE = 20 * 1024 * 1024
         file.file.seek(0, 2)
         size = file.file.tell()
@@ -248,7 +246,6 @@ async def upload_file(request: Request, file: UploadFile = File(...)):
         upload_dir = "uploads/permohonan"
         os.makedirs(upload_dir, exist_ok=True)
         
-        # Penyelarasan Tipe Data Nama File untuk Membungkus Splitting Extension secara Aman
         raw_filename = file.filename if file.filename else ""
         file_ext = os.path.splitext(raw_filename)[1]
         unique_filename = f"{uuid.uuid4().hex}{file_ext}"
@@ -298,14 +295,12 @@ def submit_permohonan(
         id_permohonan = req.id_permohonan or f"sub-{int(datetime.now(timezone.utc).timestamp())}"
         submission_no = f"SIPAS-2026-0{random.randint(100, 999)}"
 
-        # ─── REVISI: SINKRONISASI BATAS ATURAN SEARA OTOMATIS (Master RDTR) ───
         rdtr = db.query(MasterRDTRModel).filter(
             MasterRDTRModel.district == req.location.district,
             MasterRDTRModel.village == req.location.village,
             MasterRDTRModel.category == req.submission.category
         ).first()
 
-        # Gunakan baseline Kabupaten Bogor default jika wilayah tidak terpetakan
         bylaw_max_kdb = rdtr.max_kdb if rdtr else 60.0
         bylaw_max_klb = rdtr.max_klb if rdtr else 3.5
         bylaw_min_kdh = rdtr.min_kdh if rdtr else 10.0
@@ -323,7 +318,7 @@ def submit_permohonan(
             
             # Tahap 1
             applicant_type=req.applicant.type,
-            applicant_name=req.applicant.name or req.applicant.directorName, # Resolving mandatory field
+            applicant_name=req.applicant.name or req.applicant.directorName,
             applicant_nik=req.applicant.nik,
             applicant_nib=req.applicant.nib,
             applicant_npwp=req.applicant.npwp,
@@ -419,7 +414,7 @@ def submit_permohonan(
             user_id=cast(int, current_user.id),
             is_draft=req.is_draft,
 
-            # ─── REVISI: METRIK PROPOSED PEMOHON & BYLAW KEBUTUHAN ───
+            # Proposed & Bylaw
             applicant_land_area=req.location.landArea,
             applicant_building_area=req.technical.applicantBuildingArea if req.technical else None,
             applicant_kdb=req.technical.kdb if req.technical else None,
@@ -502,6 +497,9 @@ def calibrate_cad_spasial(
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+
+# ─── UPDATE ENDPOINT VERIFIKASI (SoD Enforcer & 13 Matriks Aspek) ───────────
+
 @router.post("/{id_permohonan}/verify", status_code=status.HTTP_200_OK)
 async def verify_submission(
     id_permohonan: str,
@@ -510,17 +508,40 @@ async def verify_submission(
     current_user: UserModel = Depends(get_current_user)
 ):
     """Otorisasi keputusan berjenjang dan penandatanganan elektronik BSrE [Bogor 7, 10]."""
+    
+    # ─── INTEGRITAS DATA & SOD KADIS ENDPOINT-LEVEL GATEKEEPER ───────────────
+    # Memeriksa data terkini permohonan dari database untuk mengunci wewenang TTE Kadis.
+    permohonan_model = db.query(PermohonanModel).filter(PermohonanModel.id_permohonan == id_permohonan).first()
+    if not permohonan_model:
+        raise HTTPException(status_code=404, detail="Permohonan tidak ditemukan.")
+
+    # Proteksi keamanan API (Segregation of Duties): Hanya Kadis yang boleh menyetujui di meja Kadis
+    if permohonan_model.status == "Menunggu Persetujuan":
+        if current_user.role != "KADIS":
+            logger.warning(
+                f"[SECURITY_ALERT] Non-KADIS user '{current_user.username}' (Role: {current_user.role}) "
+                f"attempted to trigger final TTE signature on submission: {id_permohonan}"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Akses Ditolak: Hanya Kepala Dinas (KADIS) yang diizinkan memproses penandatanganan SK final."
+            )
+
     try:
         permohonan_repo = PermohonanRepository(db)
+        telaah_staf_repo = TelaahStafRepository(db)
         audit_trail_repo = AuditTrailRepository(db)
-        doc_generator = MockDocumentGenerator()
+        
+        # ─── PERBAIKAN PYLANCE nominal type check: Gunakan type annotation formal Port (DIP) ───
+        doc_generator: DocumentGeneratorPort = HtmlToPdfEngine()
         bsre_client = BsreClient()
 
         use_case = VerifySubmissionUseCase(
-            permohonan_repo,
-            doc_generator,
-            bsre_client,
-            audit_trail_repo
+            permohonan_repo=permohonan_repo,
+            telaah_staf_repo=telaah_staf_repo,
+            document_generator=doc_generator,
+            digital_signature_client=bsre_client,
+            audit_trail_repo=audit_trail_repo
         )
 
         # ─── REVISI: TRANSFORMASI CHECKLIST DTO KE USECASE MODEL ───
@@ -533,10 +554,14 @@ async def verify_submission(
                         aspek_label=item.aspek_label,
                         status_kelayakan=item.status_kelayakan,
                         catatan_verifikator=item.catatan_verifikator,
-                        attachment_url=item.attachment_url
+                        attachment_url=item.attachment_url,
+                        # Pasang data penambat audit verifikator secara dinamis (Fase 1)
+                        verified_by_id=current_user.id,
+                        verified_at=datetime.now()
                     )
                 )
 
+        # Kontrak Verifikasi - Identitas aktor DIPAKSA ditarik murni dari JWT (Anti-Spoofing)
         dto = VerifySubmissionInputDto(
             id_permohonan=id_permohonan,
             actor_name=cast(str, current_user.full_name),
@@ -548,7 +573,7 @@ async def verify_submission(
             is_spatially_compliant=req.is_spatially_compliant,
             signature_base64=req.signature_base64,
 
-            # Bind parameter komparasi teknis revisi
+            # Parameter komparasi teknis revisi
             kkpr_verdict=req.kkpr_verdict,
             verified_kdb=req.verified_kdb,
             verified_klb=req.verified_klb,
@@ -563,8 +588,10 @@ async def verify_submission(
             "status": "SUCCESS",
             "message": f"Keputusan verifikasi berhasil direkam. Status berkas: {result.status.value}"
         }
+    except PermissionError as pe:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(pe))
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 @router.get("/rdtr-limits", status_code=status.HTTP_200_OK)
 def get_rdtr_limits(
@@ -679,7 +706,6 @@ def get_all_submissions(db: Session = Depends(get_db), current_user: UserModel =
                 "greenBufferArea": r.tech_green_buffer_area,
                 "tpsB3Provision": r.tech_tps_b3_provision,
 
-                # ─── REVISI: METRIK PROPOSED DETAIL PEMOHON ───
                 "applicantBuildingArea": r.applicant_building_area,
                 "applicantGsb": r.applicant_gsb,
                 "applicantRthArea": r.applicant_rth_area
@@ -703,8 +729,9 @@ def get_all_submissions(db: Session = Depends(get_db), current_user: UserModel =
             "signatureHash": r.signature_hash,
             "signedPdfUrl": r.signed_pdf_url,
             "kabidSignature": r.kabid_signature,
+            "kadisSignature": r.kadis_signature,
 
-            # ─── REVISI: METRIK INTEGRAL TATA RUANG (VERDICT & VERIFIED) ───
+            # Kesimpulan KKPR
             "kkprVerdict": r.kkpr_verdict.value if r.kkpr_verdict else None,
             "kkprVerifiedAt": r.kkpr_verified_at.isoformat() if r.kkpr_verified_at else None,
             "kkprVerifierName": r.kkpr_verifier_name,
@@ -719,7 +746,7 @@ def get_all_submissions(db: Session = Depends(get_db), current_user: UserModel =
 
 @router.get("/{id_permohonan}", status_code=status.HTTP_200_OK)
 def get_submission_by_id(id_permohonan: str, db: Session = Depends(get_db), current_user: UserModel = Depends(get_current_user)):
-    """Mendapatkan data rinci pengajuan berdasarkan ID."""
+    """Mendapatkan data rinci pengajuan berdasarkan ID, lengkap dengan metadata snapshot Telaah Staf."""
     repo = PermohonanRepository(db)
     r = repo.find_by_id(id_permohonan)
     if not r:
@@ -771,10 +798,25 @@ def get_submission_by_id(id_permohonan: str, db: Session = Depends(get_db), curr
             "aspekLabel": item.aspek_label,
             "statusKelayakan": item.status_kelayakan.value,
             "catatanVerifikator": item.catatan_verifikator,
-            "attachmentUrl": item.attachment_url
+            "attachmentUrl": item.attachment_url,
+            "verifiedById": item.verified_by_id,
+            "verifiedAt": item.verified_at.isoformat() if item.verified_at else None
         }
         for item in db_evaluations
     ]
+
+    # ─── BARU: SNAPSHOT DOKUMEN TELAAH STAF DI API DETAIL (Fase 4 REST) ──────
+    telaah_staf_data = None
+    telaah_model = db.query(TelaahStafModel).filter(TelaahStafModel.id_permohonan == id_permohonan).first()
+    if telaah_model:
+        telaah_staf_data = {
+            "idTelaah": telaah_model.id_telaah,
+            "verdict": telaah_model.verdict,
+            "isOverridden": telaah_model.is_overridden,
+            "overrideReason": telaah_model.override_reason,
+            "createdAt": telaah_model.created_at.isoformat(),
+            "payload": telaah_model.document_payload
+        }
 
     return {
         "id": r.id_permohonan,
@@ -849,7 +891,6 @@ def get_submission_by_id(id_permohonan: str, db: Session = Depends(get_db), curr
             "greenBufferArea": r.tech_green_buffer_area,
             "tpsB3Provision": r.tech_tps_b3_provision,
 
-            # ─── REVISI: METRIK PROPOSED DETAIL PEMOHON ───
             "applicantBuildingArea": r.applicant_building_area,
             "applicantGsb": r.applicant_gsb,
             "applicantRthArea": r.applicant_rth_area
@@ -879,9 +920,12 @@ def get_submission_by_id(id_permohonan: str, db: Session = Depends(get_db), curr
         "photos": photos_dict,
         "signatureHash": r.signature_hash,
         "signedPdfUrl": r.signed_pdf_url,
+        
+        # Paraf Kabid & TTE Kadis
         "kabidSignature": r.kabid_signature,
+        "kadisSignature": r.kadis_signature,
 
-        # ─── REVISI: METRIK INTEGRAL TATA RUANG (VERDICT, CHECKLIST, & VERIFIED) ───
+        # Parameter Evaluasi
         "kkprVerdict": r.kkpr_verdict.value if r.kkpr_verdict else None,
         "kkprVerifiedAt": r.kkpr_verified_at.isoformat() if r.kkpr_verified_at else None,
         "kkprVerifierName": r.kkpr_verifier_name,
@@ -891,18 +935,20 @@ def get_submission_by_id(id_permohonan: str, db: Session = Depends(get_db), curr
         "verifiedGsb": r.verified_gsb,
         "verifiedRthArea": r.verified_rth_area,
         "evaluationChecklist": evaluation_list,
+        "telaahStaf": telaah_staf_data,  # Payload snapshot Telaah Staf utuh
 
         "history": (lambda: [
             {
                 "date": log.created_at.strftime("%Y-%m-%d %H:%M:%S"),
                 "status": log.status_after,
+                "action": log.action,
                 "notes": log.notes,
                 "actor": f"{log.actor_name} ({log.role})",
                 "digitalSignatureHash": log.digital_signature_hash
             }
             for log in db.query(AuditTrailModel).filter(AuditTrailModel.submission_id == r.id_permohonan).order_by(AuditTrailModel.created_at.asc()).all()
         ] or [
-            { "date": r.submission_date.isoformat() + " 09:00", "status": "Draft", "notes": "Pengajuan dibuat", "actor": r.applicant_name or "Pemohon", "digitalSignatureHash": None }
+            { "date": r.submission_date.isoformat() + " 09:00", "status": "Draft", "action": "Draft", "notes": "Pengajuan dibuat", "actor": r.applicant_name or "Pemohon", "digitalSignatureHash": None }
         ])()
     }
 

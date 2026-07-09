@@ -1,11 +1,12 @@
+# --- FILE: src/domain/entities/permohonan.py ---
 """
 ============================================================================
-SIPAS DOMAIN ENTITY — Permohonan [permohonan.py] (REVISED v3 - TYPE SAFE)
+SIPAS DOMAIN ENTITY — Permohonan [permohonan.py] (REVISED v4 - TYPE SAFE)
 ============================================================================
-Peran: Entitas domain murni (Pure Python) yang merepresentasikan data
-       pengisian pengesahan site plan serta menegakkan aturan bisnis (invariants)
-       terkait klasifikasi objek, durasi SLA, perbandingan metrik tiga sisi
-       (Proposed vs Bylaw vs Verified), dan mutasi status [sipas-fe.txt].
+Peran: Entitas domain murni (Pure Python) yang merepresentasikan berkas
+       pengajuan pengesahan site plan. Menegakkan aturan transisi status (SLA),
+       matriks perbandingan tiga sisi, pengamanan veto Kabid, serta perpindahan
+       hak otorisasi TTE akhir ke Kepala Dinas (Kadis).
 ============================================================================
 """
 
@@ -13,28 +14,40 @@ from datetime import date, datetime
 from enum import Enum
 from typing import List, Optional
 
+
 class SubmissionStatus(str, Enum):
+    """Representasi mutlak status berkas permohonan dalam alur birokrasi dinas."""
     DRAFT = 'Draft'
     MENUNGGU_VERIFIKASI = 'Menunggu Verifikasi'
     VERIFIKASI_ADMINISTRASI = 'Verifikasi Administrasi'
     VERIFIKASI_TEKNIS = 'Verifikasi Teknis'
-    MENUNGGU_PERSETUJUAN = 'Menunggu Persetujuan'
-    PROSES_TTE = 'Proses TTE'
-    DISETUJUI = 'Disetujui'
-    DITOLAK = 'Ditolak'
+    MENUNGGU_REKOMENDASI = 'Menunggu Rekomendasi'  # Tahap Peninjauan & Veto Kabid
+    MENUNGGU_PERSETUJUAN = 'Menunggu Persetujuan'  # Tahap Pemeriksaan Draf SK oleh Kadis
+    PROSES_TTE = 'Proses TTE'                      # Kunci Transaksi TTE Kadis Aktif
+    DISETUJUI = 'Disetujui'                        # SK Berhasil Ditandatangani Kadis (Final)
+    DITOLAK = 'Ditolak'                            # Berkas dikembalikan ke Pemohon untuk Revisi
+
 
 class DocumentCategory(str, Enum):
+    """Kategorisasi tipe dokumen berdasarkan rentang luas bidang tanah terukur."""
     GAMBAR_SITUASI = 'Gambar Situasi'
     SITE_PLAN = 'Site Plan'
     MASTER_PLAN = 'Master Plan'
 
+
 class KKPRVerdict(str, Enum):
+    """Kesimpulan penilaian tata ruang yang dirumuskan oleh Tim Teknis."""
     SESUAI = "Sesuai"
     SESUAI_BERSYARAT = "Sesuai Bersyarat"
     PERLU_PERBAIKAN = "Perlu Perbaikan / Revisi"
     TIDAK_SESUAI = "Tidak Sesuai / Ditolak"
 
+
 class Permohonan:
+    """
+    Entitas Bisnis Utama e-Siteplan.
+    Mengatur siklus hidup administrasi, validasi data, serta pembekuan SLA.
+    """
     def __init__(
         self,
         id_permohonan: str,
@@ -129,7 +142,10 @@ class Permohonan:
         user_id: Optional[int] = None,
         signature_hash: Optional[str] = None,
         signed_pdf_url: Optional[str] = None,
-        kabid_signature: Optional[str] = None,
+        
+        # Penanggung Jawab TTE Teknis & Legalitas Dinas
+        kabid_signature: Optional[str] = None,       # Paraf verifikasi teknis Kabid
+        kadis_signature: Optional[str] = None,       # Visual TTE Final Kepala Dinas
 
         # ─── REVISI: METRIK INTENSITAS BANGUNAN (THREE-SIDED COMPARISON LEDGER) ──
         applicant_land_area: Optional[float] = None,
@@ -243,11 +259,14 @@ class Permohonan:
         self.statement_agreed = statement_agreed
         self.polygon = polygon
         self.user_id = user_id
+        
+        # Atribut Integrasi Keamanan TTE BSrE (Kepala Dinas)
         self.signature_hash = signature_hash
         self.signed_pdf_url = signed_pdf_url
         self.kabid_signature = kabid_signature
+        self.kadis_signature = kadis_signature  # Tambahan visual coretan TTE Kadis
 
-        # ─── REVISI ATRIBUT BARU (METRIK KOMPARASI & KKPR VERDICT) ───
+        # Atribut Metrik Intensitas Tata Ruang Komparasi
         self.applicant_land_area = applicant_land_area or resolved_land_area
         self.applicant_building_area = applicant_building_area
         self.applicant_kdb = applicant_kdb
@@ -296,7 +315,6 @@ class Permohonan:
         Membekukan penghitungan waktu (Clock Pause) jika berkas membutuhkan revisi.
         Mendukung nilai negatif (terlambat) untuk menandakan SLA terlampaui.
         """
-        from datetime import date
         # SLA dibekukan (paused) jika status DRAFT atau DITOLAK (revisi pemohon)
         if self.status in [SubmissionStatus.DRAFT, SubmissionStatus.DITOLAK]:
             total_allocated = self.base_sla + self.buffer_sla
@@ -314,50 +332,78 @@ class Permohonan:
         self.buffer_sla += days
 
     def transition_status(self, new_status: SubmissionStatus) -> None:
+        """
+        State Machine Aturan Transisi Status Berkas Resmi.
+        Menegakkan Segregation of Duties (SoD) dan keamanan birokrasi penataan ruang.
+        """
         allowed_transitions = {
-            SubmissionStatus.DRAFT: [SubmissionStatus.MENUNGGU_VERIFIKASI],
+            SubmissionStatus.DRAFT: [
+                SubmissionStatus.MENUNGGU_VERIFIKASI
+            ],
+            
             SubmissionStatus.MENUNGGU_VERIFIKASI: [
                 SubmissionStatus.VERIFIKASI_ADMINISTRASI,
                 SubmissionStatus.VERIFIKASI_TEKNIS,
-                SubmissionStatus.DITOLAK,
+                SubmissionStatus.DITOLAK
             ],
+            
             SubmissionStatus.VERIFIKASI_ADMINISTRASI: [
                 SubmissionStatus.VERIFIKASI_TEKNIS,
-                SubmissionStatus.DITOLAK,
+                SubmissionStatus.DITOLAK
             ],
+            
+            # Tim Teknis dapat mengirim berkas ke Kabid (Menunggu Rekomendasi) setelah membuat Telaah Staf
             SubmissionStatus.VERIFIKASI_TEKNIS: [
-                SubmissionStatus.MENUNGGU_PERSETUJUAN,
+                SubmissionStatus.MENUNGGU_REKOMENDASI,
                 SubmissionStatus.DITOLAK,
-                SubmissionStatus.VERIFIKASI_ADMINISTRASI,
+                SubmissionStatus.VERIFIKASI_ADMINISTRASI  # Revert internal ke Admin
             ],
+            
+            # Kabid meninjau Telaah Staf: bisa setuju revisi (DITOLAK), override ke Kadis (MENUNGGU_PERSETUJUAN),
+            # atau mengembalikan ke Tim Teknis secara internal.
+            SubmissionStatus.MENUNGGU_REKOMENDASI: [
+                SubmissionStatus.MENUNGGU_PERSETUJUAN,
+                SubmissionStatus.VERIFIKASI_TEKNIS,       # Revert internal ke Tim Teknis
+                SubmissionStatus.DITOLAK                   # Revert ke Pemohon untuk Revisi
+            ],
+            
+            # Kadis meninjau draf SK: bisa melangkah ke TTE (PROSES_TTE), mengembalikan ke Kabid secara internal,
+            # atau melakukan penolakan keras (DITOLAK).
             SubmissionStatus.MENUNGGU_PERSETUJUAN: [
                 SubmissionStatus.PROSES_TTE,
-                SubmissionStatus.DITOLAK,
-                SubmissionStatus.VERIFIKASI_TEKNIS,
+                SubmissionStatus.MENUNGGU_REKOMENDASI,     # Revert internal ke Kabid
+                SubmissionStatus.DITOLAK                   # Revert ke Pemohon (Hard Reject)
             ],
+            
+            # Proses TTE dinas terkunci: hanya boleh beralih ke DISETUJUI atau dibatalkan ke Kadis
             SubmissionStatus.PROSES_TTE: [
                 SubmissionStatus.DISETUJUI,
-                SubmissionStatus.MENUNGGU_PERSETUJUAN,
+                SubmissionStatus.MENUNGGU_PERSETUJUAN      # Rollback jika transaksi API BSrE gagal
             ],
-            SubmissionStatus.DISETUJUI: [],
-            SubmissionStatus.DITOLAK: [SubmissionStatus.MENUNGGU_VERIFIKASI],
+            
+            SubmissionStatus.DISETUJUI: [],  # Status terminal akhir yang sah secara hukum
+            
+            # Selesai melakukan revisi, pemohon mengirim draf baru langsung ke verifikasi teknis atau admin
+            SubmissionStatus.DITOLAK: [
+                SubmissionStatus.MENUNGGU_VERIFIKASI,
+                SubmissionStatus.VERIFIKASI_TEKNIS         # Akselerasi bypass admin jika revisi bersifat teknis murni
+            ]
         }
 
         if new_status not in allowed_transitions[self.status]:
             raise IllegalStateTransitionError(
                 f"Ilegal: Tidak diizinkan melakukan transisi status dari '{self.status.value}' langsung ke '{new_status.value}'."
             )
-        
-        from datetime import date
 
         # Kunci penghitungan hari aktif (elapsed_days) saat status berpindah ke DITOLAK (paused)
         if new_status == SubmissionStatus.DITOLAK and self.status not in [SubmissionStatus.DRAFT, SubmissionStatus.DITOLAK]:
             self.elapsed_days = max(self.elapsed_days, (date.today() - self.sla_start_date).days)
         
-        # Reset SLA (1 bulan/30 hari baru) saat berpindah ke tahap peninjauan yang berbeda
+        # Reset SLA (1 bulan/30 hari baru) saat berpindah ke tahapan utama peninjauan yang berbeda
         RESET_SLA_STATUSES = [
             SubmissionStatus.MENUNGGU_VERIFIKASI,
             SubmissionStatus.VERIFIKASI_TEKNIS,
+            SubmissionStatus.MENUNGGU_REKOMENDASI,
             SubmissionStatus.MENUNGGU_PERSETUJUAN,
             SubmissionStatus.PROSES_TTE
         ]
@@ -369,6 +415,7 @@ class Permohonan:
         self.status = new_status
 
     def attach_signature(self, hash: str, url: str) -> None:
+        """Membubuhkan TTE Dinas Resmi milik Kepala Dinas pada draf SK Pengesahan final."""
         self.transition_status(SubmissionStatus.DISETUJUI)
         self.signature_hash = hash
         self.signed_pdf_url = url
@@ -377,6 +424,7 @@ class Permohonan:
         if self.applicant_land_area and self.applicant_building_area:
             return (self.applicant_building_area / self.applicant_land_area) * 100.0
         return self.applicant_kdb
+
 
 class IllegalStateTransitionError(Exception):
     pass

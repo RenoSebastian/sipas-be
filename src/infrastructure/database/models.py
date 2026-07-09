@@ -1,17 +1,20 @@
+# --- FILE: src/infrastructure/database/models.py ---
 """
 ============================================================================
-SIPAS INFRASTRUCTURE ADAPTER — Database Models [models.py] (REVISED v3)
+SIPAS INFRASTRUCTURE ADAPTER — Database Models [models.py] (REVISED v4)
 ============================================================================
 Peran: Mendefinisikan skema tabel fisik database PostgreSQL & PostGIS
        menggunakan deklarasi tipe data statis SQLAlchemy 2.0 (Mapped).
        Diekspansi penuh untuk menampung seluruh detail formulir 10-tahap,
-       metrik komparasi tiga sisi, dynamic checklist evaluasi, dan Master RDTR.
+       metrik komparasi tiga sisi, dynamic checklist evaluasi dengan audit,
+       Master RDTR, serta metadata dokumen biner JSONB Telaah Staf.
 ============================================================================
 """
 
 from datetime import datetime, date, timezone
 from typing import List, Optional, Any
 from sqlalchemy import String, Float, Integer, Date, DateTime, ForeignKey, Text, Boolean, Enum as SQLEnum
+from sqlalchemy.dialects.postgresql import JSONB  # Impor tipe data JSONB murni untuk PostgreSQL
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from geoalchemy2 import Geometry
 
@@ -26,6 +29,7 @@ class ChecklistStatus(str, enum.Enum):
     TIDAK_SESUAI = "Tidak Sesuai"
     PENDING = "Pending"
 
+
 class UserModel(Base):
     __tablename__ = "users"
 
@@ -34,7 +38,10 @@ class UserModel(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
-    role: Mapped[str] = mapped_column(String(50), nullable=False, default="PEMOHON") # PEMOHON | ADMIN | TIM_TEKNIS | KABID_PUPR
+    
+    # Peran Valid: PEMOHON | ADMIN | TIM_TEKNIS | KABID_PUPR | KADIS
+    role: Mapped[str] = mapped_column(String(50), nullable=False, default="PEMOHON") 
+    
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     nip: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     company: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
@@ -150,10 +157,11 @@ class PermohonanModel(Base):
     # ─── TAHAP 10: PERNYATAAN KOMITMEN HUKUM (STATEMENT) ──────────────────────
     statement_agreed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
-    # Tambahkan kolom baru untuk menyimpan bukti hukum TTE
+    # Kolom Bukti Hukum TTE Dinas Resmi
     signature_hash: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     signed_pdf_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     kabid_signature: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    kadis_signature: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     # ─── REVISI: METRIK INTENSITAS BANGUNAN (THREE-SIDED COMPARISON LEDGER) ──
     # A. Pengajuan Luas Fisik Mandiri Pemohon
@@ -202,6 +210,13 @@ class PermohonanModel(Base):
         back_populates="permohonan", 
         cascade="all, delete-orphan"
     )
+    # Satu berkas pengesahan site plan tepat memiliki satu arsip historis Telaah Staf aktif
+    telaah_staf: Mapped[Optional["TelaahStafModel"]] = relationship(
+        "TelaahStafModel", 
+        back_populates="permohonan", 
+        uselist=False, 
+        cascade="all, delete-orphan"
+    )
 
 
 class EvaluasiChecklistItemModel(Base):
@@ -223,7 +238,13 @@ class EvaluasiChecklistItemModel(Base):
     catatan_verifikator: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     attachment_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True) # PDF coretan atau hitung dinas
 
+    # ─── UPDATE FASE 1: AUDIT TRACEABILITY CHECKLIST ────────────────────────
+    verified_by_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
+    verified_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+    # Relasi
     permohonan: Mapped["PermohonanModel"] = relationship("PermohonanModel", back_populates="evaluasi_items")
+    verified_by: Mapped[Optional["UserModel"]] = relationship("UserModel")
 
 
 class MasterRDTRModel(Base):
@@ -246,6 +267,37 @@ class MasterRDTRModel(Base):
     min_rth_area: Mapped[float] = mapped_column(Float, nullable=False, default=1400.0)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+
+
+class TelaahStafModel(Base):
+    """
+    Model penyimpanan fisik lembar Telaah Staf hasil perumusan Tim Teknis.
+    Menerapkan snapshot imutabel seluruh data penilaian di kolom JSONB.
+    """
+    __tablename__ = "telaah_staf"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id_telaah: Mapped[str] = mapped_column(String(50), unique=True, nullable=False, index=True)
+    id_permohonan: Mapped[str] = mapped_column(
+        String(50), 
+        ForeignKey("permohonan.id_permohonan", ondelete="CASCADE"), 
+        nullable=False, 
+        index=True
+    )
+    verdict: Mapped[str] = mapped_column(String(50), nullable=False) # 'SESUAI', 'SESUAI_BERSYARAT', 'REVISI', 'DITOLAK'
+    is_overridden: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    override_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, 
+        nullable=False, 
+        default=lambda: datetime.now(timezone.utc).replace(tzinfo=None)
+    )
+    
+    # Payload dokumen historis beku berformat biner JSONB PostgreSQL
+    document_payload: Mapped[dict] = mapped_column(JSONB, nullable=False)
+
+    # Relasi
+    permohonan: Mapped["PermohonanModel"] = relationship("PermohonanModel", back_populates="telaah_staf")
 
 
 class LahanKompensasiModel(Base):

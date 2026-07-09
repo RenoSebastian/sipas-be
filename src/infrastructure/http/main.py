@@ -115,5 +115,8 @@ app.include_router(auth_router)
 import os
 os.makedirs("uploads/permohonan", exist_ok=True)
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+
+os.makedirs("docs", exist_ok=True)
+app.mount("/docs", StaticFiles(directory="docs"), name="docs")
 # Seluruh router dari folder http/routes akan didaftarkan di bawah ini kelak:
 # app.include_router(submissions.router, prefix="/api/v1")
