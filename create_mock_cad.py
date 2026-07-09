@@ -143,8 +143,8 @@ def main():
     print("[MOCK_CAD] Generating a highly irregular, realistic site plan in WGS84 Kabupaten Bogor space...")
     try:
         # Deterministic settings to align with Polygon 1 of create_mock_shp.py
-        base_lon = 106.8400
-        base_lat = -6.4800
+        base_lon = 106.802744
+        base_lat = -6.471861
         rotation_deg = 12.0
         print(f"[MOCK_CAD] Selected center: Lon={base_lon:.6f}, Lat={base_lat:.6f} with rotation={rotation_deg:.1f}°")
 

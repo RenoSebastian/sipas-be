@@ -721,8 +721,8 @@ def get_all_submissions(db: Session = Depends(get_db), current_user: UserModel =
                 "agreed": r.statement_agreed
             },
             "location": {
-                "lat": -6.595189,
-                "lng": 106.816629,
+                "lat": sum(float(pt[1]) for pt in r.polygon) / len(r.polygon) if r.polygon and len(r.polygon) >= 3 else -6.595189,
+                "lng": sum(float(pt[0]) for pt in r.polygon) / len(r.polygon) if r.polygon and len(r.polygon) >= 3 else 106.816629,
                 "address": r.location_full_address,
                 "polygon": r.polygon or []
             },
@@ -906,8 +906,8 @@ def get_submission_by_id(id_permohonan: str, db: Session = Depends(get_db), curr
             "agreed": r.statement_agreed
         },
         "location": {
-            "lat": -6.595189,
-            "lng": 106.816629,
+            "lat": sum(float(pt[1]) for pt in r.polygon) / len(r.polygon) if r.polygon and len(r.polygon) >= 3 else -6.595189,
+            "lng": sum(float(pt[0]) for pt in r.polygon) / len(r.polygon) if r.polygon and len(r.polygon) >= 3 else 106.816629,
             "address": r.location_full_address,
             "polygon": r.polygon or []
         },
@@ -969,6 +969,7 @@ def get_submission_geometries(
     road_polygons = []
     rth_polygons = []
     psu_polygons = []
+    kavling_polygons = []
     
     for g in geoms:
         polygon_coords = []
@@ -989,6 +990,8 @@ def get_submission_geometries(
             road_polygons.append(polygon_coords)
         elif "RTH" in layer or "HIJAU" in layer or "TAMAN" in layer:
             rth_polygons.append(polygon_coords)
+        elif "KDB" in layer or "KAVELING" in layer or "KAVLING" in layer:
+            kavling_polygons.append(polygon_coords)
         else:
             psu_polygons.append(polygon_coords)
             
@@ -996,7 +999,8 @@ def get_submission_geometries(
         "id_permohonan": id_permohonan,
         "roadPolygons": road_polygons,
         "rthPolygons": rth_polygons,
-        "psuPolygons": psu_polygons
+        "psuPolygons": psu_polygons,
+        "kavlingPolygons": kavling_polygons
     }
 
 @router.post("/ocr/ktp", status_code=status.HTTP_200_OK)
