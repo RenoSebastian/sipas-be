@@ -27,17 +27,18 @@ class DocumentGeneratorPort(ABC):
     def generate_telaah_staf_pdf(
         self, 
         telaah_staf: TelaahStaf, 
-        project_name: str, 
-        applicant_name: str
+        permohonan: Permohonan
     ) -> str:
         """
-        Mengompilasi data snapshoot verifikasi teknis & administrasi dari objek
-        TelaahStaf menjadi berkas fisik PDF resmi untuk konsumsi Kabid & Kadis.
+        Mengompilasi data snapshot verifikasi teknis & administrasi dari objek
+        TelaahStaf serta metrik sandingan 3-sisi dari objek Permohonan menjadi 
+        berkas fisik PDF resmi untuk konsumsi peninjauan Kabid & Kadis.
 
         Args:
             telaah_staf: Entitas domain berisi 13 matriks dan verifikasi formal.
-            project_name: Nama perumahan/kawasan yang diajukan.
-            applicant_name: Nama lengkap pemohon/direktur badan usaha.
+            permohonan: Entitas domain berisi parameter teknis dasar, 
+                        usulan pemohon (proposed), regulasi (bylaw), 
+                        dan hasil pengukuran dinas (verified).
 
         Returns:
             str: Jalur lokasi fisik absolut (Absolute File Path) dari berkas PDF di server.

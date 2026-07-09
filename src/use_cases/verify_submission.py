@@ -1,7 +1,7 @@
 # --- FILE: src/use_cases/verify_submission.py ---
 """
 ============================================================================
-SIPAS USE CASE — Verify & Approve Submission [verify_submission.py] (REVISED v5)
+SIPAS USE CASE — Verify & Approve Submission [verify_submission.py] (REVISED v7)
 ============================================================================
 Peran: Mengorkestrasikan ulasan penilaian berjenjang (Admin -> Tim Teknis ->
        Kabid -> Kadis) sesuai dengan matriks status birokrasi baru.
@@ -48,6 +48,11 @@ class ExtendedPermohonanRepositoryPort(PermohonanRepositoryPort):
     @abstractmethod
     def get_evaluasi_items(self, id_permohonan: str) -> List[Any]:
         """Mendapatkan seluruh detail checklist evaluasi (administrasi & teknis)."""
+        pass
+
+    @abstractmethod
+    def find_user_by_id(self, user_id: int) -> Optional[Any]:
+        """Mencari data pengguna secara decoupling tanpa membocorkan session database."""
         pass
 
     @abstractmethod
@@ -99,7 +104,7 @@ class VerifySubmissionInputDto:
 class VerifySubmissionUseCase:
     def __init__(
         self,
-        permohonan_repo: PermohonanRepositoryPort,
+        permohonan_repo: ExtendedPermohonanRepositoryPort, # Menggunakan Port Turunan Lengkap
         telaah_staf_repo: TelaahStafRepositoryPort,
         document_generator: DocumentGeneratorPort,
         digital_signature_client: DigitalSignaturePort,
@@ -165,7 +170,7 @@ class VerifySubmissionUseCase:
                     permohonan.transition_status(SubmissionStatus.VERIFIKASI_TEKNIS)
                     self.permohonan_repo.save(permohonan, commit=False)
                     
-                    if input_dto.checklist_items and isinstance(self.permohonan_repo, ExtendedPermohonanRepositoryPort):
+                    if input_dto.checklist_items:
                         self.permohonan_repo.save_evaluasi_items(permohonan.id_permohonan, input_dto.checklist_items)
                         
                     self.permohonan_repo.commit()
@@ -217,14 +222,18 @@ class VerifySubmissionUseCase:
                     permohonan.kkpr_verified_at = datetime.now()
                     permohonan.kkpr_verifier_name = input_dto.actor_name
 
-                    # 2. Persist detail checklist evaluasi manual tekn                    # 3. Kunci Snapshot Penilaian ke Entitas Domain murni 'TelaahStaf' (Fase 2)
+                    # 2. Persist detail checklist evaluasi manual teknis
+                    if input_dto.checklist_items:
+                        self.permohonan_repo.save_evaluasi_items(permohonan.id_permohonan, input_dto.checklist_items)
+
+                    # 3. Kunci Snapshot Penilaian ke Entitas Domain murni 'TelaahStaf' (Fase 2)
                     admin_items: List[AdminChecklistItem] = []
                     tech_items: List[TechnicalMatrixItem] = []
 
                     # Ambil semua data evaluasi checklist dari database (termasuk verifikasi formal admin)
                     all_eval_items = self.permohonan_repo.get_evaluasi_items(permohonan.id_permohonan)
                     
-                    # Gabungkan dengan input_dto.checklist_items yang baru dikirim (jika ada)
+                    # Gabungkan dengan input_dto.checklist_items yang baru dikirim
                     eval_map = {item.aspek_code: item for item in all_eval_items}
                     if input_dto.checklist_items:
                         for item in input_dto.checklist_items:
@@ -235,14 +244,14 @@ class VerifySubmissionUseCase:
                     admin_verifier_nip = "199208152018032001"
                     admin_verified_at_str = "-"
                     
-                    from src.infrastructure.database.models import UserModel
                     for item in all_eval_items:
                         is_technical = item.aspek_code.startswith("REQ_") or item.aspek_code.startswith("M")
                         if not is_technical and item.verified_by_id:
-                            admin_user = self.permohonan_repo.db.query(UserModel).filter(UserModel.id == item.verified_by_id).first()
+                            # Menggunakan abstraksi port baru, bukan db query langsung [Layer Decoupled Fix]
+                            admin_user = self.permohonan_repo.find_user_by_id(item.verified_by_id)
                             if admin_user:
-                                admin_verifier_name = admin_user.full_name or admin_user.username
-                                admin_verifier_nip = admin_user.nip or "199208152018032001"
+                                admin_verifier_name = getattr(admin_user, "full_name", admin_verifier_name)
+                                admin_verifier_nip = getattr(admin_user, "nip", admin_verifier_nip)
                             if item.verified_at:
                                 admin_verified_at_str = item.verified_at.strftime("%d-%m-%Y %H:%M")
                             break
@@ -294,7 +303,13 @@ class VerifySubmissionUseCase:
                         KKPRVerdict.PERLU_PERBAIKAN: TelaahStafVerdict.PERLU_PERBAIKAN,
                         KKPRVerdict.TIDAK_SESUAI: TelaahStafVerdict.TIDAK_SESUAI
                     }
-                    staf_verdict = verdict_map[permohonan.kkpr_verdict]
+
+                    # Penegasan tipe (Type Narrowing Guard) untuk mencegah null reference pada pemetaan [Pylance Fix]
+                    current_kkpr_verdict = permohonan.kkpr_verdict
+                    if current_kkpr_verdict is None:
+                        raise ValueError("Gagal: Rekomendasi KKPR Verdict teknis wajib ditentukan oleh Tim Teknis.")
+                    
+                    staf_verdict = verdict_map[current_kkpr_verdict]
 
                     # Periksa apakah data lama sudah terdaftar di database untuk menghindari duplikasi id_telaah
                     existing_telaah = self.telaah_staf_repo.find_by_permohonan_id(permohonan.id_permohonan)
@@ -318,15 +333,14 @@ class VerifySubmissionUseCase:
                         admin_verified_at=admin_verified_at_str
                     )
 
-                    # 4. Simpan TelaahStaf secara transaksional ke database relasional & JSONB (Fase 2)
+                    # 4. Simpan TelaahStaf secara transaksional ke database relasional & JSONB
                     self.telaah_staf_repo.save(telaah_staf, commit=False)
 
-                    # 5. Eksekusi PDF Engine untuk mengompilasi file draf cetak secara statis (Clean DIP Map)
+                    # 5. Eksekusi PDF Engine untuk mengompilasi file draf cetak (Mengirimkan permohonan utuh)
                     try:
                         self.document_generator.generate_telaah_staf_pdf(
                             telaah_staf=telaah_staf,
-                            project_name=permohonan.housing_name or "Proyek",
-                            applicant_name=permohonan.applicant_name or "Pemohon"
+                            permohonan=permohonan
                         )
                     except Exception as doc_err:
                         logger.error(f"[USE_CASE_WARNING] PDF rendering gagal tetapi database dipertahankan aman: {str(doc_err)}")
@@ -380,12 +394,11 @@ class VerifySubmissionUseCase:
                     # Simpan TelaahStaf terupdate (menyimpan ttd ke JSONB)
                     self.telaah_staf_repo.save(updated_telaah_staf, commit=False)
 
-                    # Regenerasi PDF dengan ttd tersemat
+                    # Regenerasi PDF dengan ttd tersemat (Mengirimkan permohonan utuh)
                     try:
                         self.document_generator.generate_telaah_staf_pdf(
                             telaah_staf=updated_telaah_staf,
-                            project_name=permohonan.housing_name or "Proyek",
-                            applicant_name=permohonan.applicant_name or "Pemohon"
+                            permohonan=permohonan
                         )
                     except Exception as doc_err:
                         logger.error(f"[USE_CASE_WARNING] PDF rendering final gagal: {str(doc_err)}")
@@ -497,12 +510,11 @@ class VerifySubmissionUseCase:
                     permohonan.kkpr_verdict = KKPRVerdict(input_dto.kkpr_verdict)
                     permohonan.kabid_signature = input_dto.signature_base64
                     
-                    # Rekonstruksi berkas fisik PDF Telaah Staf agar menampilkan cap override hukum Kabid
+                    # Rekonstruksi berkas fisik PDF Telaah Staf agar menampilkan cap override hukum Kabid (Kirim permohonan utuh)
                     try:
                         self.document_generator.generate_telaah_staf_pdf(
                             telaah_staf=telaah_staf,
-                            project_name=permohonan.housing_name or "Proyek",
-                            applicant_name=permohonan.applicant_name or "Pemohon"
+                            permohonan=permohonan
                         )
                         self.document_generator.generate_draft_sk_siteplan(permohonan, notes_by_kabid=f"[VETO OVERRIDE] {input_dto.notes}")
                     except Exception as doc_err:
@@ -537,7 +549,7 @@ class VerifySubmissionUseCase:
                 def execute_kadis_revert() -> Permohonan:
                     permohonan.transition_status(SubmissionStatus.MENUNGGU_REKOMENDASI)
                     self.permohonan_repo.save(permohonan)
-                    
+
                     self.audit_trail_repo.log_action(
                         submission_id=permohonan.id_permohonan, actor_name=input_dto.actor_name,
                         role=input_dto.role, action="REVERT_KADIS_TO_KABID",
@@ -553,7 +565,7 @@ class VerifySubmissionUseCase:
                 def execute_kadis_reject() -> Permohonan:
                     permohonan.transition_status(SubmissionStatus.DITOLAK)
                     self.permohonan_repo.save(permohonan)
-                    
+
                     self.audit_trail_repo.log_action(
                         submission_id=permohonan.id_permohonan, actor_name=input_dto.actor_name,
                         role=input_dto.role, action="VERIFY_KADIS_REJECTED",
@@ -572,7 +584,6 @@ class VerifySubmissionUseCase:
                     raise ValueError("Gagal: PIN / Passphrase pengaman TTE Kepala Dinas wajib dilampirkan.")
 
                 # Generasikan SK final tanpa cap tanda draf secara non-blocking di worker thread
-                # ─── PERBAIKAN PYLANCE: Kirimkan Objek Permohonan utuh (bukan string ID) sesuai kontrak Port ───
                 sk_path = await asyncio.to_thread(self.document_generator.generate_final_sk_siteplan, permohonan)
 
                 # A. State Locking: Transisi berkas ke status 'Proses TTE' untuk cegah balapan tombol (Race Condition)

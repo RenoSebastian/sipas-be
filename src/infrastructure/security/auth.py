@@ -1,7 +1,7 @@
 # --- FILE: src/infrastructure/security/auth.py ---
 """
 ============================================================================
-SIPAS SECURITY — Authentication Helper [auth.py] (REVISED v5)
+SIPAS SECURITY — Authentication Helper [auth.py] (REVISED v6)
 ============================================================================
 Peran: Menyediakan enkripsi kata sandi (bcrypt murni) dan penanganan
        token JWT OAuth2 untuk otorisasi endpoint dinas Kabupaten Bogor.
@@ -40,22 +40,22 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 120  # Durasi sesi 2 jam demi kenyamanan operasion
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token")
 
-def requires_roles(allowed_roles: List[UserRole | str]):
+def requires_roles(allowed_roles: List[Union[UserRole, str]]):
     """
     FastAPI dependency to enforce strict Role-Based Access Control (RBAC) via JWT claims.
 
     KEBIJAKAN SOD (SEGREGATION OF DUTIES):
         Fungsi ini melakukan pemeriksaan peran secara MURNI berdasarkan daftar `allowed_roles`
         yang diberikan pada setiap endpoint. TIDAK ADA hardcoded global override yang
-        mengizinkan ADMIN atau SUPER_ADMIN untuk melewati pemeriksaan peran secara implisit.
+        mengizinkan ADMIN atau SUPER_ADMIN untuk melewati pemeriksaan peran secara implsir.
         Setiap akses ke endpoint harus melewati validasi peran yang ketat sesuai dengan
         prinsip Segregation of Duties (SoD) dan Zero Trust Architecture.
     """
     # ─── REVISI: DYNAMIC STRING & VALUE MAPPING (Anti-Crash AST) ───
     # Memetakan tipe data dari parameter masukan secara dinamis dan aman.
-    # Jika item bertipe Enum, baca property '.value'. Jika bertipe string, gunakan str().
+    # Menggunakan isinstance() untuk explicit type narrowing yang dikenali Pylance statis.
     allowed_role_strings = [
-        role.value if hasattr(role, "value") else str(role)
+        role.value if isinstance(role, UserRole) else str(role)
         for role in allowed_roles
     ]
 

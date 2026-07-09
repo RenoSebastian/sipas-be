@@ -1,12 +1,14 @@
 # --- FILE: src/infrastructure/document/pdf_engine.py ---
 """
 ============================================================================
-SIPAS INFRASTRUCTURE ADAPTER — Enterprise PDF Engine [pdf_engine.py] (REVISED v5)
+SIPAS INFRASTRUCTURE ADAPTER — Enterprise PDF Engine [pdf_engine.py] (REVISED v9)
 ============================================================================
 Peran: Engine pencetakan dokumen yang bertugas menyatukan template HTML Jinja2
        dengan data JSONB menjadi berkas PDF fisik.
        Mewarisi DocumentGeneratorPort untuk menegakkan Dependency Inversion,
        serta mengamankan pengikatan variabel WeasyPrint (Anti-Unbound Pylance).
+       Revisi v9: Optimalisasi pembagian halaman (loose splitting), reduksi margin 
+                  paragraf setengahnya, serta netralisasi style badge "Sesuai".
 ============================================================================
 """
 
@@ -75,47 +77,84 @@ DEFAULT_TELAAH_STAF_TEMPLATE = """
             border-bottom: 3px double #000;
             padding-bottom: 10px;
         }
-        .header h2 { margin: 0; font-size: 14pt; text-transform: uppercase; }
-        .header h3 { margin: 5px 0 0 0; font-size: 12pt; font-weight: normal; }
+        .header h1 { margin: 0; font-size: 14pt; text-transform: uppercase; font-weight: bold; }
+        
+        /* ─── PENGATURAN STRUKTUR TABEL & ANTI-TERPOTONG ─── */
         .meta-table, .data-table {
             width: 100%;
             border-collapse: collapse;
-            margin-bottom: 20px;
+            margin-bottom: 15px;
         }
         .meta-table td { padding: 4px 0; vertical-align: top; }
         .meta-table td.label { width: 25%; font-weight: bold; }
         .meta-table td.separator { width: 3%; text-align: center; }
+        
         .data-table th, .data-table td {
             border: 1px solid #000;
             padding: 6px 8px;
             text-align: left;
             font-size: 10pt;
+            vertical-align: middle;
         }
         .data-table th {
             background-color: #f2f2f2;
             text-transform: uppercase;
             font-weight: bold;
         }
+        
+        /* Proteksi mutlak pemotongan baris di tengah halaman kertas (Anti-Fragmentation) */
+        tr, td, th {
+            page-break-inside: avoid !important;
+            break-inside: avoid-page !important;
+        }
+        thead {
+            display: table-header-group;
+        }
+
         .section-title {
             font-size: 11pt;
             font-weight: bold;
             text-transform: uppercase;
-            margin-top: 25px;
-            margin-bottom: 8px;
+            margin-top: 15px;
+            margin-bottom: 6px;
             text-decoration: underline;
         }
+        .table-subtitle {
+            font-size: 10pt;
+            font-weight: bold;
+            text-transform: uppercase;
+            margin-top: 10px;
+            margin-bottom: 4px;
+            color: #111;
+        }
+        
+        /* Badges & Status Plain Text Rendering */
         .status-badge {
             font-weight: bold;
             padding: 2px 6px;
             border-radius: 3px;
+            text-align: center;
+            display: inline-block;
         }
-        .status-SESUAI { color: #0f5132; background-color: #d1e7dd; border: 1px solid #badbcc; }
-        .status-SESUAI_BERSYARAT { color: #664d03; background-color: #fff3cd; border: 1px solid #ffecb5; }
-        .status-TIDAK_SESUAI, .status-REVISI { color: #842029; background-color: #f8d7da; border: 1px solid #f5c2c7; }
+        
+        /* REVISI: Status SESUAI dirender sebagai teks hitam biasa tanpa background/border */
+        .status-SESUAI, .status-Sesuai { 
+            color: #000 !important; 
+            background-color: transparent !important; 
+            border: none !important; 
+            padding: 0 !important; 
+            font-weight: normal !important;
+            display: inline !important;
+        }
+        
+        .status-SESUAI_BERSYARAT, .status-Sesuai_Bersyarat { color: #664d03; background-color: #fff3cd; border: 1px solid #ffecb5; }
+        .status-TIDAK_SESUAI, .status-Tidak_Sesuai, .status-REVISI, .status-Perlu_Perbaikan { color: #842029; background-color: #f8d7da; border: 1px solid #f5c2c7; }
+        
         .signature-block {
-            margin-top: 40px;
+            margin-top: 30px;
             width: 100%;
-            page-break-inside: avoid;
+            page-break-inside: avoid !important;
+            break-inside: avoid-page !important;
         }
         .signature-table {
             width: 100%;
@@ -127,11 +166,21 @@ DEFAULT_TELAAH_STAF_TEMPLATE = """
             vertical-align: top;
             padding-top: 15px;
         }
+        
+        /* REVISI: Pengurangan margin paragraf sebanyak setengah (dari 12px ke 6px) */
+        .narrative-p {
+            text-align: justify;
+            text-indent: 10mm;
+            font-size: 10pt;
+            margin-top: 4px;
+            margin-bottom: 6px;
+            line-height: 1.4;
+        }
     </style>
 </head>
 <body>
     <div class="header">
-        <h2 style="font-weight: bold; text-transform: uppercase; margin: 0; font-size: 14pt;">Dokumen/Lembar Telaah Staf Permohonan Pengesahan E-Siteplan</h2>
+        <h1>DOKUMEN / LEMBAR TELAAH STAF PERMOHONAN PENGESAHAN E-SITEPLAN</h1>
     </div>
 
     <table class="meta-table">
@@ -163,13 +212,16 @@ DEFAULT_TELAAH_STAF_TEMPLATE = """
     </table>
 
     <div class="section-title">I. Pemeriksaan Administrasi Formal</div>
+    <p class="narrative-p">
+        Menindaklanjuti berkas permohonan yang diajukan oleh pemohon, Tim Administrasi DPMPTSP telah melakukan verifikasi dokumen formal guna memastikan legalitas subjek hukum dan objek bidang tanah. Pemeriksaan meliputi keabsahan sertifikat hak atas tanah dari BPN, kesesuaian dokumen identitas, serta pemenuhan komitmen legalitas dasar lainnya dengan hasil evaluasi sebagai berikut:
+    </p>
     <table class="data-table">
         <thead>
             <tr>
                 <th style="width: 5%;">No</th>
                 <th style="width: 40%;">Uraian Persyaratan Dokumen</th>
                 <th style="width: 20%;">Status</th>
-                <th style="width: 35%;">Catatan Koreksi</th>
+                <th style="width: 35%;">Keterangan</th>
             </tr>
         </thead>
         <tbody>
@@ -185,6 +237,100 @@ DEFAULT_TELAAH_STAF_TEMPLATE = """
     </table>
 
     <div class="section-title">II. Matriks Komparasi Parameter Teknis Spasial</div>
+    <p class="narrative-p">
+        Berdasarkan hasil pemetaan batas koordinat bidang tanah menggunakan kalibrasi parameter Helmert 2D terhitung, Tim Teknis Dinas PUPR melakukan analisis spasial tumpang tindih (overlay) terhadap dokumen rencana tapak (site plan) CAD yang disandingkan dengan Rencana Detail Tata Ruang (RDTR) Kabupaten Bogor dengan rincian evaluasi sebagai berikut:
+    </p>
+
+    <!-- TABEL II-A: SANDINGAN METRIK TAPAK (3-SISI) - BIARKAN MENGALIR SECARA NATURAL -->
+    <div class="table-subtitle">Tabel II-A. Sandingan Metrik Tapak (3-Sisi)</div>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th style="width: 25%;">Parameter</th>
+                <th style="width: 25%;">Proposed (Usulan)</th>
+                <th style="width: 25%;">Bylaws (Aturan)</th>
+                <th style="width: 25%;">Verified (Dinas)</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td style="font-weight: bold;">KDB (Koefisien Dasar Bangunan)</td>
+                <td>
+                    {% if sandingan_3sisi.kdb.proposed_m2 is not none %}
+                        {{ sandingan_3sisi.kdb.proposed_m2 }} m²
+                        <br><span style="font-size: 8.5pt; color: #555;">({{ sandingan_3sisi.kdb.proposed_pct }}%)</span>
+                    {% else %}
+                        -
+                    {% endif %}
+                </td>
+                <td>Maks {{ sandingan_3sisi.kdb.bylaw }}%</td>
+                <td style="font-weight: bold;">
+                    {{ sandingan_3sisi.kdb.verified if sandingan_3sisi.kdb.verified is not none else "-" }}
+                </td>
+            </tr>
+            <tr>
+                <td style="font-weight: bold;">KLB (Koefisien Lantai Bangunan)</td>
+                <td>
+                    {% if sandingan_3sisi.klb.proposed_m2 is not none %}
+                        {{ sandingan_3sisi.klb.proposed_m2 }} m²
+                        <br><span style="font-size: 8.5pt; color: #555;">({{ sandingan_3sisi.klb.proposed_pct }}x)</span>
+                    {% else %}
+                        -
+                    {% endif %}
+                </td>
+                <td>Maks {{ sandingan_3sisi.klb.bylaw }}</td>
+                <td style="font-weight: bold;">
+                    {{ sandingan_3sisi.klb.verified if sandingan_3sisi.klb.verified is not none else "-" }}
+                </td>
+            </tr>
+            <tr>
+                <td style="font-weight: bold;">KDH (Koefisien Dasar Hijau)</td>
+                <td>
+                    {% if sandingan_3sisi.kdh.proposed_m2 is not none %}
+                        {{ sandingan_3sisi.kdh.proposed_m2 }} m²
+                        <br><span style="font-size: 8.5pt; color: #555;">({{ sandingan_3sisi.kdh.proposed_pct }}%)</span>
+                    {% else %}
+                        -
+                    {% endif %}
+                </td>
+                <td>Min {{ sandingan_3sisi.kdh.bylaw }}%</td>
+                <td style="font-weight: bold;">
+                    {{ sandingan_3sisi.kdh.verified if sandingan_3sisi.kdh.verified is not none else "-" }}
+                </td>
+            </tr>
+            <tr>
+                <td style="font-weight: bold;">GSB (Garis Sempadan Bangunan)</td>
+                <td>
+                    {% if sandingan_3sisi.gsb.proposed is not none %}
+                        {{ sandingan_3sisi.gsb.proposed }} m
+                    {% else %}
+                        -
+                    {% endif %}
+                </td>
+                <td>Min {{ sandingan_3sisi.gsb.bylaw }} m</td>
+                <td style="font-weight: bold;">
+                    {{ sandingan_3sisi.gsb.verified if sandingan_3sisi.gsb.verified is not none else "-" }}
+                </td>
+            </tr>
+            <tr>
+                <td style="font-weight: bold;">RTH (Ruang Terbuka Hijau)</td>
+                <td>
+                    {% if sandingan_3sisi.rth.proposed is not none %}
+                        {{ sandingan_3sisi.rth.proposed }} m²
+                    {% else %}
+                        -
+                    {% endif %}
+                </td>
+                <td>Min {{ sandingan_3sisi.rth.bylaw }} m²</td>
+                <td style="font-weight: bold;">
+                    {{ sandingan_3sisi.rth.verified if sandingan_3sisi.rth.verified is not none else "-" }}
+                </td>
+            </tr>
+        </tbody>
+    </table>
+
+    <!-- TABEL II-B: EVALUASI KELAYAKAN 13-ASPEK TEKNIS SPASIAL -->
+    <div class="table-subtitle" style="margin-top: 25px;">Tabel II-B. Evaluasi Kelayakan Aspek Teknis Spasial</div>
     <table class="data-table">
         <thead>
             <tr>
@@ -196,7 +342,7 @@ DEFAULT_TELAAH_STAF_TEMPLATE = """
         <tbody>
             {% for metric in technical_comparison.matrix %}
             <tr>
-                <td>{{ metric.label }}</td>
+                <td style="font-weight: bold;">{{ metric.label }}</td>
                 <td><span class="status-badge status-{{ metric.status }}">{{ metric.status }}</span></td>
                 <td>{{ metric.notes or "-" }}</td>
             </tr>
@@ -205,12 +351,14 @@ DEFAULT_TELAAH_STAF_TEMPLATE = """
     </table>
 
     <div class="section-title">III. Kesimpulan Dan Narasi Rekomendasi</div>
-    <p style="text-align: justify; text-indent: 10mm; font-size: 11pt;">
+    <p style="text-align: justify; text-indent: 10mm; font-size: 11pt; margin-top: 10px;">
         {{ recommendation_summary.verdict_narrative }}
     </p>
-    <p style="font-style: italic; font-size: 10pt; color: #444;">
-        Catatan Tambahan Pemeriksa: {{ recommendation_summary.verifikator_conclusion_notes or "-" }}
+    {% if recommendation_summary.verifikator_conclusion_notes and recommendation_summary.verifikator_conclusion_notes != "-" %}
+    <p style="font-style: italic; font-size: 10pt; color: #444; border-left: 3px solid #000; padding-left: 10px; margin-top: 12px; page-break-inside: avoid;">
+        Catatan Peninjauan Khusus: {{ recommendation_summary.verifikator_conclusion_notes }}
     </p>
+    {% endif %}
 
     <div class="signature-block">
         <table class="signature-table">
@@ -403,28 +551,84 @@ class HtmlToPdfEngine(DocumentGeneratorPort):
     def generate_telaah_staf_pdf(
         self, 
         telaah_staf: TelaahStaf, 
-        project_name: str, 
-        applicant_name: str
+        permohonan: Permohonan
     ) -> str:
-        """Mengonversi data domain murni TelaahStaf menjadi lembar cetak PDF fisik."""
+        """Mengonversi data domain murni TelaahStaf dan Permohonan menjadi lembar cetak PDF fisik."""
+        
+        # Kalkulasi manual untuk proposed area metrik 3-sisi [569881990be1, pdf_engine.py]
+        applicant_land_area = permohonan.applicant_land_area or permohonan.land_area or 0.0
+        
+        # KDB Proposed Area = (applicant_kdb / 100) * land_area
+        kdb_proposed_m2 = None
+        if permohonan.applicant_building_area is not None:
+            kdb_proposed_m2 = permohonan.applicant_building_area
+        elif permohonan.applicant_kdb is not None and applicant_land_area > 0:
+            kdb_proposed_m2 = (permohonan.applicant_kdb / 100.0) * applicant_land_area
+
+        # KLB Proposed Area = applicant_klb * land_area (or using tech_total_floor_area)
+        klb_proposed_m2 = None
+        if permohonan.tech_total_floor_area is not None:
+            klb_proposed_m2 = permohonan.tech_total_floor_area
+        elif permohonan.applicant_klb is not None and applicant_land_area > 0:
+            klb_proposed_m2 = permohonan.applicant_klb * applicant_land_area
+
+        # KDH Proposed Area = (applicant_kdh / 100) * land_area (or using green_area)
+        kdh_proposed_m2 = None
+        if permohonan.spatial_green_area is not None and permohonan.spatial_green_area > 0:
+            kdh_proposed_m2 = permohonan.spatial_green_area
+        elif permohonan.applicant_kdh is not None and applicant_land_area > 0:
+            kdh_proposed_m2 = (permohonan.applicant_kdh / 100.0) * applicant_land_area
+
+        # Pemetaan dynamic data Sandingan 3-Sisi [569881990be1, pdf_engine.py]
+        sandingan_context = {
+            "kdb": {
+                "proposed_m2": f"{kdb_proposed_m2:,.1f}" if kdb_proposed_m2 is not None else None,
+                "proposed_pct": f"{permohonan.applicant_kdb:.1f}" if permohonan.applicant_kdb is not None else None,
+                "bylaw": f"{permohonan.bylaw_max_kdb:.1f}" if permohonan.bylaw_max_kdb is not None else "-",
+                "verified": f"{permohonan.verified_kdb:.1f}%" if permohonan.verified_kdb is not None else None
+            },
+            "klb": {
+                "proposed_m2": f"{klb_proposed_m2:,.1f}" if klb_proposed_m2 is not None else None,
+                "proposed_pct": f"{permohonan.applicant_klb:.2f}" if permohonan.applicant_klb is not None else None,
+                "bylaw": f"{permohonan.bylaw_max_klb:.1f}" if permohonan.bylaw_max_klb is not None else "-",
+                "verified": f"{permohonan.verified_klb:.1f}" if permohonan.verified_klb is not None else None
+            },
+            "kdh": {
+                "proposed_m2": f"{kdh_proposed_m2:,.1f}" if kdh_proposed_m2 is not None else None,
+                "proposed_pct": f"{permohonan.applicant_kdh:.1f}" if permohonan.applicant_kdh is not None else None,
+                "bylaw": f"{permohonan.bylaw_min_kdh:.1f}" if permohonan.bylaw_min_kdh is not None else "-",
+                "verified": f"{permohonan.verified_kdh:.1f}%" if permohonan.verified_kdh is not None else None
+            },
+            "gsb": {
+                "proposed": f"{permohonan.applicant_gsb:.1f}" if permohonan.applicant_gsb is not None else None,
+                "bylaw": f"{permohonan.bylaw_min_gsb:.1f}" if permohonan.bylaw_min_gsb is not None else "-",
+                "verified": f"{permohonan.verified_gsb:.1f} m" if permohonan.verified_gsb is not None else None
+            },
+            "rth": {
+                "proposed": f"{permohonan.applicant_rth_area:,.1f}" if permohonan.applicant_rth_area is not None else None,
+                "bylaw": f"{permohonan.bylaw_min_rth_area:,.1f}" if permohonan.bylaw_min_rth_area is not None else "-",
+                "verified": f"{permohonan.verified_rth_area:,.1f} m²" if permohonan.verified_rth_area is not None else None
+            }
+        }
+
         context = {
             "document_metadata": {
                 "title": "Telaah Staf Permohonan Ijin e-Siteplan",
-                "document_no": f"TS-{telaah_staf.id_permohonan}",
+                "document_no": f"TS-{permohonan.submission_no}",
                 "created_at": telaah_staf.created_at.strftime("%d-%m-%Y %H:%M") if telaah_staf.created_at else "-",
-                "verdict": telaah_staf.verdict.value
+                "verdict": permohonan.kkpr_verdict.value if permohonan.kkpr_verdict else telaah_staf.verdict.value
             },
             "applicant_snapshot": {
-                "name": applicant_name,
-                "director": "Budi Santoso",
-                "nib": "9120301938192",
-                "phone": "081234567890",
-                "email": "pemohon@geocitra.com"
+                "name": permohonan.applicant_name or permohonan.developer_name or "Pemohon",
+                "director": permohonan.applicant_director_name or "-",
+                "nib": permohonan.applicant_nib or "-",
+                "phone": permohonan.applicant_phone or "-",
+                "email": permohonan.applicant_email or "-"
             },
             "project_snapshot": {
-                "activity_name": project_name,
-                "village": "Cibinong",
-                "district": "Cibinong"
+                "activity_name": permohonan.housing_name or "Proyek",
+                "village": permohonan.location_village or "-",
+                "district": permohonan.location_district or "-"
             },
             "administrative_checklist": [
                 {
@@ -433,6 +637,7 @@ class HtmlToPdfEngine(DocumentGeneratorPort):
                     "notes": item.notes or "-"
                 } for item in telaah_staf.administrative_checklist
             ],
+            "sandingan_3sisi": sandingan_context,
             "technical_comparison": {
                 "matrix": [
                     {
@@ -468,7 +673,7 @@ class HtmlToPdfEngine(DocumentGeneratorPort):
         html_content = self.render_html("telaah_staf.html", context)
         output_dir = Path("docs")
         output_dir.mkdir(parents=True, exist_ok=True)
-        output_path = output_dir / f"Telaah_Staf_{telaah_staf.id_permohonan}.pdf"
+        output_path = output_dir / f"Telaah_Staf_{permohonan.id_permohonan}.pdf"
         return self.compile_to_pdf(html_content, str(output_path))
 
     def generate_draft_sk_siteplan(
@@ -495,7 +700,7 @@ class HtmlToPdfEngine(DocumentGeneratorPort):
         return self.compile_to_pdf(html_content, str(output_path))
 
     def generate_final_sk_siteplan(self, permohonan: Permohonan) -> str:
-        """Menghasilkan dokumen SK final tanpa embel-embel cap draft, siap untuk TTE Kadis."""
+        """Menghasilkan dokumen SK final tanpa embel-embel cap draf, siap untuk TTE Kadis."""
         output_dir = Path("docs")
         output_dir.mkdir(parents=True, exist_ok=True)
         output_path = output_dir / f"SK_Pengesahan_Site_Plan_{permohonan.id_permohonan}.pdf"

@@ -1,7 +1,7 @@
 # --- FILE: src/infrastructure/database/repositories/permohonan_repository.py ---
 """
 ============================================================================
-SIPAS INFRASTRUCTURE ADAPTER — Permohonan Repository [permohonan_repository.py] (REVISED v4)
+SIPAS INFRASTRUCTURE ADAPTER — Permohonan Repository [permohonan_repository.py] (REVISED v5)
 ============================================================================
 Peran: Mengimplementasikan ExtendedPermohonanRepositoryPort untuk berinteraksi dengan
        database transaksional PostgreSQL & PostGIS secara aman.
@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 
 from src.use_cases.verify_submission import ExtendedPermohonanRepositoryPort
 from src.domain.entities.permohonan import Permohonan, SubmissionStatus, KKPRVerdict
-from src.infrastructure.database.models import PermohonanModel, EvaluasiChecklistItemModel, ChecklistStatus
+from src.infrastructure.database.models import PermohonanModel, EvaluasiChecklistItemModel, ChecklistStatus, UserModel
 
 
 class PermohonanRepository(ExtendedPermohonanRepositoryPort):
@@ -588,6 +588,14 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
         return self.db.query(EvaluasiChecklistItemModel).filter(
             EvaluasiChecklistItemModel.id_permohonan == id_permohonan
         ).all()
+
+    # ─── BARU: DECOUPLED FIND USER BY ID (Fase 7 Realization) ───────────────────
+    def find_user_by_id(self, user_id: int) -> Optional[UserModel]:
+        """
+        Mengenkapsulasi query pencarian user agar dependensi database (SQLAlchemy)
+        tidak bocor atau digunakan secara langsung di lapisan Use Case.
+        """
+        return self.db.query(UserModel).filter(UserModel.id == user_id).first()
 
     def commit(self) -> None:
         """Commit transaksi database yang sedang aktif secara eksplisit."""
