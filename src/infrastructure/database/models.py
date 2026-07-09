@@ -1,13 +1,13 @@
-# --- FILE: src/infrastructure/database/models.py ---
 """
 ============================================================================
-SIPAS INFRASTRUCTURE ADAPTER — Database Models [models.py] (REVISED v4)
+SIPAS INFRASTRUCTURE ADAPTER — Database Models [models.py] (REVISED v5)
 ============================================================================
 Peran: Mendefinisikan skema tabel fisik database PostgreSQL & PostGIS
        menggunakan deklarasi tipe data statis SQLAlchemy 2.0 (Mapped).
        Diekspansi penuh untuk menampung seluruh detail formulir 10-tahap,
        metrik komparasi tiga sisi, dynamic checklist evaluasi dengan audit,
-       Master RDTR, serta metadata dokumen biner JSONB Telaah Staf.
+       Master RDTR, metadata dokumen biner JSONB Telaah Staf, serta tabel baru
+       sk_draft untuk menampung produk hukum draf Surat Keputusan (SK).
 ============================================================================
 """
 
@@ -194,6 +194,9 @@ class PermohonanModel(Base):
     kkpr_verified_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     kkpr_verifier_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
+    # F. Referensi Nomor SK Ter-generate (Fase 3 Domain Sync)
+    sk_number: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, unique=True, index=True)
+
     # Relasi Anak
     kompensasi: Mapped[List["LahanKompensasiModel"]] = relationship(
         "LahanKompensasiModel", 
@@ -210,11 +213,20 @@ class PermohonanModel(Base):
         back_populates="permohonan", 
         cascade="all, delete-orphan"
     )
+    
     # Satu berkas pengesahan site plan tepat memiliki satu arsip historis Telaah Staf aktif
     telaah_staf: Mapped[Optional["TelaahStafModel"]] = relationship(
         "TelaahStafModel", 
         back_populates="permohonan", 
         uselist=False, 
+        cascade="all, delete-orphan"
+    )
+
+    # ─── UPDATE FASE 3: RELASI SATU-KE-SATU DENGAN MODEL SK_DRAFT ───
+    sk_draft: Mapped[Optional["SkDraftModel"]] = relationship(
+        "SkDraftModel",
+        back_populates="permohonan",
+        uselist=False,
         cascade="all, delete-orphan"
     )
 
@@ -298,6 +310,40 @@ class TelaahStafModel(Base):
 
     # Relasi
     permohonan: Mapped["PermohonanModel"] = relationship("PermohonanModel", back_populates="telaah_staf")
+
+
+# ─── UPDATE FASE 3: IMPLEMENTASI TABEL FISIK SK_DRAFT (MODEL & JSONB) ───
+
+class SkDraftModel(Base):
+    """
+    Model penyimpanan data biner terstruktur draf Surat Keputusan (SK).
+    Mengunci snapshot parameter diktum hukum perumahan/utilitas dinas.
+    """
+    __tablename__ = "sk_draft"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id_sk: Mapped[str] = mapped_column(String(50), unique=True, nullable=False, index=True)
+    id_permohonan: Mapped[str] = mapped_column(
+        String(50), 
+        ForeignKey("permohonan.id_permohonan", ondelete="CASCADE"), 
+        nullable=False, 
+        index=True
+    )
+    sk_number: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
+    verdict: Mapped[str] = mapped_column(String(50), nullable=False)
+    is_overridden: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    override_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, 
+        nullable=False, 
+        default=lambda: datetime.now(timezone.utc).replace(tzinfo=None)
+    )
+
+    # Payload biner terstruktur JSONB khusus draf keputusan SK hukum dinas (Audit-Safe)
+    document_payload: Mapped[dict] = mapped_column(JSONB, nullable=False)
+
+    # Relasi balik satu-ke-satu dengan Permohonan
+    permohonan: Mapped["PermohonanModel"] = relationship("PermohonanModel", back_populates="sk_draft")
 
 
 class LahanKompensasiModel(Base):

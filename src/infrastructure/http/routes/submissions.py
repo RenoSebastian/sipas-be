@@ -1,7 +1,6 @@
-# --- FILE: src/infrastructure/http/routes/submissions.py ---
 """
 ============================================================================
-SIPAS HTTP CONTROLLER — Submissions Router [submissions.py] (REVISED v5)
+SIPAS HTTP CONTROLLER — Submissions Router [submissions.py] (REVISED v6)
 ============================================================================
 Peran: Menyediakan REST endpoints bertingkat untuk mengelola pendaftaran
        10-tahap terpadu, kalibrasi, audit spasial, dan verifikasi berjenjang.
@@ -28,6 +27,7 @@ from src.use_cases.ports.integration_ports import BpnValidationPort, OssSyncPort
 from src.infrastructure.database.repositories.permohonan_repository import PermohonanRepository
 from src.infrastructure.database.repositories.audit_trail_repository import AuditTrailRepository
 from src.infrastructure.database.repositories.telaah_staf_repository import TelaahStafRepository
+from src.infrastructure.database.repositories.sk_draft_repository import SkDraftRepository  # <--- IMPOR BARU (Tahap 3 & 4)
 from src.infrastructure.database.models import (
     PermohonanModel, 
     AuditTrailModel, 
@@ -35,6 +35,7 @@ from src.infrastructure.database.models import (
     MasterRDTRModel, 
     EvaluasiChecklistItemModel, 
     TelaahStafModel,
+    SkDraftModel,  # <--- IMPOR BARU (Tahap 2 & 5)
     ChecklistStatus
 )
 
@@ -206,8 +207,6 @@ class EvaluasiChecklistItemDto(BaseModel):
     attachment_url: Optional[str] = Field(default=None, examples=["/uploads/evaluasi/revisi_kdb.pdf"])
 
 class VerifyRequest(BaseModel):
-    # actor_name & role ditiadakan dari body request demi mencegah Spoofing Peran.
-    # Data penandatangan wajib ditarik langsung dari session token JWT Kepala Dinas / Kabid.
     nip: Optional[str] = Field(default=None, examples=["197503112000031001"])
     passphrase: Optional[SecretStr] = Field(default=None, min_length=6, json_schema_extra={"writeOnly": True}, examples=["P@ssw0rdPejabat!"])
     action_type: str = Field(pattern="^(APPROVE|REJECT|REVERT_TO_TECHNICAL|REVERT_TO_ADMINISTRATIVE|OVERRIDE_VERDICT|SAVE_TECHNICAL_MATRIX)$")
@@ -222,8 +221,6 @@ class VerifyRequest(BaseModel):
     verified_kdh: Optional[float] = None
     verified_gsb: Optional[float] = None
     verified_rth_area: Optional[float] = None
-    
-    # Array checklist formal kelengkapan berkas & 13 matriks teknis daerah (Fase 2)
     checklist_items: Optional[List[EvaluasiChecklistItemDto]] = None
 
 
@@ -729,6 +726,7 @@ def get_all_submissions(db: Session = Depends(get_db), current_user: UserModel =
             "signatureHash": r.signature_hash,
             "signedPdfUrl": r.signed_pdf_url,
             "kabidSignature": r.kabid_signature,
+            "disabledAccess": r.tech_disabled_access,
             "kadisSignature": r.kadis_signature,
 
             # Kesimpulan KKPR

@@ -1,12 +1,11 @@
-# --- FILE: src/domain/entities/permohonan.py ---
 """
 ============================================================================
-SIPAS DOMAIN ENTITY — Permohonan [permohonan.py] (REVISED v4 - TYPE SAFE)
+SIPAS DOMAIN ENTITY — Permohonan [permohonan.py] (REVISED v5 - TYPE SAFE)
 ============================================================================
 Peran: Entitas domain murni (Pure Python) yang merepresentasikan berkas
        pengajuan pengesahan site plan. Menegakkan aturan transisi status (SLA),
        matriks perbandingan tiga sisi, pengamanan veto Kabid, serta perpindahan
-       hak otorisasi TTE akhir ke Kepala Dinas (Kadis).
+       hak otorisasi TTE akhir ke Kepala Dinas (Kadis) secara legal.
 ============================================================================
 """
 
@@ -170,7 +169,10 @@ class Permohonan:
 
         kkpr_verdict: Optional[KKPRVerdict] = None,
         kkpr_verified_at: Optional[datetime] = None,
-        kkpr_verifier_name: Optional[str] = None
+        kkpr_verifier_name: Optional[str] = None,
+
+        # ─── UPDATE FASE 3: REFERENSI NOMOR SK TER-GENERATE DI ENTITAS PERMOHONAN ───
+        sk_number: Optional[str] = None
     ):
         self.id_permohonan = id_permohonan
         self.submission_no = submission_no
@@ -290,6 +292,9 @@ class Permohonan:
         self.kkpr_verdict = kkpr_verdict
         self.kkpr_verified_at = kkpr_verified_at
         self.kkpr_verifier_name = kkpr_verifier_name
+
+        # ─── UPDATE FASE 3: PENYEMATAN NOMOR SK PADA ENTITAS DOMAIN PERMOHONAN ───
+        self.sk_number = sk_number
 
     @property
     def document_category(self) -> DocumentCategory:

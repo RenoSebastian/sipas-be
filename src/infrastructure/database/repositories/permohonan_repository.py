@@ -1,14 +1,13 @@
-# --- FILE: src/infrastructure/database/repositories/permohonan_repository.py ---
 """
 ============================================================================
-SIPAS INFRASTRUCTURE ADAPTER — Permohonan Repository [permohonan_repository.py] (REVISED v5)
+SIPAS INFRASTRUCTURE ADAPTER — Permohonan Repository [permohonan_repository.py] (REVISED v6)
 ============================================================================
 Peran: Mengimplementasikan ExtendedPermohonanRepositoryPort untuk berinteraksi dengan
        database transaksional PostgreSQL & PostGIS secara aman.
        Mendukung pemetaan metrik tiga sisi (Proposed vs Bylaw vs Verified),
        menyimpan checklist verifikasi evaluasi manual beserta audit verifikator
-       (verified_by_id, verified_at) secara idempotent, serta mengamankan visual
-       TTE Kepala Dinas (kadis_signature).
+       (verified_by_id, verified_at) secara idempotent, mengamankan visual
+       TTE Kepala Dinas (kadis_signature), serta menyinkronkan Nomor SK baru.
 ============================================================================
 """
 
@@ -159,7 +158,10 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
 
             kkpr_verdict=KKPRVerdict(model.kkpr_verdict) if model.kkpr_verdict else None,
             kkpr_verified_at=model.kkpr_verified_at if model.kkpr_verified_at else None,
-            kkpr_verifier_name=str(model.kkpr_verifier_name) if model.kkpr_verifier_name else None
+            kkpr_verifier_name=str(model.kkpr_verifier_name) if model.kkpr_verifier_name else None,
+
+            # ─── UPDATE FASE 3: MAPPER NOMOR SK BARU PADA ENTITAS DOMAIN ───
+            sk_number=str(model.sk_number) if model.sk_number else None
         )
 
     def _to_model(self, entity: Permohonan) -> PermohonanModel:
@@ -297,7 +299,10 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
 
             kkpr_verdict=entity.kkpr_verdict,
             kkpr_verified_at=entity.kkpr_verified_at,
-            kkpr_verifier_name=entity.kkpr_verifier_name
+            kkpr_verifier_name=entity.kkpr_verifier_name,
+
+            # ─── UPDATE FASE 3: MAPPER NOMOR SK BARU KPD SKEMA DATABASE ───
+            sk_number=entity.sk_number
         )
 
     def find_by_id(self, id_permohonan: str) -> Optional[Permohonan]:
@@ -430,6 +435,9 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
             existing_model.kkpr_verdict = permohonan.kkpr_verdict
             existing_model.kkpr_verified_at = permohonan.kkpr_verified_at
             existing_model.kkpr_verifier_name = permohonan.kkpr_verifier_name
+
+            # ─── UPDATE FASE 3: UPDATE NOMOR SK FISIK PADA DATABASE ───
+            existing_model.sk_number = permohonan.sk_number
 
             # Save polygon geom if updated
             if permohonan.polygon:

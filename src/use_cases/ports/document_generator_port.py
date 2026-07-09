@@ -1,4 +1,3 @@
-# --- FILE: src/use_cases/ports/document_generator_port.py ---
 """
 ============================================================================
 SIPAS PORT ABSTRAKSI — Document Generator Port [document_generator_port.py]
@@ -15,6 +14,7 @@ from typing import Optional
 # Impor Entitas Domain sebagai Single Source of Truth parameter masukan
 from src.domain.entities.telaah_staf import TelaahStaf
 from src.domain.entities.permohonan import Permohonan
+from src.domain.entities.sk_draft import SkDraft  # <--- INJEKSI BARU (Tahap 1 & 4)
 
 
 class DocumentGeneratorPort(ABC):
@@ -52,14 +52,17 @@ class DocumentGeneratorPort(ABC):
     def generate_draft_sk_siteplan(
         self, 
         permohonan: Permohonan, 
+        sk_draft: SkDraft,  # <--- PARAMETER BARU (Rich Domain Entity)
         notes_by_kabid: Optional[str] = None
     ) -> str:
         """
         Menghasilkan draf dokumen Surat Keputusan (SK) Pengesahan Site Plan
-        untuk diperiksa dan diberikan catatan paraf oleh Kepala Bidang (Kabid).
+        lengkap dengan muatan diktum teknis (KEDUA) untuk diperiksa dan 
+        diberikan catatan paraf oleh Kepala Bidang (Kabid).
 
         Args:
             permohonan: Entitas permohonan berisi detail parameter tata ruang.
+            sk_draft: Entitas draf hukum SK yang berisi data diktum terstruktur.
             notes_by_kabid: Catatan khusus/paraf internal dari Kabid jika ada.
 
         Returns:
@@ -68,14 +71,19 @@ class DocumentGeneratorPort(ABC):
         pass
 
     @abstractmethod
-    def generate_final_sk_siteplan(self, permohonan: Permohonan) -> str:
+    def generate_final_sk_siteplan(
+        self, 
+        permohonan: Permohonan,
+        sk_draft: SkDraft  # <--- PARAMETER BARU (Rich Domain Entity)
+    ) -> str:
         """
         Menghasilkan dokumen Surat Keputusan (SK) Pengesahan Site Plan final
-        yang bersih dari catatan draf, siap untuk dikirimkan secara asinkron
-        ke BSrE untuk dibubuhi Tanda Tangan Elektronik (TTE) Kepala Dinas (Kadis).
+        yang bersih dari catatan draf, siap untuk dibubuhi tanda tangan 
+        visual TTE Coret Kepala Dinas (Kadis).
 
         Args:
             permohonan: Entitas permohonan yang telah disetujui Kabid & Kadis.
+            sk_draft: Entitas hukum SK yang telah dibubuhi visual signature Kadis.
 
         Returns:
             str: Jalur lokasi fisik absolut berkas PDF SK final siap TTE.
