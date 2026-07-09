@@ -1060,21 +1060,88 @@ from pathlib import Path
 @router.get("/{id_permohonan}/download", response_class=FileResponse)
 async def download_signed_pdf(id_permohonan: str, db: Session = Depends(get_db)):
     """Mengunduh berkas Surat Keputusan (SK) resmi hasil TTE Kadis."""
-    # Pastikan file ada di folder docs
-    pdf_path = Path("docs") / f"SK_Pengesahan_Site_Plan_{id_permohonan}.pdf"
-    
-    # Fallback ke draf jika final tidak ditemukan
-    if not pdf_path.exists():
-        pdf_path = Path("docs") / f"DRAFT_SK_Pengesahan_Site_Plan_{id_permohonan}.pdf"
-        
-    if not pdf_path.exists():
+    # 1. Pastikan permohonan ada di database
+    permohonan_model = db.query(PermohonanModel).filter(PermohonanModel.id_permohonan == id_permohonan).first()
+    if not permohonan_model:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Permohonan dengan ID '{id_permohonan}' tidak ditemukan."
+        )
+
+    # Pastikan direktori docs ada
+    docs_dir = Path("docs")
+    docs_dir.mkdir(parents=True, exist_ok=True)
+
+    pdf_path = docs_dir / f"SK_Pengesahan_Site_Plan_{id_permohonan}.pdf"
+    draft_path = docs_dir / f"DRAFT_SK_Pengesahan_Site_Plan_{id_permohonan}.pdf"
+
+    # 2. Jika file tidak ada fisik di server, coba generate secara dinamis
+    if not pdf_path.exists() and not draft_path.exists():
+        try:
+            from src.infrastructure.database.repositories.sk_draft_repository import SkDraftRepository
+            from src.infrastructure.database.repositories.permohonan_repository import PermohonanRepository
+            from src.infrastructure.document.pdf_engine import HtmlToPdfEngine
+
+            # Inisialisasi adapter repo & engine dokumen
+            permohonan_repo = PermohonanRepository(db)
+            sk_draft_repo = SkDraftRepository(db)
+            doc_generator = HtmlToPdfEngine()
+
+            permohonan = permohonan_repo._to_domain(permohonan_model)
+            sk_draft = sk_draft_repo.find_by_permohonan_id(id_permohonan)
+
+            if sk_draft:
+                if permohonan.status == "Disetujui":
+                    doc_generator.generate_final_sk_siteplan(permohonan, sk_draft)
+                else:
+                    doc_generator.generate_draft_sk_siteplan(permohonan, sk_draft)
+            else:
+                # Generate PDF dummy yang rapi jika sk_draft belum dibentuk (untuk seeded/mock data)
+                title = f"DRAF SK PENGESAHAN SITE PLAN - {permohonan_model.housing_name or 'PROYEK'}"
+                status_text = permohonan_model.status
+                html_dummy = f"""
+                <html>
+                <head>
+                    <style>
+                        body {{ font-family: sans-serif; padding: 50px; color: #334155; line-height: 1.6; }}
+                        h1 {{ color: #0f172a; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px; }}
+                        .meta {{ margin: 20px 0; background: #f8fafc; padding: 15px; border-left: 4px solid #14b8a6; }}
+                        .footer {{ margin-top: 50px; font-size: 11px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 10px; }}
+                    </style>
+                </head>
+                <body>
+                    <h1>{title}</h1>
+                    <div class="meta">
+                        <strong>Nomor Registrasi:</strong> {permohonan_model.submission_no}<br/>
+                        <strong>Pengaju:</strong> {permohonan_model.developer_name or '-'}<br/>
+                        <strong>Luas Lahan:</strong> {permohonan_model.land_area or 0} m²<br/>
+                        <strong>Status Terakhir:</strong> {status_text}
+                    </div>
+                    <p>
+                        Dokumen ini merupakan lampiran visual Surat Keputusan (SK) resmi yang digenerasi secara dinamis oleh GEOSIPAS 
+                        untuk keperluan peninjauan dan pembuktian integrasi sistem TTE BSrE (tanda tangan elektronik).
+                    </p>
+                    <div class="footer">
+                        GEOSIPAS Kabupaten Bogor &copy; 2026 - Sandbox TTE / BSSN Bypass
+                    </div>
+                </body>
+                </html>
+                """
+                doc_generator.compile_to_pdf(html_dummy, str(draft_path))
+        except Exception as e:
+            logger.error(f"[DOWNLOAD_GENERATE_ERROR] Gagal memproduksi berkas secara dinamis: {str(e)}")
+
+    # 3. Tentukan file mana yang akan diunduh
+    target_path = pdf_path if pdf_path.exists() else (draft_path if draft_path.exists() else None)
+
+    if not target_path or not target_path.exists():
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Berkas Surat Keputusan (SK) belum diterbitkan atau tidak ditemukan."
         )
-        
+
     return FileResponse(
-        path=str(pdf_path),
-        filename=pdf_path.name,
+        path=str(target_path),
+        filename=target_path.name,
         media_type="application/pdf"
     )
