@@ -58,6 +58,28 @@ logger = logging.getLogger("sipas-be")
 router = APIRouter(prefix="/api/v1/submissions", tags=["Submissions Core"])
 
 
+def get_polygon_centroid(polygon_coords: list) -> Tuple[float, float]:
+    """Menghitung koordinat centroid (rata-rata) dari list koordinat poligon."""
+    if not polygon_coords or len(polygon_coords) == 0:
+        return -6.595189, 106.816629  # Default center (Bogor)
+    
+    try:
+        # Saring koordinat yang valid
+        valid_coords = [pt for pt in polygon_coords if pt and len(pt) >= 2]
+        if not valid_coords:
+            return -6.595189, 106.816629
+            
+        lngs = [float(pt[0]) for pt in valid_coords]
+        lats = [float(pt[1]) for pt in valid_coords]
+        
+        # Ambil rata-rata (centroid sederhana)
+        centroid_lng = sum(lngs) / len(lngs)
+        centroid_lat = sum(lats) / len(lats)
+        return centroid_lat, centroid_lng
+    except Exception:
+        return -6.595189, 106.816629
+
+
 # ─── SECTION 0: LOCAL RESILIENT FALLBACK SPATIAL AUDIT ADAPTER ────────────
 
 class LocalMockSpatialAuditAdapter(SpatialAuditPort):
@@ -340,6 +362,7 @@ async def upload_file(request: Request, file: UploadFile = File(...)):
 @router.post("/submit", status_code=status.HTTP_201_CREATED)
 def submit_permohonan(
     req: SubmitRequest, 
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db), 
     bpn_port: BpnValidationPort = Depends(get_bpn_port),
     oss_port: OssSyncPort = Depends(get_oss_port),
@@ -497,6 +520,39 @@ def submit_permohonan(
             bylaw_min_rth_area=bylaw_min_rth_area
         )
         result = use_case.execute(dto)
+
+        # ─── AUTO-TRIGGER CAD PARSING IN BACKGROUND ───
+        if req.document and req.document.cadDoc and req.coordinate and req.coordinate.cadParamTx is not None:
+            try:
+                parsed_url = urllib.parse.urlparse(req.document.cadDoc)
+                local_path = parsed_url.path.lstrip("/")
+                if os.path.exists(local_path):
+                    # Helmert 2D anchors: Point 1 at (0, 0), Point 2 at (100, 100)
+                    tx = req.coordinate.cadParamTx
+                    ty = req.coordinate.cadParamTy
+                    a = req.coordinate.cadParamA
+                    b = req.coordinate.cadParamB
+                    
+                    if a is not None and b is not None:
+                        # Guard: If A and B parameters are large (degree scale factor is simulated close to 1.0),
+                        # scale them down to degrees per unit (roughly 1m = 0.000009 degrees)
+                        # to prevent calculation of out-of-bounds anchor coordinates.
+                        if abs(a) > 0.01 or abs(b) > 0.01:
+                            a = a * 0.000009
+                            b = b * 0.000009
+                        
+                        background_tasks.add_task(
+                            execute_cad_parsing_background,
+                            file_path=local_path,
+                            id_permohonan=id_permohonan,
+                            anchor_cad_1=(0.0, 0.0),
+                            anchor_cad_2=(100.0, 100.0),
+                            anchor_map_1=(tx, ty),
+                            anchor_map_2=(100.0 * a - 100.0 * b + tx, 100.0 * b + 100.0 * a + ty)
+                        )
+                        logger.info(f"[SUBMIT] Auto-triggered background CAD parsing task for {id_permohonan}")
+            except Exception as e:
+                logger.error(f"[SUBMIT_ERROR] Failed to auto-trigger CAD parsing task: {str(e)}")
 
         return {
             "status": "SUCCESS",
@@ -788,8 +844,8 @@ def get_all_submissions(db: Session = Depends(get_db), current_user: UserModel =
                 "consultantPicName": r.consultant_pic_name
             },
             "location": {
-                "lat": -6.595189,
-                "lng": 106.816629,
+                "lat": get_polygon_centroid(r.polygon)[0],
+                "lng": get_polygon_centroid(r.polygon)[1],
                 "address": r.location_full_address,
                 "polygon": r.polygon or []
             },
@@ -868,6 +924,45 @@ def get_submission_by_id(id_permohonan: str, db: Session = Depends(get_db), curr
         }
         for item in db_evaluations
     ]
+
+    # Fetch detailed CAD geometries for detail view embedding
+    from src.infrastructure.database.models import SitePlanGeometryModel
+    from geoalchemy2.shape import to_shape
+
+    geoms = db.query(SitePlanGeometryModel).filter(
+        SitePlanGeometryModel.id_permohonan == id_permohonan
+    ).all()
+
+    road_polygons = []
+    rth_polygons = []
+    psu_polygons = []
+    kavling_polygons = []
+
+    for g in geoms:
+        polygon_coords = []
+        if g.geom:
+            try:
+                shapely_poly = to_shape(cast(Any, g.geom))
+                exterior = getattr(shapely_poly, "exterior", None)
+                if exterior is not None:
+                    polygon_coords = [(float(pt[0]), float(pt[1])) for pt in exterior.coords]
+            except Exception:
+                continue
+
+        if not polygon_coords:
+            continue
+
+        layer = g.layer_name.upper()
+        if "JALAN" in layer or "ROAD" in layer or "ROW" in layer:
+            road_polygons.append(polygon_coords)
+        elif "RTH" in layer or "HIJAU" in layer or "TAMAN" in layer or "KDH" in layer:
+            rth_polygons.append(polygon_coords)
+        elif "KDB" in layer:
+            kavling_polygons.append(polygon_coords)
+        else:
+            psu_polygons.append(polygon_coords)
+
+    centroid_lat, centroid_lng = get_polygon_centroid(r.polygon)
 
     return {
         "id": r.id_permohonan,
@@ -952,10 +1047,14 @@ def get_submission_by_id(id_permohonan: str, db: Session = Depends(get_db), curr
             "consultantPicName": r.consultant_pic_name
         },
         "location": {
-            "lat": -6.595189,
-            "lng": 106.816629,
+            "lat": centroid_lat,
+            "lng": centroid_lng,
             "address": r.location_full_address,
-            "polygon": r.polygon or []
+            "polygon": r.polygon or [],
+            "roadPolygons": road_polygons,
+            "rthPolygons": rth_polygons,
+            "psuPolygons": psu_polygons,
+            "kavlingPolygons": kavling_polygons
         },
         "documents": docs_list or [
             { "id": f"doc-{r.id_permohonan}-1", "name": "Surat Permohonan.pdf", "type": "pdf", "url": "#", "uploadedAt": r.submission_date.isoformat() },
@@ -1010,6 +1109,7 @@ def get_submission_geometries(
     road_polygons = []
     rth_polygons = []
     psu_polygons = []
+    kavling_polygons = []
     
     for g in geoms:
         polygon_coords = []
@@ -1026,10 +1126,12 @@ def get_submission_geometries(
             continue
             
         layer = g.layer_name.upper()
-        if "JALAN" in layer:
+        if "JALAN" in layer or "ROAD" in layer or "ROW" in layer:
             road_polygons.append(polygon_coords)
-        elif "RTH" in layer or "HIJAU" in layer or "TAMAN" in layer:
+        elif "RTH" in layer or "HIJAU" in layer or "TAMAN" in layer or "KDH" in layer:
             rth_polygons.append(polygon_coords)
+        elif "KDB" in layer:
+            kavling_polygons.append(polygon_coords)
         else:
             psu_polygons.append(polygon_coords)
             
@@ -1037,7 +1139,8 @@ def get_submission_geometries(
         "id_permohonan": id_permohonan,
         "roadPolygons": road_polygons,
         "rthPolygons": rth_polygons,
-        "psuPolygons": psu_polygons
+        "psuPolygons": psu_polygons,
+        "kavlingPolygons": kavling_polygons
     }
 
 @router.post("/ocr/ktp", status_code=status.HTTP_200_OK)

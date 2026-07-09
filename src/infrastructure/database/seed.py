@@ -331,6 +331,63 @@ def seed_spatial_data() -> None:
             "photoAccess": "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=400&q=80"
         }, category="PERUMAHAN")
 
+        # Mock Geometries untuk sub-1
+        poly_kdb_1_1 = Polygon([
+            (106.8405, -6.4805),
+            (106.8415, -6.4805),
+            (106.8415, -6.4815),
+            (106.8405, -6.4815),
+            (106.8405, -6.4805)
+        ])
+        geom_kdb_1_1 = SitePlanGeometryModel(
+            id_permohonan="sub-1",
+            layer_name="PTSP_KDB",
+            geom=from_shape(poly_kdb_1_1, srid=4326)
+        )
+        db.add(geom_kdb_1_1)
+
+        poly_kdb_1_2 = Polygon([
+            (106.8420, -6.4805),
+            (106.8428, -6.4805),
+            (106.8428, -6.4815),
+            (106.8420, -6.4815),
+            (106.8420, -6.4805)
+        ])
+        geom_kdb_1_2 = SitePlanGeometryModel(
+            id_permohonan="sub-1",
+            layer_name="PTSP_KDB",
+            geom=from_shape(poly_kdb_1_2, srid=4326)
+        )
+        db.add(geom_kdb_1_2)
+
+        poly_jalan_1 = Polygon([
+            (106.8405, -6.4820),
+            (106.8428, -6.4820),
+            (106.8428, -6.4825),
+            (106.8405, -6.4825),
+            (106.8405, -6.4820)
+        ])
+        geom_jalan_1 = SitePlanGeometryModel(
+            id_permohonan="sub-1",
+            layer_name="PTSP_PSU_JALAN",
+            geom=from_shape(poly_jalan_1, srid=4326)
+        )
+        db.add(geom_jalan_1)
+
+        poly_rth_1 = Polygon([
+            (106.8405, -6.4827),
+            (106.8428, -6.4827),
+            (106.8428, -6.4829),
+            (106.8405, -6.4829),
+            (106.8405, -6.4827)
+        ])
+        geom_rth_1 = SitePlanGeometryModel(
+            id_permohonan="sub-1",
+            layer_name="PTSP_KDH",
+            geom=from_shape(poly_rth_1, srid=4326)
+        )
+        db.add(geom_rth_1)
+
         # KASUS 2: Bojonggede Residence (Status: Verifikasi Administrasi)
         outer_poly_2 = Polygon([
             (106.8000, -6.4950),
@@ -416,6 +473,49 @@ def seed_spatial_data() -> None:
             "photoAccess": "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=400&q=80"
         }, category="PERUMAHAN")
 
+        # Mock Geometries untuk sub-2
+        poly_kdb_2 = Polygon([
+            (106.8002, -6.4952),
+            (106.8010, -6.4952),
+            (106.8010, -6.4960),
+            (106.8002, -6.4960),
+            (106.8002, -6.4952)
+        ])
+        geom_kdb_2 = SitePlanGeometryModel(
+            id_permohonan="sub-2",
+            layer_name="PTSP_KDB",
+            geom=from_shape(poly_kdb_2, srid=4326)
+        )
+        db.add(geom_kdb_2)
+
+        poly_jalan_2 = Polygon([
+            (106.8012, -6.4952),
+            (106.8018, -6.4952),
+            (106.8018, -6.4960),
+            (106.8012, -6.4960),
+            (106.8012, -6.4952)
+        ])
+        geom_jalan_2 = SitePlanGeometryModel(
+            id_permohonan="sub-2",
+            layer_name="PTSP_PSU_JALAN",
+            geom=from_shape(poly_jalan_2, srid=4326)
+        )
+        db.add(geom_jalan_2)
+
+        poly_rth_2 = Polygon([
+            (106.8002, -6.4962),
+            (106.8018, -6.4962),
+            (106.8018, -6.4968),
+            (106.8002, -6.4968),
+            (106.8002, -6.4962)
+        ])
+        geom_rth_2 = SitePlanGeometryModel(
+            id_permohonan="sub-2",
+            layer_name="PTSP_KDH",
+            geom=from_shape(poly_rth_2, srid=4326)
+        )
+        db.add(geom_rth_2)
+
         # KASUS 3: Sentul Clover Garden (Status: Menunggu Persetujuan)
         outer_poly_3 = Polygon([
             (106.8700, -6.5600),
@@ -500,6 +600,63 @@ def seed_spatial_data() -> None:
             "photoWest": "https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=400&q=80",
             "photoAccess": "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=400&q=80"
         }, category="PERUMAHAN")
+
+        # Mock Geometries untuk sub-3
+        poly_kdb_3_1 = Polygon([
+            (106.8705, -6.5605),
+            (106.8718, -6.5605),
+            (106.8718, -6.5618),
+            (106.8705, -6.5618),
+            (106.8705, -6.5605)
+        ])
+        geom_kdb_3_1 = SitePlanGeometryModel(
+            id_permohonan="sub-3",
+            layer_name="PTSP_KDB",
+            geom=from_shape(poly_kdb_3_1, srid=4326)
+        )
+        db.add(geom_kdb_3_1)
+
+        poly_kdb_3_2 = Polygon([
+            (106.8722, -6.5605),
+            (106.8735, -6.5605),
+            (106.8735, -6.5618),
+            (106.8722, -6.5618),
+            (106.8722, -6.5605)
+        ])
+        geom_kdb_3_2 = SitePlanGeometryModel(
+            id_permohonan="sub-3",
+            layer_name="PTSP_KDB",
+            geom=from_shape(poly_kdb_3_2, srid=4326)
+        )
+        db.add(geom_kdb_3_2)
+
+        poly_jalan_3 = Polygon([
+            (106.8705, -6.5622),
+            (106.8735, -6.5622),
+            (106.8735, -6.5628),
+            (106.8705, -6.5628),
+            (106.8705, -6.5622)
+        ])
+        geom_jalan_3 = SitePlanGeometryModel(
+            id_permohonan="sub-3",
+            layer_name="PTSP_PSU_JALAN",
+            geom=from_shape(poly_jalan_3, srid=4326)
+        )
+        db.add(geom_jalan_3)
+
+        poly_rth_3 = Polygon([
+            (106.8705, -6.5630),
+            (106.8735, -6.5630),
+            (106.8735, -6.5638),
+            (106.8705, -6.5638),
+            (106.8705, -6.5630)
+        ])
+        geom_rth_3 = SitePlanGeometryModel(
+            id_permohonan="sub-3",
+            layer_name="PTSP_KDH",
+            geom=from_shape(poly_rth_3, srid=4326)
+        )
+        db.add(geom_rth_3)
 
         # KASUS 4: Cileungsi Green Valley (Status: Disetujui / Selesai TTE)
         outer_poly_4 = Polygon([
@@ -803,6 +960,35 @@ def seed_spatial_data() -> None:
             geom=from_shape(poly_kdb_5, srid=4326)
         )
         db.add(geom_kdb_5)
+
+        # Mock Geometries additional untuk sub-5 (Jalan & RTH)
+        poly_jalan_5 = Polygon([
+            (106.9002, -6.4212),
+            (106.9013, -6.4212),
+            (106.9013, -6.4214),
+            (106.9002, -6.4214),
+            (106.9002, -6.4212)
+        ])
+        geom_jalan_5 = SitePlanGeometryModel(
+            id_permohonan="sub-5",
+            layer_name="PTSP_PSU_JALAN",
+            geom=from_shape(poly_jalan_5, srid=4326)
+        )
+        db.add(geom_jalan_5)
+
+        poly_rth_5 = Polygon([
+            (106.9011, -6.4202),
+            (106.9014, -6.4202),
+            (106.9014, -6.4209),
+            (106.9011, -6.4209),
+            (106.9011, -6.4202)
+        ])
+        geom_rth_5 = SitePlanGeometryModel(
+            id_permohonan="sub-5",
+            layer_name="PTSP_KDH",
+            geom=from_shape(poly_rth_5, srid=4326)
+        )
+        db.add(geom_rth_5)
 
         kompensasi_5 = LahanKompensasiModel(
             id_kompensasi="komp-105",
