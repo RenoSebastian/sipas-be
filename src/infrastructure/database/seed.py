@@ -19,7 +19,7 @@ from datetime import date, datetime, timezone
 # Sisipkan direktori root proyek ke dalam sys.path agar aman dijalankan dari terminal mana pun
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../")))
 
-from shapely.geometry import Polygon
+from shapely.geometry import Polygon, LineString, Point
 from geoalchemy2.shape import from_shape
 
 from src.infrastructure.database.connection import SessionLocal
@@ -131,6 +131,132 @@ def add_mock_files_for_permohonan(db, id_permohonan: str, photos_dict: dict, cat
             file_path=f"uploads/permohonan/mock_{k}.jpg",
             file_url=url
         ))
+
+import math
+import random
+from src.infrastructure.database.models import SitePlanGeometryModel
+
+BOUNDARY_VERTICES_1 = [
+    (0, 0), (140, 15), (155, -45), (240, -30), (220, 70), (280, 110),
+    (190, 160), (110, 115), (80, 140), (-40, 100), (-20, 50), (-60, 30), (0, 0)
+]
+
+BOUNDARY_VERTICES_2 = [
+    (0, 0), (90, -10), (110, -50), (180, -30), (160, 40), (200, 70),
+    (130, 120), (80, 85), (50, 100), (-30, 70), (-10, 35), (-40, 20), (0, 0)
+]
+
+def cad_to_wgs84_seed(vertices, base_lon, base_lat, rotation_deg=12):
+    rad = math.radians(rotation_deg)
+    lat_len = 111132.95
+    lon_len = 111132.95 * math.cos(math.radians(base_lat))
+    wgs84_coords = []
+    for x, y in vertices:
+        x_rot = x * math.cos(rad) - y * math.sin(rad)
+        y_rot = x * math.sin(rad) + y * math.cos(rad)
+        lon = base_lon + (x_rot / lon_len)
+        lat = base_lat + (y_rot / lat_len)
+        wgs84_coords.append((lon, lat))
+    return Polygon(wgs84_coords)
+
+def seed_internal_geometries(db, id_permohonan: str, base_lon: float, base_lat: float, rotation_deg: float, is_type_1: bool = True) -> None:
+    vertices = BOUNDARY_VERTICES_1 if is_type_1 else BOUNDARY_VERTICES_2
+    boundary = cad_to_wgs84_seed(vertices, base_lon, base_lat, rotation_deg)
+    
+    # 2. Road
+    road_points = []
+    for rx in range(-100, 320, 10):
+        ry = 45 + 20 * math.sin(rx / 60.0)
+        road_points.append((rx, ry))
+    road_line = LineString(road_points)
+    road_poly = road_line.buffer(8)
+    road_inside = boundary.intersection(road_poly)
+    
+    if not road_inside.is_empty:
+        db.add(SitePlanGeometryModel(
+            id_permohonan=id_permohonan,
+            layer_name="PTSP_PSU_JALAN",
+            geom=from_shape(road_inside, srid=4326)
+        ))
+        
+    # 3. Park
+    park_center = (50, 95)
+    park_poly = Point(park_center).buffer(22)
+    park_inside = boundary.intersection(park_poly).difference(road_poly)
+    
+    if not park_inside.is_empty:
+        db.add(SitePlanGeometryModel(
+            id_permohonan=id_permohonan,
+            layer_name="PTSP_KDH",
+            geom=from_shape(park_inside, srid=4326)
+        ))
+        
+    # 4. Cemetery
+    cemetery_center = (200, 20)
+    cemetery_poly = Point(cemetery_center).buffer(18)
+    cemetery_inside = boundary.intersection(cemetery_poly).difference(road_poly).difference(park_poly)
+    
+    if not cemetery_inside.is_empty:
+        db.add(SitePlanGeometryModel(
+            id_permohonan=id_permohonan,
+            layer_name="PTSP_PSU_MAKAM",
+            geom=from_shape(cemetery_inside, srid=4326)
+        ))
+        
+    # 5. Houses (KDB)
+    placed_houses = []
+    boundary_buffered = boundary.buffer(-6) # setback
+    
+    x_start, x_end = -80, 300
+    y_start, y_end = -60, 180
+    x_step, y_step = 10, 15
+    
+    random_state = random.getstate()
+    random.seed(42)
+    for hx in range(x_start, x_end, x_step):
+        for hy in range(y_start, y_end, y_step):
+            hw, hh = 6, 12
+            rot = math.radians(5 if hy > 45 else -5)
+            rect_coords = [
+                (-hw/2, -hh/2), (hw/2, -hh/2), (hw/2, hh/2), (-hw/2, hh/2)
+            ]
+            rotated_coords = []
+            for rx, ry in rect_coords:
+                nx = hx + (rx * math.cos(rot) - ry * math.sin(rot))
+                ny = hy + (rx * math.sin(rot) + ry * math.cos(rot))
+                rotated_coords.append((nx, ny))
+            
+            house_poly_local = Polygon(rotated_coords)
+            
+            # Check constraints
+            if not boundary_buffered.contains(house_poly_local):
+                continue
+            if house_poly_local.intersects(road_poly):
+                continue
+            if house_poly_local.intersects(park_poly):
+                continue
+            if house_poly_local.intersects(cemetery_poly):
+                continue
+                
+            overlapping = False
+            for other_house in placed_houses:
+                if house_poly_local.intersects(other_house.buffer(2)):
+                    overlapping = True
+                    break
+            if overlapping:
+                continue
+                
+            placed_houses.append(house_poly_local)
+            
+            # Project to WGS84 and add to DB
+            house_poly_wgs84 = cad_to_wgs84_seed(rotated_coords, base_lon, base_lat, rotation_deg)
+            db.add(SitePlanGeometryModel(
+                id_permohonan=id_permohonan,
+                layer_name="PTSP_KDB",
+                geom=from_shape(house_poly_wgs84, srid=4326)
+            ))
+            
+    random.setstate(random_state)
 
 def seed_spatial_data() -> None:
     """Menyemai data user, aturan RDTR, dan spasial WGS84 nyata wilayah Kabupaten Bogor."""
@@ -245,33 +371,8 @@ def seed_spatial_data() -> None:
         # ──────────────────────────────────────────────────────────────────────
         print("[SEEDER] Menyemai data spasial permohonan komparasi...")
 
-        import math
-        
-        BOUNDARY_VERTICES_1 = [
-            (0, 0), (140, 15), (155, -45), (240, -30), (220, 70), (280, 110),
-            (190, 160), (110, 115), (80, 140), (-40, 100), (-20, 50), (-60, 30), (0, 0)
-        ]
-        
-        BOUNDARY_VERTICES_2 = [
-            (0, 0), (90, -10), (110, -50), (180, -30), (160, 40), (200, 70),
-            (130, 120), (80, 85), (50, 100), (-30, 70), (-10, 35), (-40, 20), (0, 0)
-        ]
-
-        def cad_to_wgs84_seed(vertices, base_lon, base_lat, rotation_deg=12):
-            rad = math.radians(rotation_deg)
-            lat_len = 111132.95
-            lon_len = 111132.95 * math.cos(math.radians(base_lat))
-            wgs84_coords = []
-            for x, y in vertices:
-                x_rot = x * math.cos(rad) - y * math.sin(rad)
-                y_rot = x * math.sin(rad) + y * math.cos(rad)
-                lon = base_lon + (x_rot / lon_len)
-                lat = base_lat + (y_rot / lat_len)
-                wgs84_coords.append((lon, lat))
-            return Polygon(wgs84_coords)
-
         # KASUS 1: Cibinong Green Mansion (Status: Menunggu Verifikasi)
-        outer_poly_1 = cad_to_wgs84_seed(BOUNDARY_VERTICES_1, base_lon=106.8400, base_lat=-6.4800, rotation_deg=12)
+        outer_poly_1 = cad_to_wgs84_seed(BOUNDARY_VERTICES_1, base_lon=106.802744, base_lat=-6.471861, rotation_deg=12)
 
         permohonan_1 = PermohonanModel(
             id_permohonan="sub-1", user_id=pemohon.id, submission_no="SIPAS-2026-001",
@@ -286,7 +387,7 @@ def seed_spatial_data() -> None:
             location_full_address="Jl. Raya Tegar Beriman, Cibinong", location_ownership_status="SHM",
             location_certificate_number="SHM No. 10293/Cibinong", location_certificate_owner="PT Geocitra Pembangunan Mandiri",
             geom=from_shape(outer_poly_1, srid=4326), cad_file_name="blueprint_cibinong.dxf",
-            cad_param_a=0.8875, cad_param_b=0.4612, cad_param_tx=106.8415, cad_param_ty=-6.4815,
+            cad_param_a=0.8875, cad_param_b=0.4612, cad_param_tx=106.802744, cad_param_ty=-6.471861,
             cad_scale=1.0024, cad_rotation=0.4812, spatial_kkpr_number="503/KKPR/PUPR/2026/089",
             spatial_land_use="Zona Perumahan Kepadatan Sedang", spatial_green_area=4600.0,
             tech_lot_count=150, tech_housing_type="NON_SUBSIDI", tech_cemetery_area=600.0,
@@ -781,13 +882,6 @@ def seed_spatial_data() -> None:
             "photoAccess": "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=400&q=80"
         }, category="NON_PERUMAHAN")
 
-        poly_kdb_5 = Polygon([
-            (106.9005, -6.4205), (106.9010, -6.4205), (106.9010, -6.4210), (106.9005, -6.4210), (106.9005, -6.4205)
-        ])
-        geom_kdb_5 = SitePlanGeometryModel(
-            id_permohonan="sub-5", layer_name="PTSP_KDB", geom=from_shape(poly_kdb_5, srid=4326)
-        )
-        db.add(geom_kdb_5)
 
         kompensasi_5 = LahanKompensasiModel(
             id_kompensasi="komp-105", id_permohonan="sub-5", tipe_kompensasi="LAHAN_SAWAH",
@@ -864,6 +958,14 @@ def seed_spatial_data() -> None:
             created_at=datetime(2026, 6, 12, 14, 15, 0)
         )
         db.add(audit_5)
+
+        # Seeding organic siteplan geometries for all submissions
+        print("[SEEDER] Menyemai poligon detail siteplan organik...")
+        seed_internal_geometries(db, "sub-1", 106.802744, -6.471861, 12.0, is_type_1=True)
+        seed_internal_geometries(db, "sub-2", 106.800000, -6.495000, 5.0, is_type_1=False)
+        seed_internal_geometries(db, "sub-3", 106.870000, -6.560000, 15.0, is_type_1=True)
+        seed_internal_geometries(db, "sub-4", 106.960000, -6.380000, 8.0, is_type_1=False)
+        seed_internal_geometries(db, "sub-5", 106.900000, -6.420000, 10.0, is_type_1=True)
 
         db.commit()
         print("[SEEDER] Sukses menyemai seluruh data spasial, user, master RDTR, dokumen Telaah Staf, SkDraft terstruktur, dan riwayat log audit.")

@@ -133,7 +133,7 @@ def main():
         poly_local_2 = generate_random_irregular_boundary(center_x=100, center_y=50, base_radius=120, seed=102)
         
         # 2. Set deterministic center locations inside Kabupaten Bogor matching seeds
-        base_lon_1, base_lat_1 = 106.8400, -6.4800 # Cibinong (matches mock DXF)
+        base_lon_1, base_lat_1 = 106.802744, -6.471861 # Cibinong (matches mock DXF)
         base_lon_2, base_lat_2 = 106.9000, -6.4200 # Gunung Putri
         
         rotation_deg_1 = 12.0
