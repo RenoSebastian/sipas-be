@@ -32,7 +32,8 @@ from src.domain.entities.sk_draft import SkDraft
 # Impor Template Inline Cadangan dari File Terpisah (Mencegah File Terlalu Panjang)
 from src.infrastructure.document.templates.backup_templates import (
     DEFAULT_TELAAH_STAF_TEMPLATE,
-    DEFAULT_SK_TEMPLATE
+    DEFAULT_SK_TEMPLATE,
+    DEFAULT_REPORT_TEMPLATE
 )
 
 # Inisialisasi awal modul untuk menjamin variabel selalu terikat (Pylance Type Guard)
@@ -72,7 +73,8 @@ class HtmlToPdfEngine(DocumentGeneratorPort):
             # Fallback loader terintegrasi menggunakan backup_templates.py (Loose Coupling)
             self.jinja_env = Environment(loader=DictLoader({
                 "telaah_staf.html": DEFAULT_TELAAH_STAF_TEMPLATE,
-                "sk_draft.html": DEFAULT_SK_TEMPLATE
+                "sk_draft.html": DEFAULT_SK_TEMPLATE,
+                "report_template.html": DEFAULT_REPORT_TEMPLATE
             }))
 
     def render_html(self, template_name: str, context: Dict[str, Any]) -> str:
@@ -90,6 +92,10 @@ class HtmlToPdfEngine(DocumentGeneratorPort):
                     logger.warning(f"[PDF_ENGINE] Template '{template_name}' tidak ditemukan di disk. Menggunakan fallback.")
                     fallback_env = Environment(loader=DictLoader({"sk_draft.html": DEFAULT_SK_TEMPLATE}))
                     template = fallback_env.get_template("sk_draft.html")
+                elif "report" in template_name.lower():
+                    logger.warning(f"[PDF_ENGINE] Template '{template_name}' tidak ditemukan di disk. Menggunakan fallback.")
+                    fallback_env = Environment(loader=DictLoader({"report_template.html": DEFAULT_REPORT_TEMPLATE}))
+                    template = fallback_env.get_template("report_template.html")
                 else:
                     raise FileNotFoundError(f"Template '{template_name}' tidak terdaftar di server.")
 

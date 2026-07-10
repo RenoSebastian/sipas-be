@@ -646,3 +646,259 @@ DEFAULT_SK_TEMPLATE = """
 </body>
 </html>
 """
+
+
+# ─── TEMPLATE 3: EXECUTIVE REPORT DEFAULT TEMPLATE ────────────────────────────
+DEFAULT_REPORT_TEMPLATE = """
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Laporan Eksekutif GEOSIPAS - {{ month_name }} {{ year }}</title>
+    <style>
+        @page {
+            size: A4;
+            margin: 15mm;
+            @bottom-right {
+                content: "Halaman " counter(page) " dari " counter(pages);
+                font-family: Arial, sans-serif;
+                font-size: 8pt;
+            }
+        }
+        body {
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 10pt;
+            line-height: 1.4;
+            color: #111;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+            border-bottom: 3px double #000;
+            padding-bottom: 8px;
+        }
+        .header h1 { margin: 0; font-size: 12pt; text-transform: uppercase; font-weight: bold; }
+        .header h2 { margin: 2px 0 0 0; font-size: 11pt; text-transform: uppercase; font-weight: bold; color: #333; }
+        .header p { margin: 4px 0 0 0; font-size: 8pt; color: #555; }
+        
+        .title-block {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .title-block h3 { margin: 0; font-size: 11pt; text-transform: uppercase; font-weight: bold; color: #111D13; }
+        .title-block p { margin: 2px 0 0 0; font-size: 9pt; color: #666; }
+
+        .section-title {
+            font-size: 9pt;
+            font-weight: bold;
+            text-transform: uppercase;
+            background-color: #f1f5f9;
+            padding: 4px 8px;
+            margin-top: 15px;
+            margin-bottom: 8px;
+            border-left: 3px solid #415D43;
+            color: #1e293b;
+        }
+        
+        .kpi-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 15px;
+        }
+        .kpi-table td {
+            width: 25%;
+            padding: 8px;
+            border: 1px solid #cbd5e1;
+            vertical-align: top;
+        }
+        .kpi-label {
+            font-size: 8pt;
+            font-weight: bold;
+            color: #64748b;
+            text-transform: uppercase;
+        }
+        .kpi-value {
+            font-size: 12pt;
+            font-weight: bold;
+            color: #1e293b;
+            margin-top: 4px;
+            font-family: Courier, monospace;
+        }
+        .kpi-sub {
+            font-size: 7.5pt;
+            color: #475569;
+            margin-top: 2px;
+        }
+
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 15px;
+            font-size: 8.5pt;
+        }
+        .data-table th {
+            background-color: #f8fafc;
+            border: 1px solid #cbd5e1;
+            padding: 6px;
+            font-weight: bold;
+            text-align: left;
+            color: #334155;
+        }
+        .data-table td {
+            border: 1px solid #e2e8f0;
+            padding: 6px;
+            vertical-align: middle;
+        }
+        .text-center { text-align: center; }
+        .text-right { text-align: right; }
+        
+        .badge {
+            display: inline-block;
+            padding: 2px 6px;
+            font-size: 7.5pt;
+            font-weight: bold;
+            color: #fff;
+            border-radius: 2px;
+        }
+        .badge-emerald { background-color: #10b981; }
+        .badge-amber { background-color: #f59e0b; }
+        .badge-rose { background-color: #ef4444; }
+
+        .footer-note {
+            font-size: 7.5pt;
+            color: #64748b;
+            margin-top: 25px;
+            border-top: 1px solid #e2e8f0;
+            padding-top: 5px;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Pemerintah Kabupaten Bogor</h1>
+        <h2>Dinas Penanaman Modal dan Pelayanan Terpadu Satu Pintu</h2>
+        <p>Gedung Kesenian Kabupaten Bogor, Cibinong. Telp: (021) 8790-xxxx | Email: dpmptsp@bogorkab.go.id</p>
+    </div>
+
+    <div class="title-block">
+        <h3>Laporan Eksekutif Realisasi Rencana Tapak (Site Plan)</h3>
+        <p>Periode Laporan: {{ month_name }} {{ year }} | Tanggal Cetak: {{ print_date }}</p>
+    </div>
+
+    <div class="section-title">Ringkasan KPI Utama (YTD)</div>
+    <table class="kpi-table">
+        <tr>
+            <td>
+                <div class="kpi-label">Total Lahan YTD</div>
+                <div class="kpi-value">{{ land_area_formatted }} m²</div>
+                <div class="kpi-sub">Setara dengan ~{{ land_area_ha }} Ha</div>
+            </td>
+            <td>
+                <div class="kpi-label">Pengajuan YTD</div>
+                <div class="kpi-value">{{ total_pengajuan_ytd }} Berkas</div>
+                <div class="kpi-sub">Bulan ini: {{ pengajuan_bulan_ini }} baru</div>
+            </td>
+            <td>
+                <div class="kpi-label">Penyelesaian YTD</div>
+                <div class="kpi-value">{{ total_disetujui_ytd }} SK</div>
+                <div class="kpi-sub">Bulan ini: {{ penyelesaian_bulan_ini }} disahkan</div>
+            </td>
+            <td>
+                <div class="kpi-label">Rasio Penerimaan</div>
+                <div class="kpi-value">{{ success_rate }}%</div>
+                <div class="kpi-sub">Lolos: {{ approved_decisions }} | Ditolak: {{ tidak_sesuai_ytd }}</div>
+            </td>
+        </tr>
+    </table>
+
+    <div class="section-title">Distribusi Keputusan Tata Ruang (YTD)</div>
+    <table class="data-table">
+        <thead>
+          <tr>
+            <th>Parameter Verifikasi</th>
+            <th class="text-center">Jumlah Berkas</th>
+            <th class="text-center">Persentase</th>
+            <th>Rekomendasi Tindak Lanjut</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Sesuai (Lolos)</strong></td>
+            <td class="text-center font-mono">{{ sesuai_ytd }}</td>
+            <td class="text-center font-mono">{{ sesuai_pct }}%</td>
+            <td>Rekomendasi persetujuan site plan langsung diterbitkan tanpa syarat.</td>
+          </tr>
+          <tr>
+            <td><strong>Sesuai Bersyarat (Lolos Bersyarat)</strong></td>
+            <td class="text-center font-mono">{{ sesuai_bersyarat_ytd }}</td>
+            <td class="text-center font-mono">{{ sesuai_bersyarat_pct }}%</td>
+            <td>Rekomendasi diterbitkan dengan kewajiban pemenuhan kompensasi PSU/KDH.</td>
+          </tr>
+          <tr>
+            <td><strong>Tidak Sesuai / Ditolak</strong></td>
+            <td class="text-center font-mono">{{ tidak_sesuai_ytd }}</td>
+            <td class="text-center font-mono">{{ tidak_sesuai_pct }}%</td>
+            <td>Berkas dikembalikan ke pemohon untuk melakukan revisi gambar rencana tapak.</td>
+          </tr>
+        </tbody>
+    </table>
+
+    <div class="section-title">Snapshot Pipeline Tahapan (Berkas Aktif Saat Ini)</div>
+    <table class="data-table">
+        <thead>
+          <tr>
+            <th class="text-center">1. Pemohon</th>
+            <th class="text-center">2. Admin</th>
+            <th class="text-center">3. Tim Teknis</th>
+            <th class="text-center">4. Kabid</th>
+            <th class="text-center">5. Kadis (TTE)</th>
+            <th class="text-center">6. Selesai</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="text-center font-mono" style="font-size: 11pt; font-weight: bold;">{{ pipeline.pemohon }}</td>
+            <td class="text-center font-mono" style="font-size: 11pt; font-weight: bold;">{{ pipeline.admin }}</td>
+            <td class="text-center font-mono" style="font-size: 11pt; font-weight: bold;">{{ pipeline.teknis }}</td>
+            <td class="text-center font-mono" style="font-size: 11pt; font-weight: bold;">{{ pipeline.kabid }}</td>
+            <td class="text-center font-mono" style="font-size: 11pt; font-weight: bold;">{{ pipeline.kadis }}</td>
+            <td class="text-center font-mono" style="font-size: 11pt; font-weight: bold; color: #10b981;">{{ pipeline.selesai }}</td>
+          </tr>
+        </tbody>
+    </table>
+
+    <div class="section-title">Daftar Surat Keputusan (SK) Terbit - Periode {{ month_name }} {{ year }}</div>
+    <table class="data-table">
+        <thead>
+          <tr>
+            <th style="width: 25%;">No. Pengajuan</th>
+            <th style="width: 45%;">Nama Perumahan / Kegiatan</th>
+            <th style="width: 30%;" class="text-right">Nomor Surat Keputusan (SK)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if sk_recap|length == 0 %}
+          <tr>
+            <td colSpan="3" class="text-center" style="padding: 15px; color: #64748b;">
+              Tidak ada Surat Keputusan (SK) yang terbit pada periode ini.
+            </td>
+          </tr>
+          {% else %}
+            {% for sk in sk_recap %}
+            <tr>
+              <td class="font-mono">{{ sk.submission_no }}</td>
+              <td><strong>{{ sk.housing_name }}</strong></td>
+              <td class="text-right font-mono" style="font-weight: bold; color: #415D43;">{{ sk.sk_number }}</td>
+            </tr>
+            {% endfor %}
+          {% endif %}
+        </tbody>
+    </table>
+
+    <p class="footer-note">
+        * Dokumen ini dibuat dan divalidasi secara otomatis melalui sistem GEOSIPAS Kabupaten Bogor berbasis data real-time spasial.
+    </p>
+</body>
+</html>
+"""
