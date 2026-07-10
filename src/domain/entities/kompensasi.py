@@ -32,11 +32,13 @@ class LahanKompensasi:
         polygon_coords: Optional[List[Tuple[float, float]]] = None, # Format standard: [(lat, lng), ...] [sipas-fe.txt]
         status_pemenuhan: FulfillmentStatus = FulfillmentStatus.BELUM_TERPENUHI,
         nilai_nominal: float = 0.0,
-        bukti_legalitas_url: Optional[str] = None
+        bukti_legalitas_url: Optional[str] = None,
+        alamat_lokasi: Optional[str] = None
     ):
         self.id_kompensasi = id_kompensasi
         self.id_permohonan = id_permohonan
         self.tipe_kompensasi = tipe_kompensasi
+        self.alamat_lokasi = alamat_lokasi
         
         if luas_kompensasi_m2 < 0:
             raise ValueError("Luas lahan kompensasi tidak boleh bernilai negatif.")

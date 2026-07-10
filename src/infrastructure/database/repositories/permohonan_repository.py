@@ -11,7 +11,7 @@ Peran: Mengimplementasikan ExtendedPermohonanRepositoryPort untuk berinteraksi d
 ============================================================================
 """
 
-from typing import Any, Optional, List
+from typing import Any, Optional, List, Tuple
 from sqlalchemy.orm import Session
 
 from src.use_cases.verify_submission import ExtendedPermohonanRepositoryPort
@@ -38,6 +38,26 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
                     polygon_coords = list(exterior.coords)
             except Exception:
                 pass
+
+        tpu_entity = None
+        if model.tpu_detail:
+            from src.domain.entities.permohonan import PermohonanTpu
+            tpu_entity = PermohonanTpu(
+                id_tpu=str(model.tpu_detail.id_tpu),
+                id_permohonan=str(model.tpu_detail.id_permohonan),
+                metode=str(model.tpu_detail.metode),
+                luas=float(model.tpu_detail.luas) if model.tpu_detail.luas is not None else None,
+                nama_tpu=str(model.tpu_detail.nama_tpu) if model.tpu_detail.nama_tpu else None,
+                pengurus_tpu=str(model.tpu_detail.pengurus_tpu) if model.tpu_detail.pengurus_tpu else None,
+                no_pks=str(model.tpu_detail.no_pks) if model.tpu_detail.no_pks else None,
+                nominal_kompensasi=float(model.tpu_detail.nominal_kompensasi) if model.tpu_detail.nominal_kompensasi is not None else None,
+                alamat=str(model.tpu_detail.alamat) if model.tpu_detail.alamat else None,
+                status_verifikasi=str(model.tpu_detail.status_verifikasi),
+                catatan_verifikasi=str(model.tpu_detail.catatan_verifikasi) if model.tpu_detail.catatan_verifikasi else None,
+                diverifikasi_oleh=str(model.tpu_detail.diverifikasi_oleh) if model.tpu_detail.diverifikasi_oleh else None,
+                diverifikasi_pada=model.tpu_detail.diverifikasi_pada,
+                bukti_dokumen_url=str(model.tpu_detail.bukti_dokumen_url) if model.tpu_detail.bukti_dokumen_url else None
+            )
 
         return Permohonan(
             id_permohonan=str(model.id_permohonan),
@@ -161,13 +181,35 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
             kkpr_verifier_name=str(model.kkpr_verifier_name) if model.kkpr_verifier_name else None,
 
             # ─── UPDATE FASE 3: MAPPER NOMOR SK BARU PADA ENTITAS DOMAIN ───
-            sk_number=str(model.sk_number) if model.sk_number else None
+            sk_number=str(model.sk_number) if model.sk_number else None,
+            tpu_detail=tpu_entity
         )
 
     def _to_model(self, entity: Permohonan) -> PermohonanModel:
         """
         Konversi dari Entitas Domain ke Model Database (Mapping To Model).
         """
+        tpu_model = None
+        if entity.tpu_detail:
+            from src.infrastructure.database.models import PermohonanTpuModel
+            tpu_data = entity.tpu_detail
+            tpu_model = PermohonanTpuModel(
+                id_tpu=tpu_data.id_tpu,
+                id_permohonan=tpu_data.id_permohonan,
+                metode=tpu_data.metode,
+                luas=tpu_data.luas,
+                nama_tpu=tpu_data.nama_tpu,
+                pengurus_tpu=tpu_data.pengurus_tpu,
+                no_pks=tpu_data.no_pks,
+                nominal_kompensasi=tpu_data.nominal_kompensasi,
+                alamat=tpu_data.alamat,
+                status_verifikasi=tpu_data.status_verifikasi,
+                catatan_verifikasi=tpu_data.catatan_verifikasi,
+                diverifikasi_oleh=tpu_data.diverifikasi_oleh,
+                diverifikasi_pada=tpu_data.diverifikasi_pada,
+                bukti_dokumen_url=tpu_data.bukti_dokumen_url
+            )
+
         geom = None
         if entity.polygon:
             from shapely.geometry import Polygon as ShapelyPolygon
@@ -302,7 +344,8 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
             kkpr_verifier_name=entity.kkpr_verifier_name,
 
             # ─── UPDATE FASE 3: MAPPER NOMOR SK BARU KPD SKEMA DATABASE ───
-            sk_number=entity.sk_number
+            sk_number=entity.sk_number,
+            tpu_detail=tpu_model
         )
 
     def find_by_id(self, id_permohonan: str) -> Optional[Permohonan]:
@@ -450,6 +493,41 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
                     existing_model.geom = from_shape(ShapelyPolygon(coords), srid=4326)
                 except Exception:
                     pass
+
+            # Save / update TPU details
+            if permohonan.tpu_detail:
+                from src.infrastructure.database.models import PermohonanTpuModel
+                tpu_data = permohonan.tpu_detail
+                if existing_model.tpu_detail:
+                    existing_model.tpu_detail.metode = tpu_data.metode
+                    existing_model.tpu_detail.luas = tpu_data.luas
+                    existing_model.tpu_detail.nama_tpu = tpu_data.nama_tpu
+                    existing_model.tpu_detail.pengurus_tpu = tpu_data.pengurus_tpu
+                    existing_model.tpu_detail.no_pks = tpu_data.no_pks
+                    existing_model.tpu_detail.nominal_kompensasi = tpu_data.nominal_kompensasi
+                    existing_model.tpu_detail.alamat = tpu_data.alamat
+                    existing_model.tpu_detail.status_verifikasi = tpu_data.status_verifikasi
+                    existing_model.tpu_detail.catatan_verifikasi = tpu_data.catatan_verifikasi
+                    existing_model.tpu_detail.diverifikasi_oleh = tpu_data.diverifikasi_oleh
+                    existing_model.tpu_detail.diverifikasi_pada = tpu_data.diverifikasi_pada
+                    existing_model.tpu_detail.bukti_dokumen_url = tpu_data.bukti_dokumen_url
+                else:
+                    existing_model.tpu_detail = PermohonanTpuModel(
+                        id_tpu=tpu_data.id_tpu,
+                        id_permohonan=tpu_data.id_permohonan,
+                        metode=tpu_data.metode,
+                        luas=tpu_data.luas,
+                        nama_tpu=tpu_data.nama_tpu,
+                        pengurus_tpu=tpu_data.pengurus_tpu,
+                        no_pks=tpu_data.no_pks,
+                        nominal_kompensasi=tpu_data.nominal_kompensasi,
+                        alamat=tpu_data.alamat,
+                        status_verifikasi=tpu_data.status_verifikasi,
+                        catatan_verifikasi=tpu_data.catatan_verifikasi,
+                        diverifikasi_oleh=tpu_data.diverifikasi_oleh,
+                        diverifikasi_pada=tpu_data.diverifikasi_pada,
+                        bukti_dokumen_url=tpu_data.bukti_dokumen_url
+                    )
         else:
             # Jika merupakan data baru, lakukan pendaftaran awal (INSERT)
             new_model = self._to_model(permohonan)
@@ -461,10 +539,46 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
             self.db.flush()
         return permohonan
 
-    def find_all(self) -> List[Permohonan]:
-        """Mendapatkan seluruh daftar permohonan."""
-        models = self.db.query(PermohonanModel).all()
-        return [self._to_domain(m) for m in models]
+    def find_all(
+        self,
+        search: Optional[str] = None,
+        status: Optional[str] = None,
+        category: Optional[str] = None,
+        page: int = 1,
+        limit: int = 10
+    ) -> Tuple[List[Any], int]:
+        """Mendapatkan seluruh daftar permohonan dengan filter, pencarian, dan paginasi."""
+        from src.infrastructure.database.models import PermohonanModel
+        query = self.db.query(PermohonanModel)
+
+        if status and status != 'Semua':
+            # Map status ramah pengguna ke nilai enum database jika berbeda
+            db_status = status
+            if status == 'Menunggu Verifikasi':
+                db_status = 'Menunggu_Verifikasi'
+            elif status == 'Verifikasi Administrasi':
+                db_status = 'Verifikasi_Administrasi'
+            elif status == 'Verifikasi Teknis':
+                db_status = 'Verifikasi_Teknis'
+            query = query.filter(PermohonanModel.status == db_status)
+
+        if category:
+            query = query.filter(PermohonanModel.submission_category == category)
+
+        if search:
+            search_pattern = f"%{search}%"
+            query = query.filter(
+                (PermohonanModel.housing_name.ilike(search_pattern)) |
+                (PermohonanModel.developer_name.ilike(search_pattern)) |
+                (PermohonanModel.submission_no.ilike(search_pattern))
+            )
+
+        total_count = query.count()
+
+        offset = (page - 1) * limit
+        models = query.order_by(PermohonanModel.submission_date.desc()).offset(offset).limit(limit).all()
+        
+        return [self._to_domain(m) for m in models], total_count
 
     def find_kompensasi_by_permohonan_id(self, id_permohonan: str) -> List[Any]:
         """Mengambil data kompensasi yang dikaitkan dengan ID permohonan."""
@@ -497,7 +611,8 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
                     polygon_coords=polygon_coords,
                     status_pemenuhan=FulfillmentStatus(str(m.status_pemenuhan)),
                     nilai_nominal=float(m.nilai_nominal),
-                    bukti_legalitas_url=str(m.bukti_legalitas_url) if m.bukti_legalitas_url else None
+                    bukti_legalitas_url=str(m.bukti_legalitas_url) if m.bukti_legalitas_url else None,
+                    alamat_lokasi=str(m.alamat_lokasi) if m.alamat_lokasi else None
                 )
             )
         return results
@@ -527,6 +642,7 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
             existing_model.luas_kompensasi_m2 = kompensasi.luas_kompensasi_m2
             existing_model.nilai_nominal = kompensasi.nilai_nominal
             existing_model.bukti_legalitas_url = kompensasi.bukti_legalitas_url
+            existing_model.alamat_lokasi = kompensasi.alamat_lokasi
             existing_model.geom = geom
         else:
             new_model = LahanKompensasiModel(
@@ -537,7 +653,8 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
                 geom=geom,
                 status_pemenuhan=kompensasi.status_pemenuhan.value,
                 nilai_nominal=kompensasi.nilai_nominal,
-                bukti_legalitas_url=kompensasi.bukti_legalitas_url
+                bukti_legalitas_url=kompensasi.bukti_legalitas_url,
+                alamat_lokasi=kompensasi.alamat_lokasi
             )
             self.db.add(new_model)
         self.db.commit()

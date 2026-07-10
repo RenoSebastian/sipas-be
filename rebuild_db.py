@@ -42,7 +42,8 @@ def main():
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS company VARCHAR(255);",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR(50);",
         "ALTER TABLE permohonan ADD COLUMN IF NOT EXISTS tech_water_source VARCHAR(255);",
-        "ALTER TABLE permohonan ADD COLUMN IF NOT EXISTS kabid_signature TEXT;"
+        "ALTER TABLE permohonan ADD COLUMN IF NOT EXISTS kabid_signature TEXT;",
+        "ALTER TABLE lahan_kompensasi ADD COLUMN IF NOT EXISTS alamat_lokasi VARCHAR(500);"
     ]
     try:
         with engine.begin() as conn:

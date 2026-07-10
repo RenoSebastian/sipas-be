@@ -16,6 +16,7 @@ from typing import Optional
 from src.use_cases.ports.document_generator_port import DocumentGeneratorPort
 from src.domain.entities.telaah_staf import TelaahStaf
 from src.domain.entities.permohonan import Permohonan
+from src.domain.entities.sk_draft import SkDraft
 from src.infrastructure.database.connection import SessionLocal
 from src.infrastructure.database.models import PermohonanModel
 
@@ -84,6 +85,7 @@ class MockDocumentGenerator(DocumentGeneratorPort):
     def generate_draft_sk_siteplan(
         self, 
         permohonan: Permohonan, 
+        sk_draft: SkDraft,
         notes_by_kabid: Optional[str] = None
     ) -> str:
         """Menghasilkan draf SK Pengesahan simulasi (Mock) untuk ditinjau Kabid."""
@@ -91,7 +93,11 @@ class MockDocumentGenerator(DocumentGeneratorPort):
         dest_path = self.output_dir / f"DRAFT_SK_Pengesahan_Site_Plan_{clean_id}.pdf"
         return self._ensure_pdf_exists(dest_path)
 
-    def generate_final_sk_siteplan(self, permohonan: Permohonan) -> str:
+    def generate_final_sk_siteplan(
+        self, 
+        permohonan: Permohonan,
+        sk_draft: SkDraft
+    ) -> str:
         """Menghasilkan berkas fisik SK final simulasi (Mock) siap TTE Kadis."""
         clean_id = self._get_clean_project_identifier(permohonan.id_permohonan)
         dest_path = self.output_dir / f"SK_Pengesahan_Site_Plan_{clean_id}.pdf"

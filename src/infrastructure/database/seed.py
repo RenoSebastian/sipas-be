@@ -146,7 +146,7 @@ BOUNDARY_VERTICES_2 = [
     (130, 120), (80, 85), (50, 100), (-30, 70), (-10, 35), (-40, 20), (0, 0)
 ]
 
-def cad_to_wgs84_seed(vertices, base_lon, base_lat, rotation_deg=12):
+def cad_to_wgs84_seed(vertices, base_lon, base_lat, rotation_deg: float = 12.0):
     rad = math.radians(rotation_deg)
     lat_len = 111132.95
     lon_len = 111132.95 * math.cos(math.radians(base_lat))

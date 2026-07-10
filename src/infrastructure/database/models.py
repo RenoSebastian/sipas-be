@@ -230,6 +230,13 @@ class PermohonanModel(Base):
         cascade="all, delete-orphan"
     )
 
+    tpu_detail: Mapped[Optional["PermohonanTpuModel"]] = relationship(
+        "PermohonanTpuModel",
+        back_populates="permohonan",
+        uselist=False,
+        cascade="all, delete-orphan"
+    )
+
 
 class EvaluasiChecklistItemModel(Base):
     """
@@ -346,6 +353,35 @@ class SkDraftModel(Base):
     permohonan: Mapped["PermohonanModel"] = relationship("PermohonanModel", back_populates="sk_draft")
 
 
+class PermohonanTpuModel(Base):
+    __tablename__ = "permohonan_tpu"
+
+    id_tpu: Mapped[str] = mapped_column(String(50), primary_key=True, index=True)
+    id_permohonan: Mapped[str] = mapped_column(
+        String(50), 
+        ForeignKey("permohonan.id_permohonan", ondelete="CASCADE"), 
+        unique=True, 
+        nullable=False
+    )
+    metode: Mapped[str] = mapped_column(String(50), nullable=False) # MANDIRI, EKSISTING, KERJASAMA, KOMPENSASI_UANG, INTEGRASI_WARGA
+    luas: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    nama_tpu: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    pengurus_tpu: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    no_pks: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    nominal_kompensasi: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    alamat: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    bukti_dokumen_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+
+    # Status Verifikasi Teknis
+    status_verifikasi: Mapped[str] = mapped_column(String(50), default="PENDING", nullable=False)
+    catatan_verifikasi: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    diverifikasi_oleh: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    diverifikasi_pada: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+    # Relasi
+    permohonan: Mapped["PermohonanModel"] = relationship("PermohonanModel", back_populates="tpu_detail")
+
+
 class LahanKompensasiModel(Base):
     __tablename__ = "lahan_kompensasi"
 
@@ -363,6 +399,7 @@ class LahanKompensasiModel(Base):
     status_pemenuhan: Mapped[str] = mapped_column(String(50), nullable=False)
     nilai_nominal: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     bukti_legalitas_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    alamat_lokasi: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
 
     permohonan: Mapped["PermohonanModel"] = relationship("PermohonanModel", back_populates="kompensasi")
 

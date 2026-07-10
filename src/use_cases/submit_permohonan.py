@@ -211,6 +211,17 @@ class SubmitPermohonanInputDto:
     bylaw_min_gsb: Optional[float] = None
     bylaw_min_rth_area: Optional[float] = None
 
+    # TPU & Kompensasi Mandiri (Self-Declaration)
+    tpu_method: Optional[str] = None
+    tpu_area: Optional[float] = None
+    tpu_nama: Optional[str] = None
+    tpu_pengurus: Optional[str] = None
+    tpu_no_pks: Optional[str] = None
+    tpu_nominal: Optional[float] = None
+    tpu_address: Optional[str] = None
+    tpu_bukti_dokumen: Optional[str] = None
+    self_declared_compensations: Optional[List[dict]] = None
+
 # ─── SECTION: USE CASE INTERACTOR ─────────────────────────────────────────
 
 from src.use_cases.ports.integration_ports import BpnValidationPort, OssSyncPort, SimtaruSyncPort
@@ -328,6 +339,24 @@ class SubmitPermohonanUseCase:
             bylaw_min_rth_area=input_dto.bylaw_min_rth_area
         )
 
+        tpu_detail = None
+        if input_dto.tpu_method:
+            from src.domain.entities.permohonan import PermohonanTpu
+            tpu_detail = PermohonanTpu(
+                id_tpu=f"tpu-{input_dto.id_permohonan}",
+                id_permohonan=input_dto.id_permohonan,
+                metode=input_dto.tpu_method,
+                luas=input_dto.tpu_area,
+                nama_tpu=input_dto.tpu_nama,
+                pengurus_tpu=input_dto.tpu_pengurus,
+                no_pks=input_dto.tpu_no_pks,
+                nominal_kompensasi=input_dto.tpu_nominal,
+                alamat=input_dto.tpu_address,
+                bukti_dokumen_url=input_dto.tpu_bukti_dokumen,
+                status_verifikasi="PENDING"
+            )
+        permohonan.tpu_detail = tpu_detail
+
         action_name = "SAVE_DRAFT"
         status_after = SubmissionStatus.DRAFT.value
         audit_notes = f"Draf permohonan tipe '{permohonan.document_category.value}' berhasil disimpan secara mandiri."
@@ -346,6 +375,24 @@ class SubmitPermohonanUseCase:
                 self.oss_port.sync_licensing_status(input_dto.id_permohonan, status_after)
 
         saved_permohonan = self.permohonan_repo.save(permohonan)
+
+        # Proses penyimpanan deklarasi kompensasi mandiri
+        if input_dto.self_declared_compensations:
+            from src.domain.entities.kompensasi import LahanKompensasi, CompensationType, FulfillmentStatus
+            import uuid
+            for comp in input_dto.self_declared_compensations:
+                comp_id = f"comp-{uuid.uuid4().hex[:8]}"
+                lahan_comp = LahanKompensasi(
+                    id_kompensasi=comp_id,
+                    id_permohonan=input_dto.id_permohonan,
+                    tipe_kompensasi=CompensationType(comp["type"]),
+                    luas_kompensasi_m2=float(comp["requiredAreaM2"]),
+                    status_pemenuhan=FulfillmentStatus.PROSES_VERIFIKASI,
+                    nilai_nominal=float(comp.get("nominalAmount") or 0.0),
+                    bukti_legalitas_url=comp.get("documentUrl"),
+                    alamat_lokasi=comp.get("locationAddress")
+                )
+                self.permohonan_repo.save_kompensasi(lahan_comp)
 
         files_to_save = []
         if input_dto.document_legal_doc:

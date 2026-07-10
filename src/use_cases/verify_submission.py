@@ -353,6 +353,28 @@ class VerifySubmissionUseCase:
                     # 2. Persist detail checklist evaluasi manual teknis
                     if input_dto.checklist_items:
                         self.permohonan_repo.save_evaluasi_items(permohonan.id_permohonan, input_dto.checklist_items)
+                        # Sync TPU verification status and compensations based on checklist items
+                        if permohonan.tpu_detail:
+                            for item in input_dto.checklist_items:
+                                if item.aspek_code in ["tech_cemetery", "tpu_cemetery", "tech_cemetery_area"]:
+                                    status_val = item.status_kelayakan
+                                    raw_status = "APPROVED" if status_val in ["Sesuai", "SESUAI"] else ("REJECTED" if status_val in ["Tidak Sesuai", "TIDAK_SESUAI"] else "PENDING")
+                                    permohonan.tpu_detail.status_verifikasi = raw_status
+                                    permohonan.tpu_detail.catatan_verifikasi = item.catatan_verifikator
+                                    permohonan.tpu_detail.diverifikasi_oleh = input_dto.actor_name
+                                    permohonan.tpu_detail.diverifikasi_pada = datetime.now()
+                        
+                        db_compensations = self.permohonan_repo.find_kompensasi_by_permohonan_id(permohonan.id_permohonan)
+                        if db_compensations:
+                            for item in input_dto.checklist_items:
+                                if item.aspek_code.startswith("comp-") or item.aspek_code.startswith("comp_"):
+                                    from src.domain.entities.kompensasi import FulfillmentStatus
+                                    for comp in db_compensations:
+                                        if comp.id_kompensasi == item.aspek_code or item.aspek_code.endswith(comp.id_kompensasi):
+                                            status_val = item.status_kelayakan
+                                            raw_status = FulfillmentStatus.TERPENUHI if status_val in ["Sesuai", "SESUAI"] else FulfillmentStatus.BELUM_TERPENUHI
+                                            comp.status_pemenuhan = raw_status
+                                            self.permohonan_repo.save_kompensasi(comp)
 
                     # 3. Kunci Snapshot Penilaian ke Entitas Domain murni 'TelaahStaf'
                     admin_items: List[AdminChecklistItem] = []

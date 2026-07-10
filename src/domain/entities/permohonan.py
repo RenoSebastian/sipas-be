@@ -42,6 +42,41 @@ class KKPRVerdict(str, Enum):
     TIDAK_SESUAI = "TIDAK_SESUAI"
 
 
+class PermohonanTpu:
+    """Entitas domain murni untuk detail pemenuhan Tempat Pemakaman Umum (TPU)."""
+    def __init__(
+        self,
+        id_tpu: str,
+        id_permohonan: str,
+        metode: str,
+        luas: Optional[float] = None,
+        nama_tpu: Optional[str] = None,
+        pengurus_tpu: Optional[str] = None,
+        no_pks: Optional[str] = None,
+        nominal_kompensasi: Optional[float] = None,
+        alamat: Optional[str] = None,
+        bukti_dokumen_url: Optional[str] = None,
+        status_verifikasi: str = "PENDING",
+        catatan_verifikasi: Optional[str] = None,
+        diverifikasi_oleh: Optional[str] = None,
+        diverifikasi_pada: Optional[datetime] = None
+    ):
+        self.id_tpu = id_tpu
+        self.id_permohonan = id_permohonan
+        self.metode = metode
+        self.luas = luas
+        self.nama_tpu = nama_tpu
+        self.pengurus_tpu = pengurus_tpu
+        self.no_pks = no_pks
+        self.nominal_kompensasi = nominal_kompensasi
+        self.alamat = alamat
+        self.bukti_dokumen_url = bukti_dokumen_url
+        self.status_verifikasi = status_verifikasi
+        self.catatan_verifikasi = catatan_verifikasi
+        self.diverifikasi_oleh = diverifikasi_oleh
+        self.diverifikasi_pada = diverifikasi_pada
+
+
 class Permohonan:
     """
     Entitas Bisnis Utama e-Siteplan.
@@ -172,7 +207,8 @@ class Permohonan:
         kkpr_verifier_name: Optional[str] = None,
 
         # ─── UPDATE FASE 3: REFERENSI NOMOR SK TER-GENERATE DI ENTITAS PERMOHONAN ───
-        sk_number: Optional[str] = None
+        sk_number: Optional[str] = None,
+        tpu_detail: Optional["PermohonanTpu"] = None
     ):
         self.id_permohonan = id_permohonan
         self.submission_no = submission_no
@@ -295,6 +331,7 @@ class Permohonan:
 
         # ─── UPDATE FASE 3: PENYEMATAN NOMOR SK PADA ENTITAS DOMAIN PERMOHONAN ───
         self.sk_number = sk_number
+        self.tpu_detail = tpu_detail
 
     @property
     def document_category(self) -> DocumentCategory:
