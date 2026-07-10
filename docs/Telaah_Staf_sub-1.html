@@ -1,0 +1,433 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Telaah Staf - TS-SIPAS-2026-001</title>
+    <style>
+        @page {
+            size: A4;
+            margin: 20mm;
+            @bottom-right {
+                content: "Halaman " counter(page) " dari " counter(pages);
+                font-family: Arial, sans-serif;
+                font-size: 9pt;
+            }
+        }
+        body {
+            font-family: "Times New Roman", Times, serif;
+            font-size: 11pt;
+            line-height: 1.5;
+            color: #000;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 25px;
+            border-bottom: 3px double #000;
+            padding-bottom: 10px;
+        }
+        .header h1 { margin: 0; font-size: 14pt; text-transform: uppercase; font-weight: bold; }
+        
+        /* ─── PENGATURAN STRUKTUR TABEL & ANTI-TERPOTONG ─── */
+        .meta-table, .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 15px;
+        }
+        .meta-table td { padding: 4px 0; vertical-align: top; }
+        .meta-table td.label { width: 25%; font-weight: bold; }
+        .meta-table td.separator { width: 3%; text-align: center; }
+        
+        .data-table th, .data-table td {
+            border: 1px solid #000;
+            padding: 6px 8px;
+            text-align: left;
+            font-size: 10pt;
+            vertical-align: middle;
+        }
+        .data-table th {
+            background-color: #f2f2f2;
+            text-transform: uppercase;
+            font-weight: bold;
+        }
+        
+        /* Proteksi mutlak pemotongan baris di tengah halaman kertas (Anti-Fragmentation) */
+        tr, td, th {
+            page-break-inside: avoid !important;
+            break-inside: avoid-page !important;
+        }
+        thead {
+            display: table-header-group;
+        }
+
+        .section-title {
+            font-size: 11pt;
+            font-weight: bold;
+            text-transform: uppercase;
+            margin-top: 15px;
+            margin-bottom: 6px;
+            text-decoration: underline;
+        }
+        .table-subtitle {
+            font-size: 10pt;
+            font-weight: bold;
+            text-transform: uppercase;
+            margin-top: 10px;
+            margin-bottom: 4px;
+            color: #111;
+        }
+        
+        /* Badges & Status Plain Text Rendering */
+        .status-badge {
+            font-weight: bold;
+            padding: 2px 6px;
+            border-radius: 3px;
+            text-align: center;
+            display: inline-block;
+        }
+        
+        /* REVISI: Status SESUAI dirender sebagai teks hitam biasa tanpa background/border */
+        .status-SESUAI, .status-Sesuai { 
+            color: #000 !important; 
+            background-color: transparent !important; 
+            border: none !important; 
+            padding: 0 !important; 
+            font-weight: normal !important;
+            display: inline !important;
+        }
+        
+        .status-SESUAI_BERSYARAT, .status-Sesuai_Bersyarat { color: #664d03; background-color: #fff3cd; border: 1px solid #ffecb5; }
+        .status-TIDAK_SESUAI, .status-Tidak_Sesuai, .status-REVISI, .status-Perlu_Perbaikan { color: #842029; background-color: #f8d7da; border: 1px solid #f5c2c7; }
+        
+        .signature-block {
+            margin-top: 30px;
+            width: 100%;
+            page-break-inside: avoid !important;
+            break-inside: avoid-page !important;
+        }
+        .signature-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .signature-table td {
+            width: 50%;
+            text-align: center;
+            vertical-align: top;
+            padding-top: 15px;
+        }
+        
+        /* REVISI: Pengurangan margin paragraf sebanyak setengah (dari 12px ke 6px) */
+        .narrative-p {
+            text-align: justify;
+            text-indent: 10mm;
+            font-size: 10pt;
+            margin-top: 4px;
+            margin-bottom: 6px;
+            line-height: 1.4;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>DOKUMEN / LEMBAR TELAAH STAF PERMOHONAN PENGESAHAN E-SITEPLAN</h1>
+    </div>
+
+    <table class="meta-table">
+        <tr>
+            <td class="label">Nomor Dokumen</td>
+            <td class="separator">:</td>
+            <td>TS-SIPAS-2026-001</td>
+        </tr>
+        <tr>
+            <td class="label">Subjek Pemohon</td>
+            <td class="separator">:</td>
+            <td>PT Geocitra Pembangunan Mandiri (UP. Ahmad Fauzi)</td>
+        </tr>
+        <tr>
+            <td class="label">Proyek Kegiatan</td>
+            <td class="separator">:</td>
+            <td>Cibinong Green Mansion</td>
+        </tr>
+        <tr>
+            <td class="label">Lokasi</td>
+            <td class="separator">:</td>
+            <td>Desa/Kel. Cibinong, Kec. Cibinong, Kabupaten Bogor</td>
+        </tr>
+        <tr>
+            <td class="label">Keputusan Akhir</td>
+            <td class="separator">:</td>
+            <td><span class="status-badge status-Sesuai">Sesuai</span></td>
+        </tr>
+    </table>
+
+    <div class="section-title">I. Pemeriksaan Administrasi Formal</div>
+    <p class="narrative-p">
+        Menindaklanjuti berkas permohonan yang diajukan oleh pemohon, Tim Administrasi DPMPTSP telah melakukan verifikasi dokumen formal guna memastikan legalitas subjek hukum dan objek bidang tanah. Pemeriksaan meliputi keabsahan sertifikat hak atas tanah dari BPN, kesesuaian dokumen identitas, serta pemenuhan komitmen legalitas dasar lainnya dengan hasil evaluasi sebagai berikut:
+    </p>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th style="width: 5%;">No</th>
+                <th style="width: 40%;">Uraian Persyaratan Dokumen</th>
+                <th style="width: 20%;">Status</th>
+                <th style="width: 35%;">Keterangan</th>
+            </tr>
+        </thead>
+        <tbody>
+            
+            <tr>
+                <td>1</td>
+                <td>Keabsahan Dokumen Hak Milik Lahan / Sertifikat BPN</td>
+                <td><span class="status-badge status-SESUAI">SESUAI</span></td>
+                <td>Dinyatakan valid dan sah secara administratif.</td>
+            </tr>
+            
+            <tr>
+                <td>2</td>
+                <td>Kesesuaian Nomor Induk Berusaha (NIB) Badan Usaha</td>
+                <td><span class="status-badge status-SESUAI">SESUAI</span></td>
+                <td>Dinyatakan cocok secara administratif.</td>
+            </tr>
+            
+            <tr>
+                <td>3</td>
+                <td>Kesesuaian NPWP Wajib Pajak Pemohon</td>
+                <td><span class="status-badge status-SESUAI">SESUAI</span></td>
+                <td>Dinyatakan cocok secara administratif.</td>
+            </tr>
+            
+            <tr>
+                <td>4</td>
+                <td>Dokumen Kesesuaian Kegiatan Pemanfaatan Ruang (KKPR) Terlampir</td>
+                <td><span class="status-badge status-SESUAI">SESUAI</span></td>
+                <td>Dokumen KKPR terlampir and sesuai.</td>
+            </tr>
+            
+            <tr>
+                <td>5</td>
+                <td>Kesesuaian Gambar Rencana Teknis CAD / PSU</td>
+                <td><span class="status-badge status-SESUAI">SESUAI</span></td>
+                <td>Gambar rencana teknis sesuai.</td>
+            </tr>
+            
+            <tr>
+                <td>6</td>
+                <td>Kesesuaian Kajian Andalalin / Persetujuan Teknis Lingkungan</td>
+                <td><span class="status-badge status-SESUAI">SESUAI</span></td>
+                <td>Dokumen andalalin/lingkungan sesuai.</td>
+            </tr>
+            
+            <tr>
+                <td>7</td>
+                <td>Keabsahan Sertifikat Keahlian (SKA) Arsitek</td>
+                <td><span class="status-badge status-SESUAI">SESUAI</span></td>
+                <td>SKA Arsitek terdaftar dan sah.</td>
+            </tr>
+            
+            <tr>
+                <td>8</td>
+                <td>Validitas Peta Koordinat CAD (.dwg/.dxf)</td>
+                <td><span class="status-badge status-SESUAI">SESUAI</span></td>
+                <td>Berkas peta CAD koordinat valid.</td>
+            </tr>
+            
+        </tbody>
+    </table>
+
+    <div class="section-title">II. Matriks Komparasi Parameter Teknis Spasial</div>
+    <p class="narrative-p">
+        Berdasarkan hasil pemetaan batas koordinat bidang tanah menggunakan kalibrasi parameter Helmert 2D terhitung, Tim Teknis Dinas PUPR melakukan analisis spasial tumpang tindih (overlay) terhadap dokumen rencana tapak (site plan) CAD yang disandingkan dengan Rencana Detail Tata Ruang (RDTR) Kabupaten Bogor dengan rincian evaluasi sebagai berikut:
+    </p>
+
+    <!-- TABEL II-A: SANDINGAN METRIK TAPAK (3-SISI) - BIARKAN MENGALIR SECARA NATURAL -->
+    <div class="table-subtitle">Tabel II-A. Sandingan Metrik Tapak (3-Sisi)</div>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th style="width: 25%;">Parameter</th>
+                <th style="width: 25%;">Proposed (Usulan)</th>
+                <th style="width: 25%;">Bylaws (Aturan)</th>
+                <th style="width: 25%;">Verified (Dinas)</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td style="font-weight: bold;">KDB (Koefisien Dasar Bangunan)</td>
+                <td>
+                    
+                        16,500.0 m²
+                        <br><span style="font-size: 8.5pt; color: #555;">(55.0%)</span>
+                    
+                </td>
+                <td>Maks 60.0%</td>
+                <td style="font-weight: bold;">
+                    50.0%
+                </td>
+            </tr>
+            <tr>
+                <td style="font-weight: bold;">KLB (Koefisien Lantai Bangunan)</td>
+                <td>
+                    
+                        63,000.0 m²
+                        <br><span style="font-size: 8.5pt; color: #555;">(2.10x)</span>
+                    
+                </td>
+                <td>Maks 3.2</td>
+                <td style="font-weight: bold;">
+                    2.0
+                </td>
+            </tr>
+            <tr>
+                <td style="font-weight: bold;">KDH (Koefisien Dasar Hijau)</td>
+                <td>
+                    
+                        4,600.0 m²
+                        <br><span style="font-size: 8.5pt; color: #555;">(15.0%)</span>
+                    
+                </td>
+                <td>Min 10.0%</td>
+                <td style="font-weight: bold;">
+                    8.0%
+                </td>
+            </tr>
+            <tr>
+                <td style="font-weight: bold;">GSB (Garis Sempadan Bangunan)</td>
+                <td>
+                    
+                        5.0 m
+                    
+                </td>
+                <td>Min 5.0 m</td>
+                <td style="font-weight: bold;">
+                    3.0 m
+                </td>
+            </tr>
+            <tr>
+                <td style="font-weight: bold;">RTH (Ruang Terbuka Hijau)</td>
+                <td>
+                    
+                        4,600.0 m²
+                    
+                </td>
+                <td>Min 1,500.0 m²</td>
+                <td style="font-weight: bold;">
+                    1,450.0 m²
+                </td>
+            </tr>
+        </tbody>
+    </table>
+
+    <!-- TABEL II-B: EVALUASI KELAYAKAN 13-ASPEK TEKNIS SPASIAL -->
+    <div class="table-subtitle" style="margin-top: 25px;">Tabel II-B. Evaluasi Kelayakan Aspek Teknis Spasial</div>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th style="width: 45%;">Parameter Teknis</th>
+                <th style="width: 15%;">Status</th>
+                <th style="width: 40%;">Analisis Lapangan</th>
+            </tr>
+        </thead>
+        <tbody>
+            
+            <tr>
+                <td style="font-weight: bold;">Kesesuaian dengan RTRW / RDTR</td>
+                <td><span class="status-badge status-TIDAK_SESUAI">TIDAK_SESUAI</span></td>
+                <td>Ylennn</td>
+            </tr>
+            
+            <tr>
+                <td style="font-weight: bold;">Status & Legalitas Kepemilikan Lahan</td>
+                <td><span class="status-badge status-SESUAI">SESUAI</span></td>
+                <td>-</td>
+            </tr>
+            
+            <tr>
+                <td style="font-weight: bold;">Aksesibilitas & Lebar Jalan Utama (ROW)</td>
+                <td><span class="status-badge status-SESUAI">SESUAI</span></td>
+                <td>-</td>
+            </tr>
+            
+            <tr>
+                <td style="font-weight: bold;">Sistem Drainase & Pengendalian Banjir</td>
+                <td><span class="status-badge status-SESUAI">SESUAI</span></td>
+                <td>-</td>
+            </tr>
+            
+            <tr>
+                <td style="font-weight: bold;">Koefisien Dasar Bangunan (KDB)</td>
+                <td><span class="status-badge status-SESUAI">SESUAI</span></td>
+                <td>-</td>
+            </tr>
+            
+            <tr>
+                <td style="font-weight: bold;">Koefisien Lantai Bangunan (KLB)</td>
+                <td><span class="status-badge status-SESUAI">SESUAI</span></td>
+                <td>-</td>
+            </tr>
+            
+            <tr>
+                <td style="font-weight: bold;">Koefisien Dasar Hijau (KDH)</td>
+                <td><span class="status-badge status-SESUAI">SESUAI</span></td>
+                <td>-</td>
+            </tr>
+            
+            <tr>
+                <td style="font-weight: bold;">Ruang Terbuka Hijau (RTH) Minimum</td>
+                <td><span class="status-badge status-SESUAI">SESUAI</span></td>
+                <td>-</td>
+            </tr>
+            
+            <tr>
+                <td style="font-weight: bold;">Garis Sempadan Bangunan (GSB)</td>
+                <td><span class="status-badge status-SESUAI">SESUAI</span></td>
+                <td>-</td>
+            </tr>
+            
+            <tr>
+                <td style="font-weight: bold;">Prasarana & Utilitas Kota</td>
+                <td><span class="status-badge status-SESUAI">SESUAI</span></td>
+                <td>-</td>
+            </tr>
+            
+            <tr>
+                <td style="font-weight: bold;">Dampak Lalu Lintas (Andalalin)</td>
+                <td><span class="status-badge status-SESUAI">SESUAI</span></td>
+                <td>-</td>
+            </tr>
+            
+            <tr>
+                <td style="font-weight: bold;">Sarana Utilitas Umum / Fasum / Fasos</td>
+                <td><span class="status-badge status-SESUAI">SESUAI</span></td>
+                <td>-</td>
+            </tr>
+            
+        </tbody>
+    </table>
+
+    <div class="section-title">III. Kesimpulan Dan Narasi Rekomendasi</div>
+    <p style="text-align: justify; text-indent: 10mm; font-size: 11pt; margin-top: 10px;">
+        Berdasarkan ulasan verifikasi administrasi dan analisis geospasial terkalibrasi, permohonan izin e-Siteplan dinyatakan SESUAI terhadap seluruh batasan aturan RDTR. Dengan demikian, berkas direkomendasikan untuk DAPAT DISETUJUI dan diteruskan kepada Kepala Dinas untuk diterbitkan Surat Keputusan (SK) Pengesahan.
+    </p>
+    
+
+    <div class="signature-block">
+        <table class="signature-table">
+            <tr>
+                <td style="width: 50%;"></td>
+                <td style="width: 50%; text-align: center;">
+                    <p>Diformulasikan Oleh,<br><strong>TIM TEKNIS TATA RUANG</strong></p>
+                    
+                        <p style="font-size: 8pt; color: #555; margin: -5px 0 10px 0;">Tanggal: 09-07-2026 17:38</p>
+                    
+                    
+                        <div style="height: 60px; margin: 5px auto;">
+                            <img src="data:image/png;base64,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" style="max-height: 60px; max-width: 150px; display: block; margin: 0 auto;" />
+                        </div>
+                    
+                    <p><strong>Tim Teknis Tata Ruang</strong><br>NIP. 19800523</p>
+                </td>
+            </tr>
+        </table>
+    </div>
+</body>
+</html>

@@ -626,6 +626,390 @@ def get_rdtr_limits(
         "is_fallback": False
     }
 
+@router.get("/reports/stats", status_code=status.HTTP_200_OK)
+def get_submission_report_stats(
+    start_month: int,
+    start_year: int,
+    end_month: int,
+    end_year: int,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user)
+):
+    """
+    Mendapatkan statistik laporan eksekutif terkonsolidasi berdasarkan rentang Bulan/Tahun awal hingga Bulan/Tahun akhir.
+    Mengonversi tanggal verifikasi UTC ke Asia/Jakarta untuk presisi filter tanggal bulanan.
+    """
+    from sqlalchemy import func
+    import datetime
+    
+    # Konversi kolom DateTime (kkpr_verified_at) dari UTC ke Asia/Jakarta untuk filter periodik
+    local_verified_at = func.timezone('Asia/Jakarta', func.timezone('UTC', PermohonanModel.kkpr_verified_at))
+    
+    # 0. Menghitung tanggal batas awal (start_date) dan batas akhir eksklusif (end_date)
+    start_dt = datetime.date(start_year, start_month, 1)
+    if end_month == 12:
+        end_dt = datetime.date(end_year + 1, 1, 1)
+    else:
+        end_dt = datetime.date(end_year, end_month + 1, 1)
+        
+    # Akumulasi YTD (1 Januari s/d Bulan Akhir dari end_year)
+    ytd_start_dt = datetime.date(end_year, 1, 1)
+    ytd_end_dt = end_dt
+    
+    # 1. AKUMULASI YTD
+    total_pengajuan_ytd = db.query(PermohonanModel).filter(
+        PermohonanModel.submission_date >= ytd_start_dt,
+        PermohonanModel.submission_date < ytd_end_dt
+    ).count()
+    
+    total_disetujui_ytd = db.query(PermohonanModel).filter(
+        PermohonanModel.status == 'Disetujui',
+        local_verified_at >= ytd_start_dt,
+        local_verified_at < ytd_end_dt
+    ).count()
+    
+    # 2. DATA PERIODE TERPILIH (start_dt s/d end_dt)
+    pengajuan_bulan_ini = db.query(PermohonanModel).filter(
+        PermohonanModel.submission_date >= start_dt,
+        PermohonanModel.submission_date < end_dt
+    ).count()
+    
+    penyelesaian_bulan_ini = db.query(PermohonanModel).filter(
+        PermohonanModel.status == 'Disetujui',
+        local_verified_at >= start_dt,
+        local_verified_at < end_dt
+    ).count()
+    
+    # 3. REKAPITULASI SK TERBIT (Periode start_dt s/d end_dt)
+    approved_submissions = db.query(PermohonanModel).filter(
+        PermohonanModel.status == 'Disetujui',
+        local_verified_at >= start_dt,
+        local_verified_at < end_dt
+    ).all()
+    
+    sk_recap = [
+        {
+            "submission_no": r.submission_no,
+            "housing_name": r.housing_name or "-",
+            "sk_number": r.sk_number or "-"
+        }
+        for r in approved_submissions
+    ]
+    
+    # 4. ANALISIS KEPUTUSAN YTD (Januari s/d Bulan Akhir/end_dt)
+    verdicts_ytd = db.query(PermohonanModel).filter(
+        PermohonanModel.submission_date >= ytd_start_dt,
+        PermohonanModel.submission_date < ytd_end_dt
+    ).all()
+    
+    decision_analysis = {
+        "SESUAI": 0,
+        "SESUAI_BERSYARAT": 0,
+        "TIDAK_SESUAI": 0
+    }
+    
+    for r in verdicts_ytd:
+        if r.status == 'Ditolak':
+            decision_analysis["TIDAK_SESUAI"] += 1
+        elif r.kkpr_verdict:
+            verdict_val = r.kkpr_verdict.value
+            if verdict_val == "SESUAI":
+                decision_analysis["SESUAI"] += 1
+            elif verdict_val == "SESUAI_BERSYARAT":
+                decision_analysis["SESUAI_BERSYARAT"] += 1
+            elif verdict_val in ["TIDAK_SESUAI", "PERLU_PERBAIKAN"]:
+                decision_analysis["TIDAK_SESUAI"] += 1
+                
+    # 5. STATISTIK LAHAN YTD (Januari s/d Bulan Akhir/end_dt)
+    land_area_sum = db.query(func.sum(PermohonanModel.land_area)).filter(
+        PermohonanModel.submission_date >= ytd_start_dt,
+        PermohonanModel.submission_date < ytd_end_dt
+    ).scalar() or 0.0
+    
+    # 6. PIPELINE TAHAPAN (Snapshot Status Aktif Saat Ini)
+    all_active = db.query(PermohonanModel).all()
+    pipeline_snapshot = {
+        "pemohon": 0,
+        "admin": 0,
+        "teknis": 0,
+        "kabid": 0,
+        "kadis": 0,
+        "selesai": 0
+    }
+    
+    for r in all_active:
+        status_val = r.status
+        if status_val in ['Draft', 'Menunggu Verifikasi']:
+            pipeline_snapshot["pemohon"] += 1
+        elif status_val == 'Verifikasi Administrasi':
+            pipeline_snapshot["admin"] += 1
+        elif status_val == 'Verifikasi Teknis':
+            pipeline_snapshot["teknis"] += 1
+        elif status_val in ['Menunggu Rekomendasi', 'Menunggu Persetujuan']:
+            pipeline_snapshot["kabid"] += 1
+        elif status_val == 'Proses TTE':
+            pipeline_snapshot["kadis"] += 1
+        elif status_val == 'Disetujui':
+            pipeline_snapshot["selesai"] += 1
+
+    return {
+        "accumulation": {
+            "total_pengajuan_ytd": total_pengajuan_ytd,
+            "total_disetujui_ytd": total_disetujui_ytd
+        },
+        "monthly": {
+            "pengajuan_bulan_ini": pengajuan_bulan_ini,
+            "penyelesaian_bulan_ini": penyelesaian_bulan_ini
+        },
+        "sk_recap": sk_recap,
+        "decision_analysis": decision_analysis,
+        "land_statistics": {
+            "total_land_area_ytd": float(land_area_sum)
+        },
+        "pipeline_snapshot": pipeline_snapshot
+    }
+
+@router.get("/reports/export/csv", status_code=status.HTTP_200_OK)
+def export_submission_report_csv(
+    start_month: int,
+    start_year: int,
+    end_month: int,
+    end_year: int,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user)
+):
+    """
+    Ekspor data permohonan eksekutif ke format CSV (Spreadsheet) untuk rentang periode terpilih.
+    """
+    import csv
+    import io
+    from fastapi.responses import StreamingResponse
+    import datetime
+    
+    # Menghitung tanggal batas awal (start_date) dan batas akhir eksklusif (end_date)
+    start_dt = datetime.date(start_year, start_month, 1)
+    if end_month == 12:
+        end_dt = datetime.date(end_year + 1, 1, 1)
+    else:
+        end_dt = datetime.date(end_year, end_month + 1, 1)
+        
+    # Ambil semua data permohonan yang masuk dalam rentang start_dt s/d end_dt
+    submissions = db.query(PermohonanModel).filter(
+        PermohonanModel.submission_date >= start_dt,
+        PermohonanModel.submission_date < end_dt
+    ).order_by(PermohonanModel.submission_date.desc()).all()
+    
+    # Inisialisasi CSV Writer in memory
+    output = io.StringIO()
+    writer = csv.writer(output, delimiter=';') # delimiter semikolon agar ramah Excel regional ID
+    
+    # Menulis Header
+    writer.writerow([
+        "No. Pengajuan", "Nama Perumahan", "Nama Pengembang", "Luas Lahan (m2)", 
+        "Tanggal Pengajuan", "Status Berkas", "Kategori Dokumen", "Nomor SK", "KKPR Verdict"
+    ])
+    
+    # Menulis Rows
+    for sub in submissions:
+        writer.writerow([
+            sub.submission_no,
+            sub.housing_name or "-",
+            sub.developer_name or "-",
+            sub.land_area or 0.0,
+            sub.submission_date.isoformat() if sub.submission_date else "-",
+            sub.status or "-",
+            sub.submission_category or "-",
+            sub.sk_number or "-",
+            sub.kkpr_verdict.value if sub.kkpr_verdict else "-"
+        ])
+        
+    # Return as StreamingResponse
+    output.seek(0)
+    response = StreamingResponse(iter([output.getvalue()]), media_type="text/csv")
+    response.headers["Content-Disposition"] = f"attachment; filename=laporan_geosipas_{start_month}_{start_year}_{end_month}_{end_year}.csv"
+    return response
+
+@router.get("/reports/export/pdf", status_code=status.HTTP_200_OK)
+def export_submission_report_pdf(
+    start_month: int,
+    start_year: int,
+    end_month: int,
+    end_year: int,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user)
+):
+    """
+    Merender dan mengekspor Laporan Eksekutif Terkonsolidasi ke format berkas cetak PDF.
+    """
+    from fastapi.responses import FileResponse
+    from sqlalchemy import func
+    import tempfile
+    import datetime
+    
+    # 1. Ambil data statistik dari database
+    local_verified_at = func.timezone('Asia/Jakarta', func.timezone('UTC', PermohonanModel.kkpr_verified_at))
+    
+    # 0. Menghitung tanggal batas awal (start_date) dan batas akhir eksklusif (end_date)
+    start_dt = datetime.date(start_year, start_month, 1)
+    if end_month == 12:
+        end_dt = datetime.date(end_year + 1, 1, 1)
+    else:
+        end_dt = datetime.date(end_year, end_month + 1, 1)
+        
+    # Akumulasi YTD (1 Januari s/d Bulan Akhir dari end_year)
+    ytd_start_dt = datetime.date(end_year, 1, 1)
+    ytd_end_dt = end_dt
+    
+    # Akumulasi YTD
+    total_pengajuan_ytd = db.query(PermohonanModel).filter(
+        PermohonanModel.submission_date >= ytd_start_dt,
+        PermohonanModel.submission_date < ytd_end_dt
+    ).count()
+    
+    total_disetujui_ytd = db.query(PermohonanModel).filter(
+        PermohonanModel.status == 'Disetujui',
+        local_verified_at >= ytd_start_dt,
+        local_verified_at < ytd_end_dt
+    ).count()
+    
+    # Periode Terpilih (start_dt s/d end_dt)
+    pengajuan_bulan_ini = db.query(PermohonanModel).filter(
+        PermohonanModel.submission_date >= start_dt,
+        PermohonanModel.submission_date < end_dt
+    ).count()
+    
+    penyelesaian_bulan_ini = db.query(PermohonanModel).filter(
+        PermohonanModel.status == 'Disetujui',
+        local_verified_at >= start_dt,
+        local_verified_at < end_dt
+    ).count()
+    
+    # SK terbit di periode terpilih
+    approved_submissions = db.query(PermohonanModel).filter(
+        PermohonanModel.status == 'Disetujui',
+        local_verified_at >= start_dt,
+        local_verified_at < end_dt
+    ).all()
+    
+    sk_recap = [
+        {
+            "submission_no": r.submission_no,
+            "housing_name": r.housing_name or "-",
+            "sk_number": r.sk_number or "-"
+        }
+        for r in approved_submissions
+    ]
+    
+    # Decision Analysis YTD (Januari s/d Bulan Akhir/end_dt)
+    verdicts_ytd = db.query(PermohonanModel).filter(
+        PermohonanModel.submission_date >= ytd_start_dt,
+        PermohonanModel.submission_date < ytd_end_dt
+    ).all()
+    
+    sesuai_ytd = 0
+    sesuai_bersyarat_ytd = 0
+    tidak_sesuai_ytd = 0
+    for r in verdicts_ytd:
+        if r.status == 'Ditolak':
+            tidak_sesuai_ytd += 1
+        elif r.kkpr_verdict:
+            verdict_val = r.kkpr_verdict.value
+            if verdict_val == "SESUAI":
+                sesuai_ytd += 1
+            elif verdict_val == "SESUAI_BERSYARAT":
+                sesuai_bersyarat_ytd += 1
+            elif verdict_val in ["TIDAK_SESUAI", "PERLU_PERBAIKAN"]:
+                tidak_sesuai_ytd += 1
+                
+    total_decisions = sesuai_ytd + sesuai_bersyarat_ytd + tidak_sesuai_ytd
+    
+    # Kalkulasi Persentase
+    sesuai_pct = round((sesuai_ytd / total_decisions * 100), 1) if total_decisions > 0 else 0.0
+    sesuai_bersyarat_pct = round((sesuai_bersyarat_ytd / total_decisions * 100), 1) if total_decisions > 0 else 0.0
+    tidak_sesuai_pct = round((tidak_sesuai_ytd / total_decisions * 100), 1) if total_decisions > 0 else 0.0
+    
+    success_rate = round(((sesuai_ytd + sesuai_bersyarat_ytd) / total_decisions * 100), 1) if total_decisions > 0 else 0.0
+    
+    # Statistik Lahan YTD (Januari s/d Bulan Akhir/end_dt)
+    land_area_sum = db.query(func.sum(PermohonanModel.land_area)).filter(
+        PermohonanModel.submission_date >= ytd_start_dt,
+        PermohonanModel.submission_date < ytd_end_dt
+    ).scalar() or 0.0
+    
+    # Pipeline Snapshot
+    all_active = db.query(PermohonanModel).all()
+    pipeline = {"pemohon": 0, "admin": 0, "teknis": 0, "kabid": 0, "kadis": 0, "selesai": 0}
+    for r in all_active:
+        status_val = r.status
+        if status_val in ['Draft', 'Menunggu Verifikasi']:
+            pipeline["pemohon"] += 1
+        elif status_val == 'Verifikasi Administrasi':
+            pipeline["admin"] += 1
+        elif status_val == 'Verifikasi Teknis':
+            pipeline["teknis"] += 1
+        elif status_val in ['Menunggu Rekomendasi', 'Menunggu Persetujuan']:
+            pipeline["kabid"] += 1
+        elif status_val == 'Proses TTE':
+            pipeline["kadis"] += 1
+        elif status_val == 'Disetujui':
+            pipeline["selesai"] += 1
+
+    # Format Nama Bulan Bahasa Indonesia
+    MONTH_NAMES = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"]
+    
+    # Dynamic month title depending on single month vs range
+    if start_month == end_month and start_year == end_year:
+        month_name = MONTH_NAMES[start_month - 1]
+        pdf_year = str(start_year)
+    else:
+        month_name = f"{MONTH_NAMES[start_month - 1]} {start_year} - {MONTH_NAMES[end_month - 1]} {end_year}"
+        pdf_year = ""
+    
+    today = datetime.date.today()
+    print_date = f"{today.day} {MONTH_NAMES[today.month - 1]} {today.year}"
+    
+    land_area_formatted = "{:,.2f}".format(land_area_sum).replace(",", "X").replace(".", ",").replace("X", ".")
+    land_area_ha = "{:.2f}".format(land_area_sum / 10000).replace(".", ",")
+    
+    # Buat context template
+    context = {
+        "month_name": month_name,
+        "year": pdf_year,
+        "print_date": print_date,
+        "land_area_formatted": land_area_formatted,
+        "land_area_ha": land_area_ha,
+        "total_pengajuan_ytd": total_pengajuan_ytd,
+        "pengajuan_bulan_ini": pengajuan_bulan_ini,
+        "total_disetujui_ytd": total_disetujui_ytd,
+        "penyelesaian_bulan_ini": penyelesaian_bulan_ini,
+        "success_rate": success_rate,
+        "approved_decisions": sesuai_ytd + sesuai_bersyarat_ytd,
+        "sesuai_ytd": sesuai_ytd,
+        "sesuai_pct": sesuai_pct,
+        "sesuai_bersyarat_ytd": sesuai_bersyarat_ytd,
+        "sesuai_bersyarat_pct": sesuai_bersyarat_pct,
+        "tidak_sesuai_ytd": tidak_sesuai_ytd,
+        "tidak_sesuai_pct": tidak_sesuai_pct,
+        "pipeline": pipeline,
+        "sk_recap": sk_recap
+    }
+    
+    # Render HTML menggunakan PDF engine
+    pdf_engine = HtmlToPdfEngine()
+    html_content = pdf_engine.render_html("report_template.html", context)
+    
+    # Tulis file PDF ke direktori sementara
+    temp_dir = tempfile.gettempdir()
+    temp_pdf_path = os.path.join(temp_dir, f"report_{start_month}_{start_year}_{end_month}_{end_year}.pdf")
+    pdf_engine.compile_to_pdf(html_content, temp_pdf_path)
+    
+    # Kembalikan sebagai respon file PDF
+    return FileResponse(
+        path=temp_pdf_path,
+        media_type="application/pdf",
+        filename=f"laporan_eksekutif_geosipas_{start_month}_{start_year}_{end_month}_{end_year}.pdf"
+    )
+
 @router.get("", status_code=status.HTTP_200_OK)
 def get_all_submissions(db: Session = Depends(get_db), current_user: UserModel = Depends(get_current_user)):
     """Mendapatkan seluruh daftar pengajuan site plan."""
