@@ -18,6 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from src.infrastructure.http.routes.submissions import router as submissions_router
+from src.infrastructure.http.routes.reports import router as reports_router
 from src.infrastructure.http.routes.auth import router as auth_router
 import logging
 
@@ -110,6 +111,7 @@ async def health_check():
     }
 
 app.include_router(submissions_router)
+app.include_router(reports_router)
 app.include_router(auth_router)
 
 import os

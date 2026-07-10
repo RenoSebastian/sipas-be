@@ -658,118 +658,163 @@ DEFAULT_REPORT_TEMPLATE = """
     <style>
         @page {
             size: A4;
-            margin: 15mm;
-            @bottom-right {
+            margin: 20mm 18mm 20mm 25mm;
+            @bottom-center {
                 content: "Halaman " counter(page) " dari " counter(pages);
-                font-family: Arial, sans-serif;
+                font-family: "Times New Roman", Times, serif;
                 font-size: 8pt;
+                color: #555;
             }
         }
         body {
-            font-family: Arial, Helvetica, sans-serif;
-            font-size: 10pt;
-            line-height: 1.4;
+            font-family: "Times New Roman", Times, serif;
+            font-size: 11pt;
+            line-height: 1.5;
             color: #111;
         }
         .header {
             text-align: center;
-            margin-bottom: 20px;
-            border-bottom: 3px double #000;
-            padding-bottom: 8px;
+            margin-bottom: 16px;
+            border-bottom: 2px solid #000;
+            padding-bottom: 10px;
         }
-        .header h1 { margin: 0; font-size: 12pt; text-transform: uppercase; font-weight: bold; }
-        .header h2 { margin: 2px 0 0 0; font-size: 11pt; text-transform: uppercase; font-weight: bold; color: #333; }
-        .header p { margin: 4px 0 0 0; font-size: 8pt; color: #555; }
-        
+        .header h1 {
+            margin: 0;
+            font-size: 13pt;
+            text-transform: uppercase;
+            font-weight: bold;
+            font-family: Arial, Helvetica, sans-serif;
+            letter-spacing: 0.5px;
+        }
+        .header h2 {
+            margin: 3px 0 0 0;
+            font-size: 11pt;
+            text-transform: uppercase;
+            font-weight: bold;
+            font-family: Arial, Helvetica, sans-serif;
+            color: #222;
+        }
+        .header p {
+            margin: 5px 0 0 0;
+            font-size: 9pt;
+            color: #444;
+            font-family: Arial, Helvetica, sans-serif;
+        }
+
         .title-block {
             text-align: center;
-            margin-bottom: 20px;
+            margin-bottom: 18px;
+            margin-top: 6px;
         }
-        .title-block h3 { margin: 0; font-size: 11pt; text-transform: uppercase; font-weight: bold; color: #111D13; }
-        .title-block p { margin: 2px 0 0 0; font-size: 9pt; color: #666; }
+        .title-block h3 {
+            margin: 0;
+            font-size: 12pt;
+            text-transform: uppercase;
+            font-weight: bold;
+            font-family: Arial, Helvetica, sans-serif;
+            color: #111D13;
+            letter-spacing: 0.3px;
+        }
+        .title-block p {
+            margin: 4px 0 0 0;
+            font-size: 10pt;
+            color: #444;
+            font-family: "Times New Roman", Times, serif;
+        }
 
         .section-title {
-            font-size: 9pt;
+            font-size: 10pt;
             font-weight: bold;
             text-transform: uppercase;
-            background-color: #f1f5f9;
-            padding: 4px 8px;
-            margin-top: 15px;
+            font-family: Arial, Helvetica, sans-serif;
+            background-color: #f1f5f4;
+            padding: 5px 10px;
+            margin-top: 18px;
             margin-bottom: 8px;
-            border-left: 3px solid #415D43;
+            border-left: 4px solid #415D43;
             color: #1e293b;
+            letter-spacing: 0.2px;
         }
-        
+
         .kpi-table {
             width: 100%;
             border-collapse: collapse;
-            margin-bottom: 15px;
+            margin-bottom: 14px;
         }
         .kpi-table td {
             width: 25%;
-            padding: 8px;
-            border: 1px solid #cbd5e1;
+            padding: 10px;
+            border: 1px solid #bfcbbf;
             vertical-align: top;
         }
         .kpi-label {
             font-size: 8pt;
             font-weight: bold;
-            color: #64748b;
+            font-family: Arial, Helvetica, sans-serif;
+            color: #555;
             text-transform: uppercase;
+            letter-spacing: 0.3px;
         }
         .kpi-value {
-            font-size: 12pt;
+            font-size: 14pt;
             font-weight: bold;
-            color: #1e293b;
-            margin-top: 4px;
-            font-family: Courier, monospace;
+            font-family: Arial, Helvetica, sans-serif;
+            color: #111D13;
+            margin-top: 5px;
         }
         .kpi-sub {
-            font-size: 7.5pt;
-            color: #475569;
-            margin-top: 2px;
+            font-size: 8.5pt;
+            font-family: "Times New Roman", Times, serif;
+            color: #555;
+            margin-top: 3px;
         }
 
         .data-table {
             width: 100%;
             border-collapse: collapse;
-            margin-bottom: 15px;
-            font-size: 8.5pt;
+            margin-bottom: 14px;
+            font-size: 9.5pt;
+            font-family: "Times New Roman", Times, serif;
         }
         .data-table th {
-            background-color: #f8fafc;
-            border: 1px solid #cbd5e1;
-            padding: 6px;
+            background-color: #f1f5f4;
+            border: 1px solid #bfcbbf;
+            padding: 6px 8px;
             font-weight: bold;
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 9pt;
             text-align: left;
-            color: #334155;
+            color: #1e293b;
         }
         .data-table td {
-            border: 1px solid #e2e8f0;
-            padding: 6px;
+            border: 1px solid #d1d9d1;
+            padding: 6px 8px;
             vertical-align: middle;
         }
         .text-center { text-align: center; }
-        .text-right { text-align: right; }
-        
+        .text-right  { text-align: right; }
+        .font-bold   { font-weight: bold; }
+
         .badge {
             display: inline-block;
             padding: 2px 6px;
-            font-size: 7.5pt;
+            font-size: 8pt;
             font-weight: bold;
+            font-family: Arial, Helvetica, sans-serif;
             color: #fff;
             border-radius: 2px;
         }
-        .badge-emerald { background-color: #10b981; }
-        .badge-amber { background-color: #f59e0b; }
-        .badge-rose { background-color: #ef4444; }
+        .badge-emerald { background-color: #2d6a4f; }
+        .badge-amber   { background-color: #b45309; }
+        .badge-rose    { background-color: #be123c; }
 
         .footer-note {
-            font-size: 7.5pt;
-            color: #64748b;
-            margin-top: 25px;
-            border-top: 1px solid #e2e8f0;
-            padding-top: 5px;
+            font-size: 8.5pt;
+            font-family: "Times New Roman", Times, serif;
+            color: #555;
+            margin-top: 30px;
+            border-top: 1px solid #ccc;
+            padding-top: 6px;
             font-style: italic;
         }
     </style>
@@ -783,7 +828,7 @@ DEFAULT_REPORT_TEMPLATE = """
 
     <div class="title-block">
         <h3>Laporan Eksekutif Realisasi Rencana Tapak (Site Plan)</h3>
-        <p>Periode Laporan: {{ month_name }} {{ year }} | Tanggal Cetak: {{ print_date }}</p>
+        <p>Periode Laporan: {{ month_name }} {{ year }} &nbsp;|&nbsp; Tanggal Cetak: {{ print_date }}</p>
     </div>
 
     <div class="section-title">Ringkasan KPI Utama (YTD)</div>
@@ -825,20 +870,20 @@ DEFAULT_REPORT_TEMPLATE = """
         <tbody>
           <tr>
             <td><strong>Sesuai (Lolos)</strong></td>
-            <td class="text-center font-mono">{{ sesuai_ytd }}</td>
-            <td class="text-center font-mono">{{ sesuai_pct }}%</td>
+            <td class="text-center">{{ sesuai_ytd }}</td>
+            <td class="text-center">{{ sesuai_pct }}%</td>
             <td>Rekomendasi persetujuan site plan langsung diterbitkan tanpa syarat.</td>
           </tr>
           <tr>
             <td><strong>Sesuai Bersyarat (Lolos Bersyarat)</strong></td>
-            <td class="text-center font-mono">{{ sesuai_bersyarat_ytd }}</td>
-            <td class="text-center font-mono">{{ sesuai_bersyarat_pct }}%</td>
+            <td class="text-center">{{ sesuai_bersyarat_ytd }}</td>
+            <td class="text-center">{{ sesuai_bersyarat_pct }}%</td>
             <td>Rekomendasi diterbitkan dengan kewajiban pemenuhan kompensasi PSU/KDH.</td>
           </tr>
           <tr>
             <td><strong>Tidak Sesuai / Ditolak</strong></td>
-            <td class="text-center font-mono">{{ tidak_sesuai_ytd }}</td>
-            <td class="text-center font-mono">{{ tidak_sesuai_pct }}%</td>
+            <td class="text-center">{{ tidak_sesuai_ytd }}</td>
+            <td class="text-center">{{ tidak_sesuai_pct }}%</td>
             <td>Berkas dikembalikan ke pemohon untuk melakukan revisi gambar rencana tapak.</td>
           </tr>
         </tbody>
@@ -858,12 +903,12 @@ DEFAULT_REPORT_TEMPLATE = """
         </thead>
         <tbody>
           <tr>
-            <td class="text-center font-mono" style="font-size: 11pt; font-weight: bold;">{{ pipeline.pemohon }}</td>
-            <td class="text-center font-mono" style="font-size: 11pt; font-weight: bold;">{{ pipeline.admin }}</td>
-            <td class="text-center font-mono" style="font-size: 11pt; font-weight: bold;">{{ pipeline.teknis }}</td>
-            <td class="text-center font-mono" style="font-size: 11pt; font-weight: bold;">{{ pipeline.kabid }}</td>
-            <td class="text-center font-mono" style="font-size: 11pt; font-weight: bold;">{{ pipeline.kadis }}</td>
-            <td class="text-center font-mono" style="font-size: 11pt; font-weight: bold; color: #10b981;">{{ pipeline.selesai }}</td>
+            <td class="text-center font-bold" style="font-size: 12pt; font-family: Arial, sans-serif;">{{ pipeline.pemohon }}</td>
+            <td class="text-center font-bold" style="font-size: 12pt; font-family: Arial, sans-serif;">{{ pipeline.admin }}</td>
+            <td class="text-center font-bold" style="font-size: 12pt; font-family: Arial, sans-serif;">{{ pipeline.teknis }}</td>
+            <td class="text-center font-bold" style="font-size: 12pt; font-family: Arial, sans-serif;">{{ pipeline.kabid }}</td>
+            <td class="text-center font-bold" style="font-size: 12pt; font-family: Arial, sans-serif;">{{ pipeline.kadis }}</td>
+            <td class="text-center font-bold" style="font-size: 12pt; font-family: Arial, sans-serif; color: #2d6a4f;">{{ pipeline.selesai }}</td>
           </tr>
         </tbody>
     </table>
@@ -880,16 +925,16 @@ DEFAULT_REPORT_TEMPLATE = """
         <tbody>
           {% if sk_recap|length == 0 %}
           <tr>
-            <td colSpan="3" class="text-center" style="padding: 15px; color: #64748b;">
+            <td colspan="3" class="text-center" style="padding: 15px; color: #555; font-style: italic;">
               Tidak ada Surat Keputusan (SK) yang terbit pada periode ini.
             </td>
           </tr>
           {% else %}
             {% for sk in sk_recap %}
             <tr>
-              <td class="font-mono">{{ sk.submission_no }}</td>
+              <td>{{ sk.submission_no }}</td>
               <td><strong>{{ sk.housing_name }}</strong></td>
-              <td class="text-right font-mono" style="font-weight: bold; color: #415D43;">{{ sk.sk_number }}</td>
+              <td class="text-right font-bold" style="color: #415D43;">{{ sk.sk_number }}</td>
             </tr>
             {% endfor %}
           {% endif %}
@@ -901,4 +946,6 @@ DEFAULT_REPORT_TEMPLATE = """
     </p>
 </body>
 </html>
-"""
+"""
+
+
