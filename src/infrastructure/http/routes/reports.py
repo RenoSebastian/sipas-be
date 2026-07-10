@@ -341,37 +341,22 @@ def export_submission_report_csv(
       text-align: center;
     }}
     .mso-area {{
-      mso-number-format: "\\#\\,\\#\\#0\\.00";
+      mso-number-format: "#,##0";
       text-align: right;
     }}
   </style>
 </head>
 <body>
   <table border="0">
-    <colgroup>
-      <col width="45" />
-      <col width="130" />
-      <col width="220" />
-      <col width="200" />
-      <col width="140" />
-      <col width="110" />
-      <col width="140" />
-      <col width="110" />
-      <col width="180" />
-      <col width="130" />
-      <col width="120" />
-      <col width="120" />
-    </colgroup>
-
     <!-- Kop Instansi -->
     <tr height="25">
-      <td colspan="12" class="header-instansi bg-kop">PEMERINTAH KABUPATEN BOGOR</td>
+      <td colspan="12" align="center" style="text-align: center;" class="header-instansi bg-kop">PEMERINTAH KABUPATEN BOGOR</td>
     </tr>
     <tr height="25">
-      <td colspan="12" class="header-sub bg-kop">DINAS PENANAMAN MODAL DAN PELAYANAN TERPADU SATU PINTU (DPMPTSP)</td>
+      <td colspan="12" align="center" style="text-align: center;" class="header-sub bg-kop">DINAS PENANAMAN MODAL DAN PELAYANAN TERPADU SATU PINTU (DPMPTSP)</td>
     </tr>
     <tr height="20">
-      <td colspan="12" class="header-desc bg-kop">Gedung Kesenian Kab. Bogor, Cibinong  |  Email: dpmptsp@bogorkab.go.id</td>
+      <td colspan="12" align="center" style="text-align: center;" class="header-desc bg-kop">Gedung Kesenian Kab. Bogor, Cibinong  |  Email: dpmptsp@bogorkab.go.id</td>
     </tr>
     <tr height="5">
       <td colspan="12" style="border-bottom: 2px solid #000; border-top:none; border-left:none; border-right:none; background-color: transparent;"></td>
@@ -380,13 +365,13 @@ def export_submission_report_csv(
     
     <!-- Judul Dokumen -->
     <tr height="25">
-      <td colspan="12" class="title-laporan bg-kop">LAPORAN EKSEKUTIF REALISASI PENGESAHAN RENCANA TAPAK (SITE PLAN)</td>
+      <td colspan="12" align="center" style="text-align: center;" class="title-laporan bg-kop">LAPORAN EKSEKUTIF REALISASI PENGESAHAN RENCANA TAPAK (SITE PLAN)</td>
     </tr>
     <tr height="20">
-      <td colspan="12" class="text-center bg-kop" style="font-size: 10pt;">Periode Laporan: <b>{period_label}</b></td>
+      <td colspan="12" align="center" style="text-align: center;" class="text-center bg-kop" style="font-size: 10pt;">Periode Laporan: <b>{period_label}</b></td>
     </tr>
     <tr height="20">
-      <td colspan="12" class="text-center bg-kop" style="font-size: 9pt; color: #555555;">Tanggal Cetak: {print_date} &nbsp;|&nbsp; Dicetak Oleh: {operator_name}</td>
+      <td colspan="12" align="center" style="text-align: center;" class="text-center bg-kop" style="font-size: 9pt; color: #555555;">Tanggal Cetak: {print_date} &nbsp;|&nbsp; Dicetak Oleh: {operator_name}</td>
     </tr>
     <tr height="15"><td colspan="12" class="bg-kop"></td></tr>
 
@@ -421,8 +406,8 @@ def export_submission_report_csv(
     </tr>
     <tr height="22">
       <td colspan="4" class="kpi-val">Total Luas Lahan Diajukan</td>
-      <td colspan="3" class="kpi-val text-right mso-area">{land_area_sum}</td>
-      <td colspan="5" class="kpi-val" style="color:#555;">Setara dengan ~{land_area_sum / 10000:.2f} Hektar (periode ini)</td>
+      <td colspan="3" class="kpi-val text-right mso-area">{int(land_area_sum)}</td>
+      <td colspan="5" class="kpi-val" style="color:#555;">Setara dengan ~{int(land_area_sum / 10000)} Hektar (periode ini)</td>
     </tr>
     <tr height="22">
       <td colspan="4" class="kpi-val">Rasio Kelulusan Berkas YTD</td>
@@ -441,18 +426,18 @@ def export_submission_report_csv(
 
     <!-- Table Header -->
     <tr height="26">
-      <th class="th-table">No.</th>
-      <th class="th-table">No. Berkas</th>
-      <th class="th-table">Nama Perumahan / Kegiatan</th>
-      <th class="th-table">Nama Pengembang / Pemohon</th>
-      <th class="th-table">Luas Lahan (m²)</th>
-      <th class="th-table">Tgl. Pengajuan</th>
-      <th class="th-table">Status Berkas</th>
-      <th class="th-table">Kategori</th>
-      <th class="th-table">Nomor SK</th>
-      <th class="th-table">Verdict KKPR</th>
-      <th class="th-table">Kecamatan</th>
-      <th class="th-table">Desa / Kelurahan</th>
+      <th class="th-table" nowrap style="white-space: nowrap;">No.</th>
+      <th class="th-table" nowrap style="white-space: nowrap;">No. Berkas</th>
+      <th class="th-table" nowrap style="white-space: nowrap;">Nama Perumahan / Kegiatan</th>
+      <th class="th-table" nowrap style="white-space: nowrap;">Nama Pengembang / Pemohon</th>
+      <th class="th-table" nowrap style="white-space: nowrap;">Luas Lahan (m²)</th>
+      <th class="th-table" nowrap style="white-space: nowrap;">Tgl. Pengajuan</th>
+      <th class="th-table" nowrap style="white-space: nowrap;">Status Berkas</th>
+      <th class="th-table" nowrap style="white-space: nowrap;">Kategori</th>
+      <th class="th-table" nowrap style="white-space: nowrap;">Nomor SK</th>
+      <th class="th-table" nowrap style="white-space: nowrap;">Verdict KKPR</th>
+      <th class="th-table" nowrap style="white-space: nowrap;">Kecamatan</th>
+      <th class="th-table" nowrap style="white-space: nowrap;">Desa / Kelurahan</th>
     </tr>
 """
 
@@ -484,31 +469,31 @@ def export_submission_report_csv(
 
         excel_html += f"""
     <tr height="22">
-      <td class="text-center">{idx}</td>
-      <td class="text-center">{sub.submission_no or "-"}</td>
-      <td><b>{sub.housing_name or "-"}</b></td>
-      <td>{sub.developer_name or "-"}</td>
-      <td class="mso-area">{lahan}</td>
-      <td class="mso-date">{tgl}</td>
-      <td class="text-center font-bold" style="color: {color_status};">{status_lbl}</td>
-      <td class="text-center">{kategori}</td>
-      <td class="text-center font-bold" style="color: #2d6a4f;">{sub.sk_number or "-"}</td>
-      <td class="text-center">{kkpr_lbl}</td>
-      <td>{sub.location_district or "-"}</td>
-      <td>{sub.location_village or "-"}</td>
+      <td class="text-center" nowrap style="white-space: nowrap;">{idx}</td>
+      <td class="text-center" nowrap style="white-space: nowrap;">{sub.submission_no or "-"}</td>
+      <td nowrap style="white-space: nowrap;"><b>{sub.housing_name or "-"}</b></td>
+      <td nowrap style="white-space: nowrap;">{sub.developer_name or "-"}</td>
+      <td class="mso-area" nowrap style="white-space: nowrap;">{int(lahan)}</td>
+      <td class="mso-date" nowrap style="white-space: nowrap;">{tgl}</td>
+      <td class="text-center font-bold" style="color: {color_status};" nowrap style="white-space: nowrap;">{status_lbl}</td>
+      <td class="text-center" nowrap style="white-space: nowrap;">{kategori}</td>
+      <td class="text-center font-bold" style="color: #2d6a4f;" nowrap style="white-space: nowrap;">{sub.sk_number or "-"}</td>
+      <td class="text-center" nowrap style="white-space: nowrap;">{kkpr_lbl}</td>
+      <td nowrap style="white-space: nowrap;">{sub.location_district or "-"}</td>
+      <td nowrap style="white-space: nowrap;">{sub.location_village or "-"}</td>
     </tr>"""
 
     # ─── Subtotal / Summary Rows ──────────────────────────────────────────────
     excel_html += f"""
     <tr height="24" class="bg-subtotal">
-      <td class="text-center bg-subtotal"></td>
-      <td colspan="3" class="bg-subtotal">TOTAL LUAS LAHAN PERIODE</td>
-      <td class="mso-area bg-subtotal font-bold">{total_lahan_periode}</td>
-      <td colspan="7" class="bg-subtotal"></td>
+      <td class="text-center bg-subtotal" nowrap style="white-space: nowrap;"></td>
+      <td colspan="3" class="bg-subtotal" nowrap style="white-space: nowrap;">TOTAL LUAS LAHAN PERIODE</td>
+      <td class="mso-area bg-subtotal font-bold" nowrap style="white-space: nowrap;">{int(total_lahan_periode)}</td>
+      <td colspan="7" class="bg-subtotal" nowrap style="white-space: nowrap;"></td>
     </tr>
     <tr height="24" class="bg-subtotal">
-      <td class="text-center bg-subtotal"></td>
-      <td colspan="11" class="bg-subtotal">
+      <td class="text-center bg-subtotal" nowrap style="white-space: nowrap;"></td>
+      <td colspan="11" class="bg-subtotal" nowrap style="white-space: nowrap;">
         Rekap Status Periode: &nbsp;&nbsp;&nbsp;
         Disetujui: <b>{cnt_disetujui}</b> &nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp;
         Ditolak: <b>{cnt_ditolak}</b> &nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp;
