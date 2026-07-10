@@ -376,40 +376,40 @@ def export_submission_report_csv(
     <tr height="15"><td colspan="12" class="bg-kop"></td></tr>
 
     <!-- Section A: Statistik KPI YTD -->
-    <tr height="22">
+    <tr>
       <td colspan="12" style="background-color: #f1f5f4; font-weight: bold; font-size: 10.5pt; border: 0.5pt solid #cbd5e1;">A. RINGKASAN STATISTIK EKSEKUTIF (Year-to-Date)</td>
     </tr>
-    <tr height="22">
+    <tr>
       <td colspan="4" class="kpi-label text-center">Indikator Kinerja Utama (KPI)</td>
       <td colspan="3" class="kpi-label text-center">Nilai Akumulasi</td>
       <td colspan="5" class="kpi-label text-center">Keterangan Cakupan</td>
     </tr>
-    <tr height="22">
+    <tr>
       <td colspan="4" class="kpi-val">Total Berkas Masuk (YTD)</td>
       <td colspan="3" class="kpi-val text-center">{total_pengajuan_ytd} berkas</td>
       <td colspan="5" class="kpi-val" style="color:#555;">Akumulasi berkas masuk sejak 1 Januari {end_year}</td>
     </tr>
-    <tr height="22">
+    <tr>
       <td colspan="4" class="kpi-val">SK Site Plan Diterbitkan (YTD)</td>
       <td colspan="3" class="kpi-val text-center" style="color: #2d6a4f;">{total_disetujui_ytd} SK</td>
       <td colspan="5" class="kpi-val" style="color:#555;">Berkas berstatus Disetujui</td>
     </tr>
-    <tr height="22">
+    <tr>
       <td colspan="4" class="kpi-val">Berkas Ditolak / Perbaikan (YTD)</td>
       <td colspan="3" class="kpi-val text-center" style="color: #be123c;">{total_ditolak_ytd} berkas</td>
       <td colspan="5" class="kpi-val" style="color:#555;">Berkas berstatus Ditolak</td>
     </tr>
-    <tr height="22">
+    <tr>
       <td colspan="4" class="kpi-val">Berkas Dalam Proses (Aktif)</td>
       <td colspan="3" class="kpi-val text-center" style="color: #b45309;">{total_proses_ytd} berkas</td>
       <td colspan="5" class="kpi-val" style="color:#555;">Berkas masih dalam peninjauan verifikator dinas</td>
     </tr>
-    <tr height="22">
+    <tr>
       <td colspan="4" class="kpi-val">Total Luas Lahan Diajukan</td>
-      <td colspan="3" class="kpi-val text-right mso-area">{int(land_area_sum)}</td>
+      <td colspan="3" class="kpi-val text-right" style="color: #111d13; border: 0.5pt solid #cbd5e1; font-weight: bold; mso-number-format: '#,##0'; text-align: right;">{int(land_area_sum)}</td>
       <td colspan="5" class="kpi-val" style="color:#555;">Setara dengan ~{int(land_area_sum / 10000)} Hektar (periode ini)</td>
     </tr>
-    <tr height="22">
+    <tr>
       <td colspan="4" class="kpi-val">Rasio Kelulusan Berkas YTD</td>
       <td colspan="3" class="kpi-val text-center">{rasio_lulus}%</td>
       <td colspan="5" class="kpi-val" style="color:#555;">SK Diterbitkan / Total Berkas Masuk x 100%</td>
@@ -417,15 +417,15 @@ def export_submission_report_csv(
     <tr height="15"><td colspan="12" class="bg-kop"></td></tr>
 
     <!-- Section B: Tabel Rincian Data -->
-    <tr height="22">
+    <tr>
       <td colspan="12" style="background-color: #f1f5f4; font-weight: bold; font-size: 10.5pt; border: 0.5pt solid #cbd5e1;">B. DAFTAR RINCIAN BERKAS PERMOHONAN</td>
     </tr>
-    <tr height="20">
+    <tr>
       <td colspan="12" class="bg-kop" style="font-size: 9.5pt; color: #555555;">Total berkas pada periode ini: {len(submissions)} berkas</td>
     </tr>
 
     <!-- Table Header -->
-    <tr height="26">
+    <tr>
       <th class="th-table" nowrap style="white-space: nowrap;">No.</th>
       <th class="th-table" nowrap style="white-space: nowrap;">No. Berkas</th>
       <th class="th-table" nowrap style="white-space: nowrap;">Nama Perumahan / Kegiatan</th>
@@ -468,12 +468,12 @@ def export_submission_report_csv(
             color_status = "#be123c"
 
         excel_html += f"""
-    <tr height="22">
+    <tr>
       <td class="text-center" nowrap style="white-space: nowrap;">{idx}</td>
       <td class="text-center" nowrap style="white-space: nowrap;">{sub.submission_no or "-"}</td>
       <td nowrap style="white-space: nowrap;"><b>{sub.housing_name or "-"}</b></td>
       <td nowrap style="white-space: nowrap;">{sub.developer_name or "-"}</td>
-      <td class="mso-area" nowrap style="white-space: nowrap;">{int(lahan)}</td>
+      <td nowrap style="white-space: nowrap; mso-number-format: '#,##0'; text-align: right;">{int(lahan)}</td>
       <td class="mso-date" nowrap style="white-space: nowrap;">{tgl}</td>
       <td class="text-center font-bold" style="color: {color_status};" nowrap style="white-space: nowrap;">{status_lbl}</td>
       <td class="text-center" nowrap style="white-space: nowrap;">{kategori}</td>
@@ -485,13 +485,13 @@ def export_submission_report_csv(
 
     # ─── Subtotal / Summary Rows ──────────────────────────────────────────────
     excel_html += f"""
-    <tr height="24" class="bg-subtotal">
+    <tr class="bg-subtotal">
       <td class="text-center bg-subtotal" nowrap style="white-space: nowrap;"></td>
       <td colspan="3" class="bg-subtotal" nowrap style="white-space: nowrap;">TOTAL LUAS LAHAN PERIODE</td>
-      <td class="mso-area bg-subtotal font-bold" nowrap style="white-space: nowrap;">{int(total_lahan_periode)}</td>
+      <td class="bg-subtotal font-bold" nowrap style="white-space: nowrap; mso-number-format: '#,##0'; text-align: right;">{int(total_lahan_periode)}</td>
       <td colspan="7" class="bg-subtotal" nowrap style="white-space: nowrap;"></td>
     </tr>
-    <tr height="24" class="bg-subtotal">
+    <tr class="bg-subtotal">
       <td class="text-center bg-subtotal" nowrap style="white-space: nowrap;"></td>
       <td colspan="11" class="bg-subtotal" nowrap style="white-space: nowrap;">
         Rekap Status Periode: &nbsp;&nbsp;&nbsp;
@@ -503,26 +503,26 @@ def export_submission_report_csv(
     <tr height="15"><td colspan="12" class="bg-kop"></td></tr>
 
     <!-- Section C: Catatan Kaki -->
-    <tr height="22">
+    <tr>
       <td colspan="12" style="background-color: #f1f5f4; font-weight: bold; font-size: 10.5pt; border: 0.5pt solid #cbd5e1;">C. CATATAN DAN KETENTUAN</td>
     </tr>
-    <tr height="20">
+    <tr>
       <td colspan="12" class="footer-note">1. Dokumen ini digenerate secara otomatis oleh GEOSIPAS (Sistem Informasi Pelayanan Pengesahan Site Plan Digital) Kab. Bogor.</td>
     </tr>
-    <tr height="20">
+    <tr>
       <td colspan="12" class="footer-note">2. Data bersumber dari basis data real-time DPMPTSP. Keabsahan data mengikuti rekaman sistem.</td>
     </tr>
-    <tr height="20">
+    <tr>
       <td colspan="12" class="footer-note">3. Angka luas lahan dinyatakan dalam meter persegi (m²) dengan format ribuan dan desimal terstandardisasi Excel.</td>
     </tr>
-    <tr height="20">
+    <tr>
       <td colspan="12" class="footer-note">4. YTD (Year-to-Date) = akumulasi data sejak 1 Januari tahun berjalan hingga akhir periode yang dipilih.</td>
     </tr>
-    <tr height="20">
+    <tr>
       <td colspan="12" class="footer-note">5. Dokumen ini bukan merupakan surat resmi dan tidak memerlukan tanda tangan basah.</td>
     </tr>
     <tr height="20"><td colspan="12" class="bg-kop"></td></tr>
-    <tr height="20">
+    <tr>
       <td colspan="12" class="text-center bg-kop" style="font-size: 9.5pt; font-style: italic; color: #777777;">--- Akhir Laporan GEOSIPAS  |  Dicetak: {print_date} ---</td>
     </tr>
   </table>
