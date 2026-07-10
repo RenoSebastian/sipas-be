@@ -1,11 +1,11 @@
 """
 ============================================================================
-SIPAS HTTP CONTROLLER — Submissions Router [submissions.py] (REVISED v7)
+SIPAS HTTP CONTROLLER — Submissions Router [submissions.py] (REVISED v8)
 ============================================================================
 Peran: Menyediakan REST endpoints bertingkat untuk mengelola pendaftaran
        10-tahap terpadu, kalibrasi, audit spasial, dan verifikasi berjenjang.
        Menegakkan otorisasi SoD API-Level untuk penandatanganan TTE Kadis,
-       serta memetakan 13 matriks aspek secara type-safe dan Pylance-compliant.
+       serta menyajikan visualisasi spasial instan dalam bentuk GeoJSON.
 ============================================================================
 """
 
@@ -27,7 +27,7 @@ from src.use_cases.ports.integration_ports import BpnValidationPort, OssSyncPort
 from src.infrastructure.database.repositories.permohonan_repository import PermohonanRepository
 from src.infrastructure.database.repositories.audit_trail_repository import AuditTrailRepository
 from src.infrastructure.database.repositories.telaah_staf_repository import TelaahStafRepository
-from src.infrastructure.database.repositories.sk_draft_repository import SkDraftRepository  # <--- IMPOR BARU (Tahap 3 & 4)
+from src.infrastructure.database.repositories.sk_draft_repository import SkDraftRepository
 from src.infrastructure.database.models import (
     PermohonanModel, 
     AuditTrailModel, 
@@ -35,7 +35,7 @@ from src.infrastructure.database.models import (
     MasterRDTRModel, 
     EvaluasiChecklistItemModel, 
     TelaahStafModel,
-    SkDraftModel,  # <--- IMPOR BARU (Tahap 2 & 5)
+    SkDraftModel,
     ChecklistStatus
 )
 
@@ -82,8 +82,7 @@ from src.infrastructure.http.schemas.submissions import (
     VerifyRequest
 )
 
-
-# ─── SECTION 3: HTTP ROUTE HANDLERS ───────────────────────────────────────
+# ─── SECTION 2: HTTP ROUTE HANDLERS ───────────────────────────────────────
 
 @router.post("/upload", status_code=status.HTTP_201_CREATED)
 async def upload_file(request: Request, file: UploadFile = File(...)):
@@ -125,6 +124,7 @@ async def upload_file(request: Request, file: UploadFile = File(...)):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Gagal mengunggah berkas: {str(e)}"
         )
+
 
 @router.post("/submit", status_code=status.HTTP_201_CREATED)
 def submit_permohonan(
@@ -312,6 +312,7 @@ def submit_permohonan(
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
 
+
 @router.post("/{id_permohonan}/calibrate", status_code=status.HTTP_200_OK)
 def calibrate_cad_spasial(
     id_permohonan: str,
@@ -365,8 +366,6 @@ def calibrate_cad_spasial(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-# ─── UPDATE ENDPOINT VERIFIKASI (SoD Enforcer & 13 Matriks Aspek) ───────────
-
 @router.post("/{id_permohonan}/verify", status_code=status.HTTP_200_OK)
 async def verify_submission(
     id_permohonan: str,
@@ -377,7 +376,6 @@ async def verify_submission(
     """Otorisasi keputusan berjenjang dan penandatanganan elektronik BSrE [Bogor 7, 10]."""
     
     # ─── INTEGRITAS DATA & SOD KADIS ENDPOINT-LEVEL GATEKEEPER ───────────────
-    # Memeriksa data terkini permohonan dari database untuk mengunci wewenang TTE Kadis.
     permohonan_model = db.query(PermohonanModel).filter(PermohonanModel.id_permohonan == id_permohonan).first()
     if not permohonan_model:
         raise HTTPException(status_code=404, detail="Permohonan tidak ditemukan.")
@@ -398,7 +396,7 @@ async def verify_submission(
         permohonan_repo = PermohonanRepository(db)
         telaah_staf_repo = TelaahStafRepository(db)
         audit_trail_repo = AuditTrailRepository(db)
-        sk_draft_repo = SkDraftRepository(db)  # <--- SUNTIKAN BARU UNTUK KONSISTENSI SK
+        sk_draft_repo = SkDraftRepository(db)
         
         # ─── PERBAIKAN PYLANCE nominal type check: Gunakan type annotation formal Port (DIP) ───
         doc_generator: DocumentGeneratorPort = HtmlToPdfEngine()
@@ -407,7 +405,7 @@ async def verify_submission(
         use_case = VerifySubmissionUseCase(
             permohonan_repo=permohonan_repo,
             telaah_staf_repo=telaah_staf_repo,
-            sk_draft_repo=sk_draft_repo,  # <--- SUNTIKAN BARU KONTRAK REPOSITORI
+            sk_draft_repo=sk_draft_repo,
             document_generator=doc_generator,
             digital_signature_client=bsre_client,
             audit_trail_repo=audit_trail_repo
@@ -462,6 +460,7 @@ async def verify_submission(
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+
 @router.get("/rdtr-limits", status_code=status.HTTP_200_OK)
 def get_rdtr_limits(
     district: str,
@@ -496,6 +495,7 @@ def get_rdtr_limits(
         "is_fallback": False
     }
 
+
 @router.get("", status_code=status.HTTP_200_OK)
 def get_all_submissions(
     db: Session = Depends(get_db),
@@ -504,7 +504,7 @@ def get_all_submissions(
     status_filter: Optional[str] = Query(None, alias="status", description="Filter berdasarkan status"),
     category: Optional[str] = Query(None, description="Filter berdasarkan kategori dokumen"),
     page: int = Query(1, ge=1, description="Nomor halaman (mulai dari 1)"),
-    limit: int = Query(10, ge=1, le=100, description="Jumlah data per halaman (maks. 100)")
+    limit: int = Query(10, ge=1, le=1000, description="Jumlah data per halaman (maks. 1000)")
 ):
     """Mendapatkan seluruh daftar pengajuan site plan dengan pencarian, penapisan, dan paginasi."""
     repo = PermohonanRepository(db)
@@ -896,56 +896,33 @@ def get_submission_by_id(id_permohonan: str, db: Session = Depends(get_db), curr
         ])()
     }
 
-@router.get("/{id_permohonan}/geometries", status_code=status.HTTP_200_OK)
-def get_submission_geometries(
+
+# ─── UPDATE BARU FASE 3: INSTAN PRE-COMPILED GEOJSON ENDPOINT (PENGGANTI GEOSERVER) ───
+
+@router.get("/{id_permohonan}/geojson", status_code=status.HTTP_200_OK)
+async def get_submission_geojson(
     id_permohonan: str,
     db: Session = Depends(get_db),
     current_user: UserModel = Depends(get_current_user)
 ):
-    """Mendapatkan data poligon CAD detail (jalan, RTH, PSU, kaveling) dari PostGIS."""
-    from src.infrastructure.database.models import SitePlanGeometryModel
-    from geoalchemy2.shape import to_shape
+    """Mendapatkan data biner spasial GeoJSON utuh (FeatureCollection) langsung dari PostGIS."""
+    repo = PermohonanRepository(db)
+    # Validasi keberadaan permohonan terlebih dahulu
+    permohonan = repo.find_by_id(id_permohonan)
+    if not permohonan:
+        raise HTTPException(status_code=404, detail="Permohonan tidak ditemukan.")
+    
+    try:
+        # Memanggil kompilasi asinkron database yang telah di-optimize (ST_AsGeoJSON)
+        geojson_data = await repo.get_siteplan_geojson_async(id_permohonan)
+        return geojson_data
+    except Exception as e:
+        logger.error(f"[GET_GEOJSON_ERROR] Gagal memuat GeoJSON untuk permohonan {id_permohonan}: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Gagal memproses visualisasi GeoJSON dari database: {str(e)}"
+        )
 
-    geoms = db.query(SitePlanGeometryModel).filter(
-        SitePlanGeometryModel.id_permohonan == id_permohonan
-    ).all()
-    
-    road_polygons = []
-    rth_polygons = []
-    psu_polygons = []
-    kavling_polygons = []
-    
-    for g in geoms:
-        polygon_coords = []
-        if g.geom:
-            try:
-                shapely_poly = to_shape(cast(Any, g.geom))
-                exterior = getattr(shapely_poly, "exterior", None)
-                if exterior is not None:
-                    polygon_coords = [(float(pt[0]), float(pt[1])) for pt in exterior.coords]
-            except Exception:
-                continue
-        
-        if not polygon_coords:
-            continue
-            
-        layer = g.layer_name.upper()
-        if "JALAN" in layer:
-            road_polygons.append(polygon_coords)
-        elif "RTH" in layer or "HIJAU" in layer or "TAMAN" in layer:
-            rth_polygons.append(polygon_coords)
-        elif "KDB" in layer or "KAVELING" in layer or "KAVLING" in layer:
-            kavling_polygons.append(polygon_coords)
-        else:
-            psu_polygons.append(polygon_coords)
-            
-    return {
-        "id_permohonan": id_permohonan,
-        "roadPolygons": road_polygons,
-        "rthPolygons": rth_polygons,
-        "psuPolygons": psu_polygons,
-        "kavlingPolygons": kavling_polygons
-    }
 
 @router.post("/ocr/ktp", status_code=status.HTTP_200_OK)
 async def ocr_ktp(
@@ -967,6 +944,7 @@ async def ocr_ktp(
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Gagal memproses OCR KTP: {str(e)}")
 
+
 @router.post("/ocr/nib", status_code=status.HTTP_200_OK)
 async def ocr_nib(
     file: UploadFile = File(...),
@@ -986,6 +964,7 @@ async def ocr_nib(
         raise e
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Gagal memproses OCR NIB: {str(e)}")
+
 
 from fastapi.responses import FileResponse
 from pathlib import Path

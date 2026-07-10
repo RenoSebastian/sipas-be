@@ -10,8 +10,7 @@ from shapely.geometry import Polygon
 from shapely.ops import transform
 
 def get_kab_bogor_bounds():
-    """Dynamically parses coordinates of Kabupaten Bogor from GeoJSON to establish safe bounds."""
-    # Attempt to locate frontend asset folder containing boundary GeoJSON
+    """Membaca koordinat Kabupaten Bogor secara dinamis dari aset GeoJSON untuk batas aman."""
     geojson_path = os.path.join(os.path.dirname(__file__), "sipas-fe", "src", "assets", "geojson", "kab bogor", "ADMINISTRASI_LN_25K.json")
     if not os.path.exists(geojson_path):
         geojson_path = os.path.join(os.path.dirname(__file__), "..", "sipas-fe", "src", "assets", "geojson", "kab bogor", "ADMINISTRASI_LN_25K.json")
@@ -32,30 +31,16 @@ def get_kab_bogor_bounds():
             if lons and lats:
                 return min(lons), max(lons), min(lats), max(lats)
         except Exception as e:
-            print(f"[WARNING] Failed to parse GeoJSON for bounds: {str(e)}")
+            print(f"[WARNING] Gagal memproses GeoJSON batasan wilayah: {str(e)}")
             
-    # Hardcoded safe bounds inside Kabupaten Bogor if GeoJSON is not accessible
     return 106.33, 107.25, -6.85, -6.33
-
-def get_random_center_in_kab_bogor():
-    """Generates a random coordinate point specifically near the established Kabupaten Bogor seed locations."""
-    # List of verified centers inside Kabupaten Bogor (Cibinong, Bojonggede, Sentul, Cileungsi, Gunung Putri)
-    bases = [
-        (106.8400, -6.4800), # Cibinong
-        (106.8000, -6.4950), # Bojonggede
-        (106.8700, -6.5600), # Babakan Madang (Sentul)
-        (106.9600, -6.3800), # Cileungsi
-        (106.9000, -6.4200), # Gunung Putri
-    ]
-    base_lon, base_lat = random.choice(bases)
-    # Add tiny random offset to ensure each run is slightly unique but stays within the district
-    lon = base_lon + random.uniform(-0.003, 0.003)
-    lat = base_lat + random.uniform(-0.003, 0.003)
-    return lon, lat
 
 
 def generate_random_irregular_boundary(center_x=110, center_y=55, base_radius=140, num_points=12, seed=42):
-    """Generates a highly irregular, organic, non-convex siteplan boundary by unioning overlapping random polygons."""
+    """
+    Menghasilkan batas luar lahan organik tidak beraturan (non-convex)
+    menggunakan gabungan beberapa poligon acak yang saling tumpang tindih.
+    """
     from shapely.ops import unary_union
     
     state = random.getstate()
@@ -63,7 +48,7 @@ def generate_random_irregular_boundary(center_x=110, center_y=55, base_radius=14
     
     polys = []
     
-    # 1. Base irregular shape
+    # 1. Poligon dasar tidak beraturan
     points = []
     for i in range(num_points):
         angle = (2 * math.pi * i) / num_points
@@ -73,7 +58,7 @@ def generate_random_irregular_boundary(center_x=110, center_y=55, base_radius=14
         points.append((x, y))
     polys.append(Polygon(points))
     
-    # 2. Add 1-2 extra overlapping shapes to make it non-convex/organic
+    # 2. Tambahkan poligon tumpang tindih ekstra untuk membuat lekukan organik
     num_extra = random.randint(1, 2)
     for _ in range(num_extra):
         extra_angle = random.random() * 2 * math.pi
@@ -103,52 +88,51 @@ def generate_random_irregular_boundary(center_x=110, center_y=55, base_radius=14
 
 
 def project_to_wgs84(geom, base_lon, base_lat, rotation_deg=0):
-    """Transforms a Shapely geometry from local meters to WGS84 degrees around a base point."""
+    """Mentransformasikan koordinat lokal meter ke proyeksi derajat bumi WGS84."""
     rad = math.radians(rotation_deg)
     lat_len = 111132.95
     lon_len = 111132.95 * math.cos(math.radians(base_lat))
     
     def transform_coords(x, y, z=None):
-        # Rotate
+        # Rotasi
         x_rot = x * math.cos(rad) - y * math.sin(rad)
         y_rot = x * math.sin(rad) + y * math.cos(rad)
         
-        # Scale to degrees and translate
+        # Translasi dan penskalaan derajat geografis
         lon = base_lon + (x_rot / lon_len)
         lat = base_lat + (y_rot / lat_len)
         return (lon, lat)
         
     return transform(transform_coords, geom)
 
+
 def main():
-    print("[MOCK_SHP] Initializing organic WGS84 Shapefile generation for Kabupaten Bogor...")
-    
-    # Define temporary folder to build shapefile components
+    print("[MOCK_SHP] Memulai pembuatan berkas SHP terkompresi (.zip) batas luar organik untuk Kabupaten Bogor...")
     temp_dir = "sample_shapefile_dir"
     os.makedirs(temp_dir, exist_ok=True)
     
     try:
-        # 1. Generate two deterministic irregular boundaries in local space
+        # 1. Bangun batas luar lahan organik di level lokal meter (Presisi Sesuai CAD)
         poly_local_1 = generate_random_irregular_boundary(center_x=110, center_y=55, base_radius=140, seed=101)
         poly_local_2 = generate_random_irregular_boundary(center_x=100, center_y=50, base_radius=120, seed=102)
         
-        # 2. Set deterministic center locations inside Kabupaten Bogor matching seeds
-        base_lon_1, base_lat_1 = 106.802744, -6.471861 # Cibinong (matches mock DXF)
-        base_lon_2, base_lat_2 = 106.9000, -6.4200 # Gunung Putri
+        # 2. Definisikan koordinat jangkar penambat spasial bumi nyata (Cibinong, Bogor) [sipas-be.txt]
+        base_lon_1, base_lat_1 = 106.802744, -6.471861  # Cibinong (sub-1)
+        base_lon_2, base_lat_2 = 106.900000, -6.420000  # Gunung Putri (sub-5)
         
         rotation_deg_1 = 12.0
         rotation_deg_2 = 8.0
         
-        print(f"[MOCK_SHP] Polygon 1: Center={base_lon_1:.6f},{base_lat_1:.6f}, Rot={rotation_deg_1:.1f}°, Area={poly_local_1.area:.1f}m2")
-        print(f"[MOCK_SHP] Polygon 2: Center={base_lon_2:.6f},{base_lat_2:.6f}, Rot={rotation_deg_2:.1f}°, Area={poly_local_2.area:.1f}m2")
+        print(f"[MOCK_SHP] Polygon 1: Center={base_lon_1:.6f},{base_lat_1:.6f}, Rot={rotation_deg_1:.1f}°, Area={poly_local_1.area:.1f} m²")
+        print(f"[MOCK_SHP] Polygon 2: Center={base_lon_2:.6f},{base_lat_2:.6f}, Rot={rotation_deg_2:.1f}°, Area={poly_local_2.area:.1f} m²")
 
-        # 3. Project them to WGS84
+        # 3. Transformasikan batas luar ke koordinat WGS84 nyata bumi (BPN Standard)
         wgs84_poly_1 = project_to_wgs84(poly_local_1, base_lon_1, base_lat_1, rotation_deg_1)
         wgs84_poly_2 = project_to_wgs84(poly_local_2, base_lon_2, base_lat_2, rotation_deg_2)
         
         polygons = [wgs84_poly_1, wgs84_poly_2]
         
-        # Create GeoDataFrame
+        # Buat GeoDataFrame spasial terpadu
         gdf = gpd.GeoDataFrame(
             {
                 "id": ["sub-1", "sub-5"],
@@ -159,31 +143,32 @@ def main():
             crs="EPSG:4326"
         )
         
-        # Write GeoDataFrame to Shapefile components
+        # Ekspor GeoDataFrame ke berkas fisik Shapefile
         shp_base_name = os.path.join(temp_dir, "sample_siteplan")
         gdf.to_file(shp_base_name + ".shp", driver="ESRI Shapefile")
-        print("[MOCK_SHP] Successfully generated Shapefile component files (.shp, .shx, .dbf, .prj).")
+        print("[MOCK_SHP] Berkas spasial (.shp, .shx, .dbf, .prj) sukses digenerasi.")
         
-        # Create zip archive in root workspace
+        # Kompres seluruh komponen ke dalam satu arsip ZIP siap unggah
         zip_path = "../sample_shapefile.zip"
-        print(f"[MOCK_SHP] Compressing shapefiles into: {zip_path}...")
+        print(f"[MOCK_SHP] Mengompresi seluruh berkas ke: {zip_path}...")
         
         with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
             for file_name in os.listdir(temp_dir):
                 file_path = os.path.join(temp_dir, file_name)
                 zipf.write(file_path, arcname=file_name)
                 
-        print(f"[MOCK_SHP] Success! Zipped Shapefile generated at: {zip_path}")
+        print(f"[MOCK_SHP] Sukses! Arsip Shapefile BPN organik buatan berhasil diamankan di: {zip_path}")
         
     except Exception as e:
-        print(f"[MOCK_SHP_ERROR] Failed to generate mock Shapefile: {str(e)}")
+        print(f"[MOCK_SHP_ERROR] Gagal memproduksi berkas Shapefile BPN: {str(e)}")
         sys.exit(1)
         
     finally:
-        # Cleanup temporary directory
+        # Pembersihan folder sementara
         if os.path.exists(temp_dir):
             shutil.rmtree(temp_dir)
-            print("[MOCK_SHP] Cleaned up temporary build files.")
+            print("[MOCK_SHP] Berhasil membersihkan direktori kerja sementara.")
+
 
 if __name__ == "__main__":
     main()

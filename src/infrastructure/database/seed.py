@@ -1,6 +1,6 @@
 """
 ============================================================================
-SIPAS DATABASE UTILITY — Spatial Database Seeder [seed.py] (REVISED v6)
+SIPAS DATABASE UTILITY — Spatial Database Seeder [seed.py] (REVISED v7)
 ============================================================================
 Peran: Mengisi database lokal PostgreSQL/PostGIS dengan data spasial awal
        (WGS84 / SRID 4326) di wilayah rona Kabupaten Bogor, menyemai data 
@@ -14,6 +14,8 @@ Peran: Mengisi database lokal PostgreSQL/PostGIS dengan data spasial awal
 
 import sys
 import os
+import math
+import random
 from datetime import date, datetime, timezone
 
 # Sisipkan direktori root proyek ke dalam sys.path agar aman dijalankan dari terminal mana pun
@@ -35,7 +37,7 @@ from src.infrastructure.database.models import (
     MasterRDTRModel,
     EvaluasiChecklistItemModel,
     TelaahStafModel,
-    SkDraftModel,  # <--- IMPOR BARU (Tahap 2 & 6)
+    SkDraftModel,
     ChecklistStatus
 )
 
@@ -49,7 +51,7 @@ def clear_existing_data(db) -> None:
         db.query(PermohonanFileModel).delete()
         db.query(EvaluasiChecklistItemModel).delete()
         db.query(TelaahStafModel).delete()  # Bersihkan tabel Telaah Staf
-        db.query(SkDraftModel).delete()     # <--- BERSIHKAN SK_DRAFT (Cegah FK Constraint Error)
+        db.query(SkDraftModel).delete()     # Bersihkan tabel draf SK
         db.query(PermohonanModel).delete()
         db.query(MasterRDTRModel).delete()
         db.query(UserModel).delete()        # Bersihkan tabel user
@@ -132,9 +134,7 @@ def add_mock_files_for_permohonan(db, id_permohonan: str, photos_dict: dict, cat
             file_url=url
         ))
 
-import math
-import random
-from src.infrastructure.database.models import SitePlanGeometryModel
+# ─── SECTION: DETIL KOORDINAT SPASIAL LOKAL SEEDER ─────────────────────────
 
 BOUNDARY_VERTICES_1 = [
     (0, 0), (140, 15), (155, -45), (240, -30), (220, 70), (280, 110),
@@ -147,6 +147,7 @@ BOUNDARY_VERTICES_2 = [
 ]
 
 def cad_to_wgs84_seed(vertices, base_lon, base_lat, rotation_deg: float = 12.0):
+    """Mentransformasikan koordinat vertex lokal meter seeder ke WGS84."""
     rad = math.radians(rotation_deg)
     lat_len = 111132.95
     lon_len = 111132.95 * math.cos(math.radians(base_lat))
@@ -159,11 +160,35 @@ def cad_to_wgs84_seed(vertices, base_lon, base_lat, rotation_deg: float = 12.0):
         wgs84_coords.append((lon, lat))
     return Polygon(wgs84_coords)
 
+
+def generate_irregular_lot_local_seed(center_x, center_y, size=8):
+    """
+    Menghasilkan kaveling bangunan berbentuk organik (trapezoid / jajar genjang acak) untuk database seeder.
+    Sama sekali menghindari bentuk persegi kaku demi keselarasan visual CAD.
+    """
+    dx1 = random.uniform(0.75, 1.25) * (size / 2)
+    dx2 = random.uniform(0.75, 1.25) * (size / 2)
+    dy1 = random.uniform(0.75, 1.25) * (size / 2)
+    dy2 = random.uniform(0.75, 1.25) * (size / 2)
+
+    # Bentuk Trapesium / Jajar Genjang asimetris
+    local_coords = [
+        (-dx1, -dy1),                      # Pojok Kiri Bawah
+        (dx2, -dy1 * random.uniform(0.9, 1.1)), # Pojok Kanan Bawah
+        (dx2 * random.uniform(0.7, 0.9), dy2), # Pojok Kanan Atas (menyempit)
+        (-dx1 * random.uniform(1.0, 1.2), dy2 * random.uniform(0.95, 1.05)), # Pojok Kiri Atas
+    ]
+    
+    # Geser ke titik pusat kaveling
+    return Polygon([(x + center_x, y + center_y) for x, y in local_coords])
+
+
 def seed_internal_geometries(db, id_permohonan: str, base_lon: float, base_lat: float, rotation_deg: float, is_type_1: bool = True) -> None:
+    """Mengisi geometri as jalan meliuk, KDH, Makam, dan ratusan kaveling asimetris ke database."""
     vertices = BOUNDARY_VERTICES_1 if is_type_1 else BOUNDARY_VERTICES_2
     boundary = cad_to_wgs84_seed(vertices, base_lon, base_lat, rotation_deg)
     
-    # 2. Road
+    # 1. PSU JALAN
     road_points = []
     for rx in range(-100, 320, 10):
         ry = 45 + 20 * math.sin(rx / 60.0)
@@ -179,7 +204,7 @@ def seed_internal_geometries(db, id_permohonan: str, base_lon: float, base_lat: 
             geom=from_shape(road_inside, srid=4326)
         ))
         
-    # 3. Park
+    # 2. AREA TAMAN (KDH)
     park_center = (50, 95)
     park_poly = Point(park_center).buffer(22)
     park_inside = boundary.intersection(park_poly).difference(road_poly)
@@ -191,7 +216,7 @@ def seed_internal_geometries(db, id_permohonan: str, base_lon: float, base_lat: 
             geom=from_shape(park_inside, srid=4326)
         ))
         
-    # 4. Cemetery
+    # 3. AREA MAKAM (TPU)
     cemetery_center = (200, 20)
     cemetery_poly = Point(cemetery_center).buffer(18)
     cemetery_inside = boundary.intersection(cemetery_poly).difference(road_poly).difference(park_poly)
@@ -203,9 +228,9 @@ def seed_internal_geometries(db, id_permohonan: str, base_lon: float, base_lat: 
             geom=from_shape(cemetery_inside, srid=4326)
         ))
         
-    # 5. Houses (KDB)
+    # 4. KAVELING HUNIAN ASIMETRIS (KDB)
     placed_houses = []
-    boundary_buffered = boundary.buffer(-6) # setback
+    boundary_buffered = boundary.buffer(-6) # setback dari as jalan & batas lahan
     
     x_start, x_end = -80, 300
     y_start, y_end = -60, 180
@@ -215,20 +240,10 @@ def seed_internal_geometries(db, id_permohonan: str, base_lon: float, base_lat: 
     random.seed(42)
     for hx in range(x_start, x_end, x_step):
         for hy in range(y_start, y_end, y_step):
-            hw, hh = 6, 12
-            rot = math.radians(5 if hy > 45 else -5)
-            rect_coords = [
-                (-hw/2, -hh/2), (hw/2, -hh/2), (hw/2, hh/2), (-hw/2, hh/2)
-            ]
-            rotated_coords = []
-            for rx, ry in rect_coords:
-                nx = hx + (rx * math.cos(rot) - ry * math.sin(rot))
-                ny = hy + (rx * math.sin(rot) + ry * math.cos(rot))
-                rotated_coords.append((nx, ny))
+            # Menggunakan helper kaveling asimetris
+            house_poly_local = generate_irregular_lot_local_seed(hx, hy, size=8)
             
-            house_poly_local = Polygon(rotated_coords)
-            
-            # Check constraints
+            # Validasi batasan spasial kaveling
             if not boundary_buffered.contains(house_poly_local):
                 continue
             if house_poly_local.intersects(road_poly):
@@ -248,8 +263,9 @@ def seed_internal_geometries(db, id_permohonan: str, base_lon: float, base_lat: 
                 
             placed_houses.append(house_poly_local)
             
-            # Project to WGS84 and add to DB
-            house_poly_wgs84 = cad_to_wgs84_seed(rotated_coords, base_lon, base_lat, rotation_deg)
+            # Ambil koordinat aslinya untuk diproyeksikan ke WGS84
+            local_coords = list(house_poly_local.exterior.coords)[:-1]
+            house_poly_wgs84 = cad_to_wgs84_seed(local_coords, base_lon, base_lat, rotation_deg)
             db.add(SitePlanGeometryModel(
                 id_permohonan=id_permohonan,
                 layer_name="PTSP_KDB",
@@ -257,6 +273,7 @@ def seed_internal_geometries(db, id_permohonan: str, base_lon: float, base_lat: 
             ))
             
     random.setstate(random_state)
+
 
 def seed_spatial_data() -> None:
     """Menyemai data user, aturan RDTR, dan spasial WGS84 nyata wilayah Kabupaten Bogor."""

@@ -1,6 +1,6 @@
 """
 ============================================================================
-SIPAS USE CASE — Submit Permohonan [submit_permohonan.py] (REVISED v3)
+SIPAS USE CASE — Submit Permohonan [submit_permohonan.py] (REVISED v5)
 ============================================================================
 Peran: Mengorkestrasikan alur pendaftaran permohonan baru satu pintu,
        menegakkan validasi skema dasar, menyimpan entitas ke repositori,
@@ -11,7 +11,7 @@ Peran: Mengorkestrasikan alur pendaftaran permohonan baru satu pintu,
 
 from abc import ABC, abstractmethod
 from datetime import date
-from typing import Optional, List, Any
+from typing import Optional, List, Any, Tuple
 from dataclasses import dataclass
 import os
 import urllib.parse
@@ -48,7 +48,15 @@ class PermohonanRepositoryPort(ABC):
         pass
 
     @abstractmethod
-    def find_all(self) -> List[Permohonan]:
+    def find_all(
+        self,
+        search: Optional[str] = None,
+        status: Optional[str] = None,
+        category: Optional[str] = None,
+        page: int = 1,
+        limit: int = 10
+    ) -> Tuple[List[Permohonan], int]:
+        """Mendapatkan seluruh daftar permohonan ter-paginasi dengan filter [Liskov Substitution Compliant]."""
         pass
 
     @abstractmethod
@@ -57,6 +65,11 @@ class PermohonanRepositoryPort(ABC):
 
     @abstractmethod
     def save_kompensasi(self, kompensasi: Any) -> None:
+        pass
+
+    @abstractmethod
+    def save_siteplan_geometries(self, id_permohonan: str, geometries: List[Tuple[str, Any]], commit: bool = True) -> None:
+        """Menyimpan atau memperbarui data spasial detail secara transaksional [Fase 3]."""
         pass
 
     @abstractmethod
