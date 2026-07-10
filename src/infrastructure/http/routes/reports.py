@@ -168,6 +168,8 @@ def get_submission_report_stats(
     }
 
 @router.get("/reports/export/csv", status_code=status.HTTP_200_OK)
+@router.get("/reports/export/excel", status_code=status.HTTP_200_OK)
+@router.get("/reports/export/xls", status_code=status.HTTP_200_OK)
 def export_submission_report_csv(
     start_month: int,
     start_year: int,
