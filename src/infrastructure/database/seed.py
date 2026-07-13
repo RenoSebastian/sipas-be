@@ -183,10 +183,40 @@ def generate_irregular_lot_local_seed(center_x, center_y, size=8):
     return Polygon([(x + center_x, y + center_y) for x, y in local_coords])
 
 
+def project_local_to_wgs84(geom, base_lon, base_lat, rotation_deg):
+    from shapely.geometry import Polygon, MultiPolygon
+    
+    def transform_coords(coords):
+        rad = math.radians(rotation_deg)
+        lat_len = 111132.95
+        lon_len = 111132.95 * math.cos(math.radians(base_lat))
+        wgs84_coords = []
+        for x, y in coords:
+            x_rot = x * math.cos(rad) - y * math.sin(rad)
+            y_rot = x * math.sin(rad) + y * math.cos(rad)
+            lon = base_lon + (x_rot / lon_len)
+            lat = base_lat + (y_rot / lat_len)
+            wgs84_coords.append((lon, lat))
+        return wgs84_coords
+        
+    if geom.geom_type == 'Polygon':
+        exterior = transform_coords(geom.exterior.coords)
+        interiors = [transform_coords(ring.coords) for ring in geom.interiors]
+        return Polygon(exterior, interiors)
+    elif geom.geom_type == 'MultiPolygon':
+        polys = []
+        for p in geom.geoms:
+            exterior = transform_coords(p.exterior.coords)
+            interiors = [transform_coords(ring.coords) for ring in p.interiors]
+            polys.append(Polygon(exterior, interiors))
+        return MultiPolygon(polys)
+    return geom
+
+
 def seed_internal_geometries(db, id_permohonan: str, base_lon: float, base_lat: float, rotation_deg: float, is_type_1: bool = True) -> None:
     """Mengisi geometri as jalan meliuk, KDH, Makam, dan ratusan kaveling asimetris ke database."""
     vertices = BOUNDARY_VERTICES_1 if is_type_1 else BOUNDARY_VERTICES_2
-    boundary = cad_to_wgs84_seed(vertices, base_lon, base_lat, rotation_deg)
+    boundary_local = Polygon(vertices)
     
     # 1. PSU JALAN
     road_points = []
@@ -195,42 +225,45 @@ def seed_internal_geometries(db, id_permohonan: str, base_lon: float, base_lat: 
         road_points.append((rx, ry))
     road_line = LineString(road_points)
     road_poly = road_line.buffer(8)
-    road_inside = boundary.intersection(road_poly)
+    road_inside_local = boundary_local.intersection(road_poly)
     
-    if not road_inside.is_empty:
+    if not road_inside_local.is_empty:
+        road_inside_wgs84 = project_local_to_wgs84(road_inside_local, base_lon, base_lat, rotation_deg)
         db.add(SitePlanGeometryModel(
             id_permohonan=id_permohonan,
             layer_name="PTSP_PSU_JALAN",
-            geom=from_shape(road_inside, srid=4326)
+            geom=from_shape(road_inside_wgs84, srid=4326)
         ))
         
     # 2. AREA TAMAN (KDH)
     park_center = (50, 95)
     park_poly = Point(park_center).buffer(22)
-    park_inside = boundary.intersection(park_poly).difference(road_poly)
+    park_inside_local = boundary_local.intersection(park_poly).difference(road_poly)
     
-    if not park_inside.is_empty:
+    if not park_inside_local.is_empty:
+        park_inside_wgs84 = project_local_to_wgs84(park_inside_local, base_lon, base_lat, rotation_deg)
         db.add(SitePlanGeometryModel(
             id_permohonan=id_permohonan,
             layer_name="PTSP_KDH",
-            geom=from_shape(park_inside, srid=4326)
+            geom=from_shape(park_inside_wgs84, srid=4326)
         ))
         
     # 3. AREA MAKAM (TPU)
     cemetery_center = (200, 20)
     cemetery_poly = Point(cemetery_center).buffer(18)
-    cemetery_inside = boundary.intersection(cemetery_poly).difference(road_poly).difference(park_poly)
+    cemetery_inside_local = boundary_local.intersection(cemetery_poly).difference(road_poly).difference(park_poly)
     
-    if not cemetery_inside.is_empty:
+    if not cemetery_inside_local.is_empty:
+        cemetery_inside_wgs84 = project_local_to_wgs84(cemetery_inside_local, base_lon, base_lat, rotation_deg)
         db.add(SitePlanGeometryModel(
             id_permohonan=id_permohonan,
             layer_name="PTSP_PSU_MAKAM",
-            geom=from_shape(cemetery_inside, srid=4326)
+            geom=from_shape(cemetery_inside_wgs84, srid=4326)
         ))
         
     # 4. KAVELING HUNIAN ASIMETRIS (KDB)
     placed_houses = []
-    boundary_buffered = boundary.buffer(-6) # setback dari as jalan & batas lahan
+    boundary_buffered_local = boundary_local.buffer(-6) # setback dari as jalan & batas lahan
     
     x_start, x_end = -80, 300
     y_start, y_end = -60, 180
@@ -244,7 +277,7 @@ def seed_internal_geometries(db, id_permohonan: str, base_lon: float, base_lat: 
             house_poly_local = generate_irregular_lot_local_seed(hx, hy, size=8)
             
             # Validasi batasan spasial kaveling
-            if not boundary_buffered.contains(house_poly_local):
+            if not boundary_buffered_local.contains(house_poly_local):
                 continue
             if house_poly_local.intersects(road_poly):
                 continue
@@ -263,9 +296,8 @@ def seed_internal_geometries(db, id_permohonan: str, base_lon: float, base_lat: 
                 
             placed_houses.append(house_poly_local)
             
-            # Ambil koordinat aslinya untuk diproyeksikan ke WGS84
-            local_coords = list(house_poly_local.exterior.coords)[:-1]
-            house_poly_wgs84 = cad_to_wgs84_seed(local_coords, base_lon, base_lat, rotation_deg)
+            # Proyeksikan kaveling lokal ke WGS84
+            house_poly_wgs84 = project_local_to_wgs84(house_poly_local, base_lon, base_lat, rotation_deg)
             db.add(SitePlanGeometryModel(
                 id_permohonan=id_permohonan,
                 layer_name="PTSP_KDB",

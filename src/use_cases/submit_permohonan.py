@@ -526,8 +526,36 @@ class SubmitPermohonanUseCase:
                 "file_path": clean_url,
                 "file_url": clean_url
             })
-
         self.permohonan_repo.save_files(saved_permohonan.id_permohonan, files_to_save)
+
+        # ─── BARU: OTOMATISASI PENYEMAIAN POLIGON INTERNAL CAD ───
+        if hasattr(self.permohonan_repo, 'db') and input_dto.polygon and len(input_dto.polygon) >= 3:
+            db_session = self.permohonan_repo.db
+            try:
+                from src.infrastructure.database.seed import seed_internal_geometries
+                # Hitung centroid dari input polygon
+                base_lon = sum(pt[0] for pt in input_dto.polygon) / len(input_dto.polygon)
+                base_lat = sum(pt[1] for pt in input_dto.polygon) / len(input_dto.polygon)
+                
+                # Konversi rotasi dari radian ke derajat jika tersedia
+                rotation_deg = 12.0
+                if input_dto.cad_rotation is not None:
+                    import math
+                    rotation_deg = math.degrees(input_dto.cad_rotation)
+                
+                # Hasilkan poligon detail site plan
+                seed_internal_geometries(
+                    db=db_session,
+                    id_permohonan=saved_permohonan.id_permohonan,
+                    base_lon=base_lon,
+                    base_lat=base_lat,
+                    rotation_deg=rotation_deg,
+                    is_type_1=True
+                )
+            except Exception as e:
+                import logging
+                logger = logging.getLogger("uvicorn")
+                logger.error(f"[AUTO_GEOM_SEED_ERROR] Gagal memicu auto-geometrisasi CAD: {str(e)}", exc_info=True)
 
         self.audit_trail_repo.log_action(
             submission_id=saved_permohonan.id_permohonan,
