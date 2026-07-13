@@ -137,7 +137,7 @@ def get_submission_report_stats(
 
     for r in all_active:
         status_val = r.status
-        if status_val in ['Draft', 'Menunggu Verifikasi']:
+        if status_val in ['Draft', 'Pengajuan Dokumen']:
             pipeline_snapshot["pemohon"] += 1
         elif status_val == 'Verifikasi Administrasi':
             pipeline_snapshot["admin"] += 1
@@ -228,7 +228,7 @@ def export_submission_report_csv(
         'Disetujui': 'DISETUJUI', 'Ditolak': 'DITOLAK',
         'Verifikasi Teknis': 'Verifikasi Teknis',
         'Verifikasi Administrasi': 'Verifikasi Administrasi',
-        'Menunggu Verifikasi': 'Menunggu Verifikasi',
+        'Pengajuan Dokumen': 'Pengajuan Dokumen',
         'Menunggu Persetujuan': 'Menunggu Persetujuan',
         'Menunggu Rekomendasi': 'Menunggu Rekomendasi',
         'Proses TTE': 'Proses TTE', 'Draft': 'Draft',
@@ -637,7 +637,7 @@ def export_submission_report_pdf(
     pipeline = {"pemohon": 0, "admin": 0, "teknis": 0, "kabid": 0, "kadis": 0, "selesai": 0}
     for r in all_active:
         status_val = r.status
-        if status_val in ['Draft', 'Menunggu Verifikasi']:
+        if status_val in ['Draft', 'Pengajuan Dokumen']:
             pipeline["pemohon"] += 1
         elif status_val == 'Verifikasi Administrasi':
             pipeline["admin"] += 1

@@ -293,6 +293,7 @@ def submit_permohonan(
             tpu_no_pks=req.tpu.noPks if req.tpu else None,
             tpu_nominal=req.tpu.nominalKompensasi if req.tpu else None,
             tpu_address=req.tpu.alamat if req.tpu else None,
+            tpu_koordinat=req.tpu.koordinat if req.tpu else None,
             tpu_bukti_dokumen=req.tpu.buktiDokumenUrl if req.tpu else None,
             self_declared_compensations=[comp.model_dump() for comp in req.compensations] if req.compensations else None
         )

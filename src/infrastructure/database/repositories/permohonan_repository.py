@@ -66,6 +66,7 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
                 no_pks=str(model.tpu_detail.no_pks) if model.tpu_detail.no_pks else None,
                 nominal_kompensasi=float(model.tpu_detail.nominal_kompensasi) if model.tpu_detail.nominal_kompensasi is not None else None,
                 alamat=str(model.tpu_detail.alamat) if model.tpu_detail.alamat else None,
+                koordinat=str(model.tpu_detail.koordinat) if model.tpu_detail.koordinat else None,
                 status_verifikasi=str(model.tpu_detail.status_verifikasi),
                 catatan_verifikasi=str(model.tpu_detail.catatan_verifikasi) if model.tpu_detail.catatan_verifikasi else None,
                 diverifikasi_oleh=str(model.tpu_detail.diverifikasi_oleh) if model.tpu_detail.diverifikasi_oleh else None,
@@ -217,6 +218,7 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
                 no_pks=tpu_data.no_pks,
                 nominal_kompensasi=tpu_data.nominal_kompensasi,
                 alamat=tpu_data.alamat,
+                koordinat=tpu_data.koordinat,
                 status_verifikasi=tpu_data.status_verifikasi,
                 catatan_verifikasi=tpu_data.catatan_verifikasi,
                 diverifikasi_oleh=tpu_data.diverifikasi_oleh,
@@ -518,6 +520,7 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
                     existing_model.tpu_detail.no_pks = tpu_data.no_pks
                     existing_model.tpu_detail.nominal_kompensasi = tpu_data.nominal_kompensasi
                     existing_model.tpu_detail.alamat = tpu_data.alamat
+                    existing_model.tpu_detail.koordinat = tpu_data.koordinat
                     existing_model.tpu_detail.status_verifikasi = tpu_data.status_verifikasi
                     existing_model.tpu_detail.catatan_verifikasi = tpu_data.catatan_verifikasi
                     existing_model.tpu_detail.diverifikasi_oleh = tpu_data.diverifikasi_oleh
@@ -534,6 +537,7 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
                         no_pks=tpu_data.no_pks,
                         nominal_kompensasi=tpu_data.nominal_kompensasi,
                         alamat=tpu_data.alamat,
+                        koordinat=tpu_data.koordinat,
                         status_verifikasi=tpu_data.status_verifikasi,
                         catatan_verifikasi=tpu_data.catatan_verifikasi,
                         diverifikasi_oleh=tpu_data.diverifikasi_oleh,
@@ -566,8 +570,8 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
         if status and status != 'Semua':
             # Map status ramah pengguna ke nilai enum database jika berbeda
             db_status = status
-            if status == 'Menunggu Verifikasi':
-                db_status = 'Menunggu_Verifikasi'
+            if status == 'Pengajuan Dokumen':
+                db_status = 'Pengajuan Dokumen'
             elif status == 'Verifikasi Administrasi':
                 db_status = 'Verifikasi_Administrasi'
             elif status == 'Verifikasi Teknis':

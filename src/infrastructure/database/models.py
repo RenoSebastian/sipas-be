@@ -370,6 +370,7 @@ class PermohonanTpuModel(Base):
     no_pks: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     nominal_kompensasi: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     alamat: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    koordinat: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     bukti_dokumen_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
 
     # Status Verifikasi Teknis
@@ -446,3 +447,43 @@ class PermohonanFileModel(Base):
     uploaded_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
     permohonan: Mapped["PermohonanModel"] = relationship("PermohonanModel", back_populates="files")
+
+
+# ─── EVENT LISTENERS UNTUK FORMATTING TITLE CASE (CAPITALIZE EACH WORD) ───
+from sqlalchemy import event
+
+def to_title_case(text: Optional[str]) -> Optional[str]:
+    if not text:
+        return text
+    return ' '.join(word.capitalize() for word in text.split())
+
+@event.listens_for(PermohonanModel, 'before_insert')
+@event.listens_for(PermohonanModel, 'before_update')
+def receive_before_insert_update_permohonan(mapper, connection, target):
+    target.housing_name = to_title_case(target.housing_name)
+    target.developer_name = to_title_case(target.developer_name)
+    target.applicant_name = to_title_case(target.applicant_name)
+    target.applicant_director_name = to_title_case(target.applicant_director_name)
+    target.applicant_address = to_title_case(target.applicant_address)
+    target.location_name = to_title_case(target.location_name)
+    target.location_village = to_title_case(target.location_village)
+    target.location_district = to_title_case(target.location_district)
+    target.location_city = to_title_case(target.location_city)
+    target.location_province = to_title_case(target.location_province)
+    target.location_full_address = to_title_case(target.location_full_address)
+    target.location_certificate_owner = to_title_case(target.location_certificate_owner)
+    target.consultant_name = to_title_case(target.consultant_name)
+    target.consultant_company_name = to_title_case(target.consultant_company_name)
+    target.consultant_pic_name = to_title_case(target.consultant_pic_name)
+
+@event.listens_for(PermohonanTpuModel, 'before_insert')
+@event.listens_for(PermohonanTpuModel, 'before_update')
+def receive_before_insert_update_tpu(mapper, connection, target):
+    target.nama_tpu = to_title_case(target.nama_tpu)
+    target.pengurus_tpu = to_title_case(target.pengurus_tpu)
+    target.alamat = to_title_case(target.alamat)
+
+@event.listens_for(LahanKompensasiModel, 'before_insert')
+@event.listens_for(LahanKompensasiModel, 'before_update')
+def receive_before_insert_update_kompensasi(mapper, connection, target):
+    target.alamat_lokasi = to_title_case(target.alamat_lokasi)

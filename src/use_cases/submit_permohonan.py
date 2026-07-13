@@ -232,6 +232,7 @@ class SubmitPermohonanInputDto:
     tpu_no_pks: Optional[str] = None
     tpu_nominal: Optional[float] = None
     tpu_address: Optional[str] = None
+    tpu_koordinat: Optional[str] = None
     tpu_bukti_dokumen: Optional[str] = None
     self_declared_compensations: Optional[List[dict]] = None
 
@@ -365,6 +366,7 @@ class SubmitPermohonanUseCase:
                 no_pks=input_dto.tpu_no_pks,
                 nominal_kompensasi=input_dto.tpu_nominal,
                 alamat=input_dto.tpu_address,
+                koordinat=input_dto.tpu_koordinat,
                 bukti_dokumen_url=input_dto.tpu_bukti_dokumen,
                 status_verifikasi="PENDING"
             )
