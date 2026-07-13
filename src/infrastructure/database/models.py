@@ -446,3 +446,14 @@ class PermohonanFileModel(Base):
     uploaded_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
     permohonan: Mapped["PermohonanModel"] = relationship("PermohonanModel", back_populates="files")
+
+
+class RegionReferenceModel(Base):
+    __tablename__ = "region_references"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    province: Mapped[str] = mapped_column(String(100), nullable=False)
+    regency: Mapped[str] = mapped_column(String(100), nullable=False)
+    district: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    village: Mapped[str] = mapped_column(String(100), nullable=False)
+    postal_code: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)

@@ -820,11 +820,22 @@ DEFAULT_REPORT_TEMPLATE = """
     </style>
 </head>
 <body>
-    <div class="header">
-        <h1>Pemerintah Kabupaten Bogor</h1>
-        <h2>Dinas Penanaman Modal dan Pelayanan Terpadu Satu Pintu</h2>
-        <p>Gedung Kesenian Kabupaten Bogor, Cibinong. Telp: (021) 8790-xxxx | Email: dpmptsp@bogorkab.go.id</p>
-    </div>
+    <table style="width: 100%; border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 16px; border-collapse: collapse;">
+        <tr>
+            <td style="width: 75px; vertical-align: middle; padding: 0;">
+                {% if logo_base64 %}
+                <img src="{{ logo_base64 }}" style="width: 65px; height: 65px; object-fit: contain; display: block;" />
+                {% else %}
+                <div style="width: 65px; height: 65px; background: #e2e8f0; display: block; border: 1px solid #cbd5e1; border-radius: 4px; line-height: 65px; text-align: center; font-size: 8px; color: #64748b; font-family: Arial, sans-serif; font-weight: bold;">{{ app_name }}</div>
+                {% endif %}
+            </td>
+            <td style="vertical-align: middle; text-align: left; padding-left: 15px;">
+                <h1 style="margin: 0; font-size: 12pt; font-family: Arial, sans-serif; text-transform: uppercase; font-weight: bold;">Pemerintah Kabupaten Bogor</h1>
+                <h2 style="margin: 2px 0 0 0; font-size: 10pt; font-family: Arial, sans-serif; text-transform: uppercase; font-weight: bold; color: #222;">Dinas Penanaman Modal dan Pelayanan Terpadu Satu Pintu</h2>
+                <p style="margin: 4px 0 0 0; font-size: 8.5pt; font-family: Arial, sans-serif; color: #444;">Gedung Kesenian Kabupaten Bogor, Cibinong. Telp: (021) 8790-xxxx | Email: dpmptsp@bogorkab.go.id</p>
+            </td>
+        </tr>
+    </table>
 
     <div class="title-block">
         <h3>Laporan Eksekutif Realisasi Rencana Tapak (Site Plan)</h3>

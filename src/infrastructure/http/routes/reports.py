@@ -664,6 +664,12 @@ def export_submission_report_pdf(
     land_area_formatted = "{:,.2f}".format(land_area_sum).replace(",", "X").replace(".", ",").replace("X", ".")
     land_area_ha = "{:.2f}".format(land_area_sum / 10000).replace(".", ",")
 
+    # Muat konfigurasi branding sistem (Logo dan Nama Aplikasi) secara dinamis
+    from src.infrastructure.http.routes.auth import load_system_config
+    sys_config = load_system_config()
+    logo_base64 = sys_config.get("appLogo")
+    app_name = sys_config.get("appName", "GEOSIPAS")
+
     context = {
         "month_name": month_name,
         "year": pdf_year,
@@ -683,7 +689,9 @@ def export_submission_report_pdf(
         "tidak_sesuai_ytd": tidak_sesuai_ytd,
         "tidak_sesuai_pct": tidak_sesuai_pct,
         "pipeline": pipeline,
-        "sk_recap": sk_recap
+        "sk_recap": sk_recap,
+        "logo_base64": logo_base64,
+        "app_name": app_name
     }
 
     pdf_engine = HtmlToPdfEngine()
