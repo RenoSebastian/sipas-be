@@ -12,6 +12,8 @@ Peran: Menyediakan REST endpoints otentikasi, pendaftaran user baru,
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, Field
+import os
+import json
 from sqlalchemy.orm import Session
 from typing import Optional, List, cast
 
@@ -67,6 +69,15 @@ class ProfileUpdate(BaseModel):
 
 class UserStatusUpdate(BaseModel):
     status: str = Field(..., pattern="^(Aktif|Nonaktif)$")
+
+class UserUpdateAdmin(BaseModel):
+    email: str = Field(..., examples=["ahmad@geocitra.co.id"])
+    full_name: str = Field(..., examples=["Ahmad Fauzi"])
+    role: str = Field(..., pattern="^(PEMOHON|ADMIN|TIM_TEKNIS|KABID_PUPR|KADIS)$", examples=["ADMIN"])
+    nip: Optional[str] = Field(default=None, examples=["199208152018032001"])
+    company: Optional[str] = Field(default=None, examples=["Dinas PUPR"])
+    phone: Optional[str] = Field(default=None, examples=["081234567890"])
+    password: Optional[str] = Field(default=None, min_length=6, examples=["password123"])
 
 # ─── ENDPOINTS ────────────────────────────────────────────────────────────
 
@@ -209,3 +220,93 @@ def update_user_status(username: str, req: UserStatusUpdate, db: Session = Depen
         "status": "SUCCESS", 
         "message": f"Status user {username} berhasil diubah menjadi {req.status}."
     }
+
+@router.put("/users/{username}")
+def update_user_details(username: str, req: UserUpdateAdmin, db: Session = Depends(get_db), token_payload: dict = Depends(requires_roles([UserRole.ADMIN]))):
+    """Mengubah data profil/role user secara administratif (Hanya Admin)."""
+    user = db.query(UserModel).filter(UserModel.username == username).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User tidak ditemukan.")
+    
+    # Validasi email jika berubah
+    if req.email != user.email:
+        existing_email = db.query(UserModel).filter(UserModel.email == req.email, UserModel.username != username).first()
+        if existing_email:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email sudah terdaftar.")
+            
+    user.email = req.email
+    user.full_name = req.full_name
+    user.role = req.role
+    user.nip = req.nip
+    user.company = req.company
+    user.phone = req.phone
+    if req.password:
+        user.hashed_password = hash_password(req.password)
+        
+    db.commit()
+    return {
+        "status": "SUCCESS",
+        "message": f"Data user {username} berhasil diperbarui."
+    }
+
+CONFIG_FILE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "system_config.json")
+
+DEFAULT_CONFIG = {
+    "sessionDuration": 120,
+    "idleTimeout": 15,
+    "isMaintenance": False,
+    "maintenanceMessage": "Sistem sedang dalam pemeliharaan berkala untuk peningkatan performa. Silakan coba beberapa saat lagi.",
+    "slideBanners": [
+        {
+            "id": "slide-1",
+            "imageUrl": "https://images.unsplash.com/photo-1570129477492-45c003edd2be?auto=format&fit=crop&w=1200&q=80",
+            "title": "Selamat Datang di GEOSIPAS",
+            "subtitle": "Sistem Informasi Pelayanan Pengesahan Site Plan Digital Kabupaten Bogor Terintegrasi GIS."
+        },
+        {
+            "id": "slide-2",
+            "imageUrl": "https://images.unsplash.com/photo-1541339907198-e08756dedf3f?auto=format&fit=crop&w=1200&q=80",
+            "title": "Akurasi Peta & Spasial Terpadu",
+            "subtitle": "Validasi otomatis tumpang tindih tata ruang (KDB, KLB, KDH, GSB) secara presisi."
+        },
+        {
+            "id": "slide-3",
+            "imageUrl": "https://images.unsplash.com/photo-1507089947368-19c1da9775ae?auto=format&fit=crop&w=1200&q=80",
+            "title": "Efisiensi Administrasi Berjenjang",
+            "subtitle": "Proses peninjauan dokumen resmi hingga penandatanganan elektronik TTE BSrE secara legal."
+        }
+    ],
+    "rotationInterval": 5
+}
+
+def load_system_config():
+    if not os.path.exists(CONFIG_FILE_PATH):
+        try:
+            with open(CONFIG_FILE_PATH, "w", encoding="utf-8") as f:
+                json.dump(DEFAULT_CONFIG, f, indent=4, ensure_ascii=False)
+        except Exception:
+            pass
+        return DEFAULT_CONFIG
+    try:
+        with open(CONFIG_FILE_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return DEFAULT_CONFIG
+
+def save_system_config(config_data):
+    try:
+        with open(CONFIG_FILE_PATH, "w", encoding="utf-8") as f:
+            json.dump(config_data, f, indent=4, ensure_ascii=False)
+    except Exception:
+        pass
+
+@router.get("/config")
+def get_system_config():
+    """Mengambil konfigurasi sistem global."""
+    return load_system_config()
+
+@router.put("/config")
+def update_system_config(req: dict, token_payload: dict = Depends(requires_roles([UserRole.ADMIN]))):
+    """Memperbarui konfigurasi sistem global (Hanya Admin)."""
+    save_system_config(req)
+    return {"status": "SUCCESS", "message": "Konfigurasi sistem global berhasil diperbarui."}
