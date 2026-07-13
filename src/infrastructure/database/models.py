@@ -1,4 +1,4 @@
-"""
+﻿"""
 ============================================================================
 SIPAS INFRASTRUCTURE ADAPTER — Database Models [models.py] (REVISED v5)
 ============================================================================
@@ -13,7 +13,7 @@ Peran: Mendefinisikan skema tabel fisik database PostgreSQL & PostGIS
 
 from datetime import datetime, date, timezone
 from typing import List, Optional, Any
-from sqlalchemy import String, Float, Integer, Date, DateTime, ForeignKey, Text, Boolean, Enum as SQLEnum
+from sqlalchemy import String, Float, Integer, Date, DateTime, ForeignKey, Text, Boolean, Enum as SQLEnum, event
 from sqlalchemy.dialects.postgresql import JSONB  # Impor tipe data JSONB murni untuk PostgreSQL
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from geoalchemy2 import Geometry
@@ -28,6 +28,7 @@ class ChecklistStatus(str, enum.Enum):
     SESUAI_BERSYARAT = "SESUAI_BERSYARAT"
     TIDAK_SESUAI = "TIDAK_SESUAI"
     PENDING = "PENDING"
+
 
 
 class UserModel(Base):
@@ -447,6 +448,18 @@ class PermohonanFileModel(Base):
     uploaded_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
     permohonan: Mapped["PermohonanModel"] = relationship("PermohonanModel", back_populates="files")
+
+
+class RegionReferenceModel(Base):
+    __tablename__ = "region_references"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    province: Mapped[str] = mapped_column(String(100), nullable=False)
+    regency: Mapped[str] = mapped_column(String(100), nullable=False)
+    district: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    village: Mapped[str] = mapped_column(String(100), nullable=False)
+    postal_code: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
+
 
 
 # ─── EVENT LISTENERS UNTUK FORMATTING TITLE CASE (CAPITALIZE EACH WORD) ───

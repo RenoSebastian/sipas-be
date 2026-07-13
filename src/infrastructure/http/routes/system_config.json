@@ -36,5 +36,10 @@
             "id": "slide-1783913486761"
         }
     ],
-    "rotationInterval": 5
+    "rotationInterval": 5,
+    "appName": "GEOSIPAS",
+    "appLogo": null,
+    "mapCenterLat": -6.4816,
+    "mapCenterLng": 106.856,
+    "mapZoom": 11
 }

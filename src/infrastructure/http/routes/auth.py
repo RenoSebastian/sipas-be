@@ -276,7 +276,12 @@ DEFAULT_CONFIG = {
             "subtitle": "Proses peninjauan dokumen resmi hingga penandatanganan elektronik TTE BSrE secara legal."
         }
     ],
-    "rotationInterval": 5
+    "rotationInterval": 5,
+    "appName": "GEOSIPAS",
+    "appLogo": None,
+    "mapCenterLat": -6.4816,
+    "mapCenterLng": 106.8560,
+    "mapZoom": 11
 }
 
 def load_system_config():
@@ -310,3 +315,165 @@ def update_system_config(req: dict, token_payload: dict = Depends(requires_roles
     """Memperbarui konfigurasi sistem global (Hanya Admin)."""
     save_system_config(req)
     return {"status": "SUCCESS", "message": "Konfigurasi sistem global berhasil diperbarui."}
+
+
+from fastapi import UploadFile, File
+from fastapi.responses import StreamingResponse
+import csv
+import io
+from src.infrastructure.database.models import RegionReferenceModel
+
+@router.get("/config/regions/template")
+def download_regions_template():
+    """Mengunduh berkas template CSV untuk referensi wilayah."""
+    output = io.StringIO()
+    output.write("sep=;\n")
+    writer = csv.writer(output, delimiter=';')
+    writer.writerow(["provinsi", "kabupaten", "kecamatan", "desa_kelurahan", "kode_pos"])
+    writer.writerow(["Jawa Barat", "Kabupaten Bogor", "Cibinong", "Cibinong", "16911"])
+    writer.writerow(["Jawa Barat", "Kabupaten Bogor", "Babakan Madang", "Sentul", "16810"])
+    
+    output.seek(0)
+    return StreamingResponse(
+        io.BytesIO(output.getvalue().encode('utf-8-sig')),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=template_referensi_wilayah.csv"}
+    )
+
+@router.get("/config/regions")
+def get_regions(db: Session = Depends(get_db)):
+    """Mengambil daftar seluruh referensi wilayah dari database."""
+    regions = db.query(RegionReferenceModel).all()
+    return [
+        {
+            "id": r.id,
+            "province": r.province,
+            "regency": r.regency,
+            "district": r.district,
+            "village": r.village,
+            "postal_code": r.postal_code
+        }
+        for r in regions
+    ]
+
+@router.delete("/config/regions/clear")
+def clear_regions(db: Session = Depends(get_db), token_payload: dict = Depends(requires_roles([UserRole.ADMIN]))):
+    """Membersihkan seluruh tabel wilayah referensi (Hanya Admin)."""
+    try:
+        db.query(RegionReferenceModel).delete()
+        db.commit()
+        return {"status": "SUCCESS", "message": "Seluruh wilayah referensi berhasil dibersihkan."}
+    except Exception as e:
+        db.rollback()
+        return {"status": "ERROR", "message": f"Gagal membersihkan wilayah: {str(e)}"}
+
+@router.post("/config/regions/upload")
+async def upload_regions(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    token_payload: dict = Depends(requires_roles([UserRole.ADMIN]))
+):
+    """Unggah berkas CSV wilayah referensi untuk di-seed ke database (Hanya Admin)."""
+    try:
+        contents = await file.read()
+        try:
+            decoded = contents.decode('utf-8-sig')
+        except UnicodeDecodeError:
+            decoded = contents.decode('latin-1')
+
+        # Parse CSV
+        lines = [line for line in decoded.split('\n') if line.strip()]
+        if not lines:
+            return {"status": "ERROR", "message": "Berkas kosong."}
+            
+        start_idx = 0
+        delimiter = ';'
+        first_line = lines[0].strip()
+        
+        # Check for sep=; declaration
+        if first_line.lower().startswith('sep='):
+            delimiter = first_line[4:]
+            start_idx = 1
+            
+        csv_data = '\n'.join(lines[start_idx:])
+        
+        if start_idx == 0:
+            if ',' in first_line:
+                delimiter = ','
+            elif '\t' in first_line:
+                delimiter = '\t'
+
+        reader = csv.reader(io.StringIO(csv_data), delimiter=delimiter)
+        
+        headers = next(reader, None)
+        if not headers:
+            return {"status": "ERROR", "message": "Berkas kosong atau tidak memiliki header."}
+
+        headers = [h.strip().lower() for h in headers]
+        
+        col_map = {}
+        for idx, h in enumerate(headers):
+            if h in ['provinsi', 'province']:
+                col_map['province'] = idx
+            elif h in ['kabupaten', 'regency', 'kab']:
+                col_map['regency'] = idx
+            elif h in ['kecamatan', 'district', 'kec']:
+                col_map['district'] = idx
+            elif h in ['desa_kelurahan', 'desa/kelurahan', 'desa', 'kelurahan', 'village']:
+                col_map['village'] = idx
+            elif h in ['kode_pos', 'kode pos', 'postal_code', 'zip_code']:
+                col_map['postal_code'] = idx
+
+        required = ['province', 'regency', 'district', 'village']
+        missing = [r for r in required if r not in col_map]
+        if missing:
+            return {
+                "status": "ERROR",
+                "message": f"Kolom wajib tidak ditemukan: {', '.join(missing)}. Kolom yang wajib ada: provinsi, kabupaten, kecamatan, desa/kelurahan."
+            }
+
+        db.query(RegionReferenceModel).delete()
+        
+        new_records = []
+        for row in reader:
+            if not row or all(not val.strip() for val in row):
+                continue
+            
+            # Bound check
+            max_idx = max(col_map.values())
+            if len(row) <= max_idx:
+                continue
+                
+            prov = row[col_map['province']].strip()
+            kab = row[col_map['regency']].strip()
+            kec = row[col_map['district']].strip()
+            desa = row[col_map['village']].strip()
+            
+            p_code = None
+            if 'postal_code' in col_map and len(row) > col_map['postal_code']:
+                p_code = row[col_map['postal_code']].strip() or None
+
+            if prov and kab and kec and desa:
+                new_records.append(
+                    RegionReferenceModel(
+                        province=prov,
+                        regency=kab,
+                        district=kec,
+                        village=desa,
+                        postal_code=p_code
+                    )
+                )
+
+        if not new_records:
+            return {"status": "ERROR", "message": "Tidak ada baris data valid yang berhasil dibaca."}
+
+        db.bulk_save_objects(new_records)
+        db.commit()
+        
+        return {
+            "status": "SUCCESS",
+            "message": f"Berhasil mengimpor {len(new_records)} wilayah referensi baru ke database."
+        }
+    except Exception as e:
+        db.rollback()
+        return {"status": "ERROR", "message": f"Terjadi kesalahan saat parsing berkas: {str(e)}"}
