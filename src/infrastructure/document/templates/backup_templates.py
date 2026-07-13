@@ -1,4 +1,4 @@
-﻿"""
+"""
 ============================================================================
 SIPAS INFRASTRUCTURE TEMPLATES — Backup Inline HTML [backup_templates.py]
 ============================================================================
@@ -36,6 +36,35 @@ DEFAULT_TELAAH_STAF_TEMPLATE = """
             margin-bottom: 25px;
             border-bottom: 3px double #000;
             padding-bottom: 10px;
+        }
+        /* KOP SURAT — tabel logo + nama instansi */
+        .kop-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 0;
+        }
+        .kop-table td { padding: 0; vertical-align: middle; }
+        .kop-logo-cell { width: 72px; text-align: center; padding-right: 12px; }
+        .kop-logo-cell img { width: 64px; height: 64px; object-fit: contain; display: block; }
+        .kop-logo-placeholder {
+            width: 64px; height: 64px;
+            background: #e8e8e8;
+            border: 1px solid #ccc;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 7pt; color: #888; text-align: center;
+            font-family: Arial, sans-serif;
+        }
+        .kop-text-cell { text-align: center; }
+        .kop-instansi { margin: 0; font-size: 11pt; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; }
+        .kop-dinas   { margin: 2px 0 0 0; font-size: 13pt; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; }
+        .kop-alamat  { margin: 3px 0 0 0; font-size: 8.5pt; color: #333; font-style: italic; }
+        .kop-judul-dokumen {
+            margin-top: 10px;
+            text-align: center;
+            font-size: 10.5pt;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
         }
         .header h1 { margin: 0; font-size: 13pt; text-transform: uppercase; font-weight: bold; }
         
@@ -141,9 +170,26 @@ DEFAULT_TELAAH_STAF_TEMPLATE = """
     </style>
 </head>
 <body>
-    <div class="header">
-        <h1>DOKUMEN / LEMBAR TELAAH STAF PERMOHONAN PENGESAHAN E-SITEPLAN</h1>
-    </div>
+    <!-- KOP SURAT INSTANSI -->
+    <table class="kop-table" style="border-bottom: 3px double #000; padding-bottom: 10px; margin-bottom: 18px;">
+        <tr>
+            <td class="kop-logo-cell" style="width: 80px;">
+                {% if logo_base64 %}
+                    <img src="{{ logo_base64 }}" style="width: 64px; height: 64px; object-fit: contain; display: block; margin: 0 auto;" />
+                {% else %}
+                    <div style="width: 64px; height: 64px; background: #e8e8e8; border: 1px solid #ccc; display: block; margin: 0 auto; line-height: 64px; text-align: center; font-size: 7pt; color: #888; font-family: Arial, sans-serif;">{{ app_name }}</div>
+                {% endif %}
+            </td>
+            <td class="kop-text-cell">
+                <p class="kop-instansi">Pemerintah Kabupaten Bogor</p>
+                <p class="kop-dinas">Dinas Penanaman Modal dan Pelayanan Terpadu Satu Pintu</p>
+                <p class="kop-alamat">Jl. Tegar Beriman No. 25, Cibinong 16914 | Telp: (021) 8751090 | Email: dpmptsp@bogorkab.go.id</p>
+            </td>
+            <td style="width: 80px;"></td>
+        </tr>
+    </table>
+    <p class="kop-judul-dokumen">Dokumen / Lembar Telaah Staf Permohonan Pengesahan E-Siteplan</p>
+    <div style="margin-bottom: 18px;"></div>
 
     <table class="meta-table">
         <tr>
@@ -494,11 +540,23 @@ DEFAULT_SK_TEMPLATE = """
     <div class="watermark">DRAFT — BUKAN ASLI</div>
     {% endif %}
 
-    <div class="kop-surat">
-        <h2>Pemerintah Kabupaten Bogor</h2>
-        <h1>Dinas Penanaman Modal Dan Pelayanan Terpadu Satu Pintu</h1>
-        <p>Jl. Tegar Beriman No. 25, Cibinong 16914 | Telp: (021) 8751090, Fax: (021) 8751091 | email: dpmptsp@bogorkab.go.id</p>
-    </div>
+    <table style="width: 100%; border-collapse: collapse; border-bottom: 4px double #000; padding-bottom: 12px; margin-bottom: 20px;">
+        <tr>
+            <td style="width: 80px; vertical-align: middle; text-align: center; padding-right: 12px;">
+                {% if logo_base64 %}
+                    <img src="{{ logo_base64 }}" style="width: 68px; height: 68px; object-fit: contain; display: block; margin: 0 auto;" />
+                {% else %}
+                    <div style="width: 68px; height: 68px; background: #e8e8e8; border: 1px solid #ccc; display: block; margin: 0 auto; line-height: 68px; text-align: center; font-size: 7pt; color: #888; font-family: Arial, sans-serif;">{{ app_name }}</div>
+                {% endif %}
+            </td>
+            <td style="text-align: center; vertical-align: middle;">
+                <h2 style="margin: 0; font-size: 13pt; font-weight: bold; text-transform: uppercase; letter-spacing: 1px;">Pemerintah Kabupaten Bogor</h2>
+                <h1 style="margin: 3px 0 0 0; font-size: 15pt; font-weight: bold; text-transform: uppercase; letter-spacing: 1px;">Dinas Penanaman Modal Dan Pelayanan Terpadu Satu Pintu</h1>
+                <p style="margin: 4px 0 0 0; font-size: 8.5pt; font-style: italic; color: #333;">Jl. Tegar Beriman No. 25, Cibinong 16914 | Telp: (021) 8751090, Fax: (021) 8751091 | email: dpmptsp@bogorkab.go.id</p>
+            </td>
+            <td style="width: 80px;"></td>
+        </tr>
+    </table>
 
     <div class="title-block">
         <h3>Keputusan Kepala Dinas Penanaman Modal Dan Pelayanan Terpadu Satu Pintu</h3>

@@ -17,6 +17,22 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 from datetime import datetime
 
+# Impor loader konfigurasi sistem (logo & nama aplikasi) — lazy-import untuk menghindari circular
+def _load_branding() -> Dict[str, Any]:
+    """
+    Membaca konfigurasi branding (logo + nama aplikasi) dari system_config.json.
+    Mengembalikan dict dengan key: logo_base64, app_name.
+    """
+    try:
+        from src.infrastructure.http.routes.auth import load_system_config
+        cfg = load_system_config()
+        return {
+            "logo_base64": cfg.get("appLogo") or None,
+            "app_name": cfg.get("appName") or "GEOSIPAS"
+        }
+    except Exception:
+        return {"logo_base64": None, "app_name": "GEOSIPAS"}
+
 # Impor Jinja2 untuk mesin templating HTML
 try:
     from jinja2 import Environment, DictLoader, FileSystemLoader
@@ -226,7 +242,8 @@ class HtmlToPdfEngine(DocumentGeneratorPort):
     def generate_telaah_staf_pdf(
         self, 
         telaah_staf: TelaahStaf, 
-        permohonan: Permohonan
+        permohonan: Permohonan,
+        generated_by: Optional[str] = None
     ) -> str:
         """Mengonversi data domain murni TelaahStaf dan Permohonan menjadi lembar cetak PDF fisik."""
         
@@ -281,13 +298,28 @@ class HtmlToPdfEngine(DocumentGeneratorPort):
             }
         }
 
+        # ─── System Log (Generated User, Tanggal & Waktu) ───
+        now = datetime.now()
+        gen_user = generated_by or (telaah_staf.verifier.name if getattr(telaah_staf, "verifier", None) else None) or getattr(telaah_staf, "admin_verifier_name", None) or "Sistem"
+        system_log = {
+            "generated_by": gen_user,
+            "generated_at": now.strftime("%d-%m-%Y %H:%M:%S")
+        }
+
+
+        # ─── Inject Branding (Logo + App Name dari System Config Admin) ───
+        branding = _load_branding()
+
         context = {
+            "system_log": system_log,
             "document_metadata": {
                 "title": "Telaah Staf Permohonan Ijin e-Siteplan",
                 "document_no": f"TS-{permohonan.submission_no}",
                 "created_at": telaah_staf.created_at.strftime("%d-%m-%Y %H:%M") if telaah_staf.created_at else "-",
                 "verdict": permohonan.kkpr_verdict.value if permohonan.kkpr_verdict else telaah_staf.verdict.value
             },
+            "logo_base64": branding["logo_base64"],
+            "app_name": branding["app_name"],
             "applicant_snapshot": {
                 "name": permohonan.applicant_name or permohonan.developer_name or "Pemohon",
                 "director": permohonan.applicant_director_name or "-",
@@ -420,8 +452,13 @@ class HtmlToPdfEngine(DocumentGeneratorPort):
                 "memperhatikan": sk_draft.considerations.memperhatikan
             }
 
+        # ─── Inject Branding (Logo + App Name dari System Config Admin) ───
+        branding = _load_branding()
+
         # Return payload lengkap terstruktur
         return {
+            "logo_base64": branding["logo_base64"],
+            "app_name": branding["app_name"],
             "document_metadata": {
                 "sk_number": sk_draft.sk_number,
                 "created_at": sk_draft.created_at.strftime("%d %B %Y") if sk_draft.created_at else datetime.now().strftime("%d %B %Y"),
