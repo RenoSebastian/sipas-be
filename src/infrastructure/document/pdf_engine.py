@@ -303,6 +303,8 @@ class HtmlToPdfEngine(DocumentGeneratorPort):
         gen_user = generated_by or (telaah_staf.verifier.name if getattr(telaah_staf, "verifier", None) else None) or getattr(telaah_staf, "admin_verifier_name", None) or "Sistem"
         system_log = {
             "generated_by": gen_user,
+            "generated_date": now.strftime("%d-%m-%Y"),
+            "generated_time": now.strftime("%H:%M:%S"),
             "generated_at": now.strftime("%d-%m-%Y %H:%M:%S")
         }
 
@@ -380,7 +382,7 @@ class HtmlToPdfEngine(DocumentGeneratorPort):
 
     # ─── BARU: RENDER PDF DRAF SK & SK FINAL SECARA PRESISI (TAHAP 5) ───────────
 
-    def _build_sk_context(self, permohonan: Permohonan, sk_draft: SkDraft, is_draft: bool) -> Dict[str, Any]:
+    def _build_sk_context(self, permohonan: Permohonan, sk_draft: SkDraft, is_draft: bool, generated_by: Optional[str] = None) -> Dict[str, Any]:
         """Menyusun payload konteks data untuk dirender ke dalam Surat Keputusan HTML."""
         
         # 1. Mengumpulkan data kaveling hunian
@@ -452,11 +454,21 @@ class HtmlToPdfEngine(DocumentGeneratorPort):
                 "memperhatikan": sk_draft.considerations.memperhatikan
             }
 
+        # ─── System Log (Generated User, Tanggal & Waktu) ───
+        now = datetime.now()
+        system_log = {
+            "generated_by": generated_by or "Sistem",
+            "generated_date": now.strftime("%d-%m-%Y"),
+            "generated_time": now.strftime("%H:%M:%S"),
+            "generated_at": now.strftime("%d-%m-%Y %H:%M:%S")
+        }
+
         # ─── Inject Branding (Logo + App Name dari System Config Admin) ───
         branding = _load_branding()
 
         # Return payload lengkap terstruktur
         return {
+            "system_log": system_log,
             "logo_base64": branding["logo_base64"],
             "app_name": branding["app_name"],
             "document_metadata": {
@@ -488,12 +500,13 @@ class HtmlToPdfEngine(DocumentGeneratorPort):
         self, 
         permohonan: Permohonan, 
         sk_draft: SkDraft,
-        notes_by_kabid: Optional[str] = None
+        notes_by_kabid: Optional[str] = None,
+        generated_by: Optional[str] = None
     ) -> str:
         """Menghasilkan draf cetak visual Surat Keputusan (SK) lengkap dengan cap DRAFT."""
         
         # Merakit payload konteks draf keputusan
-        context = self._build_sk_context(permohonan, sk_draft, is_draft=True)
+        context = self._build_sk_context(permohonan, sk_draft, is_draft=True, generated_by=generated_by)
         
         # Tambahkan memo Kabid jika dilampirkan
         if notes_by_kabid:
@@ -510,12 +523,13 @@ class HtmlToPdfEngine(DocumentGeneratorPort):
     def generate_final_sk_siteplan(
         self, 
         permohonan: Permohonan,
-        sk_draft: SkDraft
+        sk_draft: SkDraft,
+        generated_by: Optional[str] = None
     ) -> str:
         """Menghasilkan dokumen Surat Keputusan (SK) bersih (final) siap dibubuhi TTE Kadis."""
         
         # Merakit payload keputusan final bersih (is_draft=False)
-        context = self._build_sk_context(permohonan, sk_draft, is_draft=False)
+        context = self._build_sk_context(permohonan, sk_draft, is_draft=False, generated_by=generated_by)
 
         html_content = self.render_html("sk_draft.html", context)
         

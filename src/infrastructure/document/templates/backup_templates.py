@@ -148,6 +148,24 @@ DEFAULT_TELAAH_STAF_TEMPLATE = """
             page-break-inside: avoid !important;
             break-inside: avoid-page !important;
         }
+        .system-log-block {
+            margin-top: 24px;
+            padding: 10px 12px;
+            border: 1px solid #cbd5e1;
+            background: #f8fafc;
+            font-size: 8.5pt;
+            color: #334155;
+            line-height: 1.4;
+            page-break-inside: avoid !important;
+            break-inside: avoid-page !important;
+        }
+        .system-log-title {
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+            margin-bottom: 4px;
+            color: #0f172a;
+        }
         .signature-table {
             width: 100%;
             border-collapse: collapse;
@@ -389,6 +407,13 @@ DEFAULT_TELAAH_STAF_TEMPLATE = """
             </tr>
         </table>
     </div>
+
+    <div class="system-log-block" style="margin-top: 28px;">
+        <div class="system-log-title">Log Sistem Pembuatan Dokumen</div>
+        <div>Pengguna: {{ system_log.generated_by or 'Sistem' }}</div>
+        <div>Tanggal: {{ system_log.generated_date or '-' }}</div>
+        <div>Waktu: {{ system_log.generated_time or '-' }}</div>
+    </div>
 </body>
 </html>
 """
@@ -532,6 +557,24 @@ DEFAULT_SK_TEMPLATE = """
             text-align: center;
             font-size: 8pt;
             color: #444;
+        }
+        .system-log-block {
+            margin-top: 24px;
+            padding: 10px 12px;
+            border: 1px solid #d1d5db;
+            background: #f9fafb;
+            font-size: 8.5pt;
+            color: #374151;
+            line-height: 1.4;
+            page-break-inside: avoid !important;
+            break-inside: avoid-page !important;
+        }
+        .system-log-title {
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+            margin-bottom: 4px;
+            color: #111827;
         }
     </style>
 </head>
@@ -710,6 +753,13 @@ DEFAULT_SK_TEMPLATE = """
             </tr>
         </table>
     </div>
+
+    <div class="system-log-block">
+        <div class="system-log-title">Log Sistem Pembuatan Dokumen</div>
+        <div>Pengguna: {{ system_log.generated_by or 'Sistem' }}</div>
+        <div>Tanggal: {{ system_log.generated_date or '-' }}</div>
+        <div>Waktu: {{ system_log.generated_time or '-' }}</div>
+    </div>
 </body>
 </html>
 """
@@ -875,6 +925,25 @@ DEFAULT_REPORT_TEMPLATE = """
             padding-top: 8px;
             font-style: italic;
         }
+        .system-log-block {
+            margin-top: 18px;
+            padding: 10px 12px;
+            border: 1px solid #dae4db;
+            background: #f7faf7;
+            font-size: 7.5pt;
+            color: #334155;
+            line-height: 1.4;
+            text-align: center;
+            page-break-inside: avoid !important;
+            break-inside: avoid-page !important;
+        }
+        .system-log-title {
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+            margin-bottom: 4px;
+            color: #111d13;
+        }
     </style>
 </head>
 <body>
@@ -1006,6 +1075,13 @@ DEFAULT_REPORT_TEMPLATE = """
     <p class="footer-note">
         * Dokumen ini dibuat dan divalidasi secara otomatis melalui sistem GEOSIPAS Kabupaten Bogor berbasis data real-time spasial.
     </p>
+
+    <div class="system-log-block">
+        <div class="system-log-title">Log Sistem Pembuatan Dokumen</div>
+        <div>Pengguna: {{ system_log.generated_by or 'Sistem' }}</div>
+        <div>Tanggal: {{ system_log.generated_date or '-' }}</div>
+        <div>Waktu: {{ system_log.generated_time or '-' }}</div>
+    </div>
 </body>
 </html>
 """

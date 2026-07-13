@@ -533,7 +533,8 @@ class VerifySubmissionUseCase:
                     try:
                         self.document_generator.generate_telaah_staf_pdf(
                             telaah_staf=updated_telaah_staf,
-                            permohonan=permohonan
+                            permohonan=permohonan,
+                            generated_by=input_dto.actor_name
                         )
                     except Exception as doc_err:
                         logger.error(f"[USE_CASE_WARNING] PDF rendering final gagal: {str(doc_err)}")
@@ -687,7 +688,12 @@ class VerifySubmissionUseCase:
 
                     # 5. Memanggil DocumentGenerator untuk mengompilasi PDF Draf SK
                     try:
-                        self.document_generator.generate_draft_sk_siteplan(permohonan, sk_draft, notes_by_kabid=input_dto.notes)
+                        self.document_generator.generate_draft_sk_siteplan(
+                            permohonan,
+                            sk_draft,
+                            notes_by_kabid=input_dto.notes,
+                            generated_by=input_dto.actor_name
+                        )
                     except Exception as doc_err:
                         logger.error(f"[SK_RENDER_WARNING] Draf SK gagal dicetak: {str(doc_err)}")
 
@@ -789,10 +795,14 @@ class VerifySubmissionUseCase:
                     try:
                         self.document_generator.generate_telaah_staf_pdf(
                             telaah_staf=telaah_staf,
-                            permohonan=permohonan
+                            permohonan=permohonan,
+                            generated_by=input_dto.actor_name
                         )
                         self.document_generator.generate_draft_sk_siteplan(
-                            permohonan, sk_draft, notes_by_kabid=f"[VETO OVERRIDE] {input_dto.notes}"
+                            permohonan,
+                            sk_draft,
+                            notes_by_kabid=f"[VETO OVERRIDE] {input_dto.notes}",
+                            generated_by=input_dto.actor_name
                         )
                     except Exception as doc_err:
                         logger.error(f"[VETO_PDF_WARNING] Gagal memperbarui berkas PDF veto: {str(doc_err)}")
@@ -886,7 +896,8 @@ class VerifySubmissionUseCase:
                 sk_path = await asyncio.to_thread(
                     self.document_generator.generate_final_sk_siteplan, 
                     permohonan, 
-                    sk_draft
+                    sk_draft,
+                    input_dto.actor_name
                 )
 
                 # State Locking: Transisi berkas ke status 'Proses TTE' untuk mencegah race condition tombol

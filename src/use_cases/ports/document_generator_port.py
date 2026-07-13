@@ -27,7 +27,8 @@ class DocumentGeneratorPort(ABC):
     def generate_telaah_staf_pdf(
         self, 
         telaah_staf: TelaahStaf, 
-        permohonan: Permohonan
+        permohonan: Permohonan,
+        generated_by: Optional[str] = None
     ) -> str:
         """
         Mengompilasi data snapshot verifikasi teknis & administrasi dari objek
@@ -53,7 +54,8 @@ class DocumentGeneratorPort(ABC):
         self, 
         permohonan: Permohonan, 
         sk_draft: SkDraft,  # <--- PARAMETER BARU (Rich Domain Entity)
-        notes_by_kabid: Optional[str] = None
+        notes_by_kabid: Optional[str] = None,
+        generated_by: Optional[str] = None
     ) -> str:
         """
         Menghasilkan draf dokumen Surat Keputusan (SK) Pengesahan Site Plan
@@ -74,7 +76,8 @@ class DocumentGeneratorPort(ABC):
     def generate_final_sk_siteplan(
         self, 
         permohonan: Permohonan,
-        sk_draft: SkDraft  # <--- PARAMETER BARU (Rich Domain Entity)
+        sk_draft: SkDraft,  # <--- PARAMETER BARU (Rich Domain Entity)
+        generated_by: Optional[str] = None
     ) -> str:
         """
         Menghasilkan dokumen Surat Keputusan (SK) Pengesahan Site Plan final
