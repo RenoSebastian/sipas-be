@@ -75,7 +75,8 @@ class MockDocumentGenerator(DocumentGeneratorPort):
     def generate_telaah_staf_pdf(
         self, 
         telaah_staf: TelaahStaf, 
-        permohonan: Permohonan
+        permohonan: Permohonan,
+        generated_by: Optional[str] = None
     ) -> str:
         """Menghasilkan draf dokumen cetak Telaah Staf simulasi (Mock)."""
         clean_id = self._get_clean_project_identifier(permohonan.id_permohonan)
@@ -86,7 +87,8 @@ class MockDocumentGenerator(DocumentGeneratorPort):
         self, 
         permohonan: Permohonan, 
         sk_draft: SkDraft,
-        notes_by_kabid: Optional[str] = None
+        notes_by_kabid: Optional[str] = None,
+        generated_by: Optional[str] = None
     ) -> str:
         """Menghasilkan draf SK Pengesahan simulasi (Mock) untuk ditinjau Kabid."""
         clean_id = self._get_clean_project_identifier(permohonan.id_permohonan)
@@ -96,7 +98,8 @@ class MockDocumentGenerator(DocumentGeneratorPort):
     def generate_final_sk_siteplan(
         self, 
         permohonan: Permohonan,
-        sk_draft: SkDraft
+        sk_draft: SkDraft,
+        generated_by: Optional[str] = None
     ) -> str:
         """Menghasilkan berkas fisik SK final simulasi (Mock) siap TTE Kadis."""
         clean_id = self._get_clean_project_identifier(permohonan.id_permohonan)

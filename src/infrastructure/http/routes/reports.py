@@ -137,7 +137,7 @@ def get_submission_report_stats(
 
     for r in all_active:
         status_val = r.status
-        if status_val in ['Draft', 'Menunggu Verifikasi']:
+        if status_val in ['Draft', 'Pengajuan Dokumen']:
             pipeline_snapshot["pemohon"] += 1
         elif status_val == 'Verifikasi Administrasi':
             pipeline_snapshot["admin"] += 1
@@ -194,6 +194,7 @@ def export_submission_report_csv(
     today      = datetime.date.today()
     print_date = f"{today.day} {MONTH_NAMES[today.month - 1]} {today.year}"
     operator_name = getattr(current_user, 'full_name', None) or getattr(current_user, 'username', 'Sistem')
+    generated_by = operator_name
 
     # ─── Query Data Utama ─────────────────────────────────────────────────────
     submissions = db.query(PermohonanModel).filter(
@@ -228,7 +229,7 @@ def export_submission_report_csv(
         'Disetujui': 'DISETUJUI', 'Ditolak': 'DITOLAK',
         'Verifikasi Teknis': 'Verifikasi Teknis',
         'Verifikasi Administrasi': 'Verifikasi Administrasi',
-        'Menunggu Verifikasi': 'Menunggu Verifikasi',
+        'Pengajuan Dokumen': 'Pengajuan Dokumen',
         'Menunggu Persetujuan': 'Menunggu Persetujuan',
         'Menunggu Rekomendasi': 'Menunggu Rekomendasi',
         'Proses TTE': 'Proses TTE', 'Draft': 'Draft',
@@ -523,6 +524,11 @@ def export_submission_report_csv(
     <tr>
       <td colspan="12" class="footer-note">5. Dokumen ini bukan merupakan surat resmi dan tidak memerlukan tanda tangan basah.</td>
     </tr>
+    <tr>
+      <td colspan="12" class="footer-note" style="text-align:center; font-weight:bold; color:#334155; border-top:1px dashed #cbd5e1; padding-top:10px;">
+        Log Sistem Pembuatan Dokumen &mdash; Pengguna: {operator_name} &mdash; Tanggal: {datetime.datetime.now().strftime('%d-%m-%Y')} &mdash; Waktu: {datetime.datetime.now().strftime('%H:%M:%S')}
+      </td>
+    </tr>
     <tr height="20"><td colspan="12" class="bg-kop"></td></tr>
     <tr>
       <td colspan="12" class="text-center bg-kop" style="font-size: 9.5pt; font-style: italic; color: #777777;">--- Akhir Laporan GEOSIPAS  |  Dicetak: {print_date} ---</td>
@@ -637,7 +643,7 @@ def export_submission_report_pdf(
     pipeline = {"pemohon": 0, "admin": 0, "teknis": 0, "kabid": 0, "kadis": 0, "selesai": 0}
     for r in all_active:
         status_val = r.status
-        if status_val in ['Draft', 'Menunggu Verifikasi']:
+        if status_val in ['Draft', 'Pengajuan Dokumen']:
             pipeline["pemohon"] += 1
         elif status_val == 'Verifikasi Administrasi':
             pipeline["admin"] += 1
@@ -661,6 +667,8 @@ def export_submission_report_pdf(
 
     today = datetime.date.today()
     print_date = f"{today.day} {MONTH_NAMES[today.month - 1]} {today.year}"
+    operator_name = getattr(current_user, 'full_name', None) or getattr(current_user, 'username', 'Sistem')
+    generated_by = operator_name
     land_area_formatted = "{:,.2f}".format(land_area_sum).replace(",", "X").replace(".", ",").replace("X", ".")
     land_area_ha = "{:.2f}".format(land_area_sum / 10000).replace(".", ",")
 
@@ -691,7 +699,12 @@ def export_submission_report_pdf(
         "pipeline": pipeline,
         "sk_recap": sk_recap,
         "logo_base64": logo_base64,
-        "app_name": app_name
+        "app_name": app_name,
+        "system_log": {
+            "generated_by": generated_by,
+            "generated_date": datetime.datetime.now().strftime("%d-%m-%Y"),
+            "generated_time": datetime.datetime.now().strftime("%H:%M:%S")
+        }
     }
 
     pdf_engine = HtmlToPdfEngine()

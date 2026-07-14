@@ -293,6 +293,7 @@ def submit_permohonan(
             tpu_no_pks=req.tpu.noPks if req.tpu else None,
             tpu_nominal=req.tpu.nominalKompensasi if req.tpu else None,
             tpu_address=req.tpu.alamat if req.tpu else None,
+            tpu_koordinat=req.tpu.koordinat if req.tpu else None,
             tpu_bukti_dokumen=req.tpu.buktiDokumenUrl if req.tpu else None,
             self_declared_compensations=[comp.model_dump() for comp in req.compensations] if req.compensations else None
         )
@@ -508,12 +509,15 @@ def get_all_submissions(
 ):
     """Mendapatkan seluruh daftar pengajuan site plan dengan pencarian, penapisan, dan paginasi."""
     repo = PermohonanRepository(db)
+    # Filter hanya data milik sendiri jika login sebagai PEMOHON
+    user_id = current_user.id if current_user.role == "PEMOHON" else None
     results, total_count = repo.find_all(
         search=search or None,
         status=status_filter or None,
         category=category or None,
         page=page,
-        limit=limit
+        limit=limit,
+        user_id=user_id
     )
 
     def serialize(r):
@@ -1057,3 +1061,47 @@ async def download_signed_pdf(id_permohonan: str, db: Session = Depends(get_db))
         filename=target_path.name,
         media_type="application/pdf"
     )
+
+
+@router.get("/{id_permohonan}/receipt", response_class=FileResponse)
+async def download_receipt_pdf(id_permohonan: str, db: Session = Depends(get_db)):
+    """Mengunduh berkas tanda terima permohonan (receipt) untuk pemohon."""
+    # 1. Pastikan permohonan ada di database
+    permohonan_model = db.query(PermohonanModel).filter(PermohonanModel.id_permohonan == id_permohonan).first()
+    if not permohonan_model:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Permohonan dengan ID '{id_permohonan}' tidak ditemukan."
+        )
+
+    # Pastikan direktori docs ada
+    docs_dir = Path("docs")
+    docs_dir.mkdir(parents=True, exist_ok=True)
+
+    pdf_path = docs_dir / f"Tanda_Terima_{id_permohonan}.pdf"
+
+    # 2. Selalu generate secara dinamis tiap kali endpoint dipanggil agar mencerminkan perubahan visual terkini
+    try:
+        from src.infrastructure.database.repositories.permohonan_repository import PermohonanRepository
+        from src.infrastructure.document.pdf_engine import HtmlToPdfEngine
+
+        # Inisialisasi adapter repo & engine dokumen
+        permohonan_repo = PermohonanRepository(db)
+        doc_generator = HtmlToPdfEngine()
+
+        permohonan = permohonan_repo._to_domain(permohonan_model)
+        doc_generator.generate_receipt_pdf(permohonan)
+    except Exception as e:
+        logger.error(f"[RECEIPT_GENERATE_ERROR] Gagal memproduksi tanda terima secara dinamis: {str(e)}")
+
+    if not pdf_path.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Berkas Tanda Terima belum dibuat atau gagal dibuat secara dinamis."
+        )
+
+    return FileResponse(
+        path=str(pdf_path),
+        filename=pdf_path.name,
+        media_type="application/pdf"
+    )

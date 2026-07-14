@@ -43,7 +43,19 @@ def main():
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR(50);",
         "ALTER TABLE permohonan ADD COLUMN IF NOT EXISTS tech_water_source VARCHAR(255);",
         "ALTER TABLE permohonan ADD COLUMN IF NOT EXISTS kabid_signature TEXT;",
-        "ALTER TABLE lahan_kompensasi ADD COLUMN IF NOT EXISTS alamat_lokasi VARCHAR(500);"
+        "ALTER TABLE lahan_kompensasi ADD COLUMN IF NOT EXISTS alamat_lokasi VARCHAR(500);",
+        "ALTER TABLE permohonan_tpu ADD COLUMN IF NOT EXISTS koordinat VARCHAR(100);",
+        """
+        CREATE TABLE IF NOT EXISTS region_references (
+            id SERIAL PRIMARY KEY,
+            province VARCHAR(100) NOT NULL,
+            regency VARCHAR(100) NOT NULL,
+            district VARCHAR(100) NOT NULL,
+            village VARCHAR(100) NOT NULL,
+            postal_code VARCHAR(10) NULL
+        );
+        """
+
     ]
     try:
         with engine.begin() as conn:

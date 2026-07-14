@@ -110,6 +110,7 @@ class TPUDetailsDto(BaseModel):
     noPks: Optional[str] = None
     nominalKompensasi: Optional[float] = None
     alamat: Optional[str] = None
+    koordinat: Optional[str] = None
     buktiDokumenUrl: Optional[str] = None
 
 class SelfDeclaredCompensationDto(BaseModel):

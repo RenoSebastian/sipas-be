@@ -420,13 +420,13 @@ def seed_spatial_data() -> None:
         # ──────────────────────────────────────────────────────────────────────
         print("[SEEDER] Menyemai data spasial permohonan komparasi...")
 
-        # KASUS 1: Cibinong Green Mansion (Status: Menunggu Verifikasi)
+        # KASUS 1: Cibinong Green Mansion (Status: Pengajuan Dokumen)
         outer_poly_1 = cad_to_wgs84_seed(BOUNDARY_VERTICES_1, base_lon=106.802744, base_lat=-6.471861, rotation_deg=12)
 
         permohonan_1 = PermohonanModel(
             id_permohonan="sub-1", user_id=pemohon.id, submission_no="SIPAS-2026-001",
             housing_name="Cibinong Green Mansion", developer_name="PT Geocitra Pembangunan Mandiri",
-            land_area=30000.0, submission_date=date(2026, 6, 20), status="Menunggu Verifikasi",
+            land_area=30000.0, submission_date=date(2026, 6, 20), status="Pengajuan Dokumen",
             buffer_sla=0, elapsed_days=0, applicant_type="BADAN_USAHA",
             applicant_name="PT Geocitra Pembangunan Mandiri", applicant_nik=None, applicant_nib="9120301938192",
             applicant_npwp="01.234.567.8-901.000", applicant_director_name="Ahmad Fauzi",
@@ -831,8 +831,8 @@ def seed_spatial_data() -> None:
 
         # Seeding log audit birokrasi berjenjang
         audits_sub_4 = [
-            AuditTrailModel(submission_id="sub-4", actor_name="Pemohon", role="Pemohon", action="SUBMIT_UNIFIED_FORM", status_before="Draft", status_after="Menunggu Verifikasi", notes="Berkas pendaftaran berhasil diserahkan ke loket.", created_at=datetime(2026, 6, 10, 9, 0)),
-            AuditTrailModel(submission_id="sub-4", actor_name=admin.full_name, role="Admin", action="VERIFY_ADMIN_APPROVED", status_before="Menunggu Verifikasi", status_after="Verifikasi Administrasi", notes="Pemeriksaan dokumen administrasi valid. Berkas diteruskan.", created_at=datetime(2026, 6, 11, 10, 10)),
+            AuditTrailModel(submission_id="sub-4", actor_name="Pemohon", role="Pemohon", action="SUBMIT_UNIFIED_FORM", status_before="Draft", status_after="Pengajuan Dokumen", notes="Berkas pendaftaran berhasil diserahkan ke loket.", created_at=datetime(2026, 6, 10, 9, 0)),
+            AuditTrailModel(submission_id="sub-4", actor_name=admin.full_name, role="Admin", action="VERIFY_ADMIN_APPROVED", status_before="Pengajuan Dokumen", status_after="Verifikasi Administrasi", notes="Pemeriksaan dokumen administrasi valid. Berkas diteruskan.", created_at=datetime(2026, 6, 11, 10, 10)),
             AuditTrailModel(submission_id="sub-4", actor_name=tim_teknis.full_name, role="Tim Teknis", action="VERIFY_TECHNICAL_APPROVED", status_before="Verifikasi Teknis", status_after="Menunggu Rekomendasi", notes="Hasil analisis spasial terlampir lengkap pada draf Telaah Staf. Dikirim ke Kabid.", created_at=datetime(2026, 6, 12, 14, 0)),
             AuditTrailModel(submission_id="sub-4", actor_name=kabid.full_name, role="KABID_PUPR", action="ENDORSE_TELAAH", status_before="Menunggu Rekomendasi", status_after="Menunggu Persetujuan", notes="Dokumen Telaah Staf disetujui. Rekomendasi draf SK Nomor '600/249/415.19/2026' dikirim ke Kepala Dinas.", created_at=datetime(2026, 6, 13, 9, 35)),
             AuditTrailModel(submission_id="sub-4", actor_name=kadis.full_name, role="KADIS", action="APPROVE_KADIS_TTE", status_before="Proses TTE", status_after="Disetujui", notes="SK Site Plan Nomor '600/249/415.19/2026' resmi disahkan secara hukum menggunakan TTE Dinas resmi.", digital_signature_hash="sha256:7b952f4c9c1b48b52f6f1947b19a3b90875638c039a7bb2e80556f8f17e7ab43", created_at=datetime(2026, 6, 14, 16, 0))

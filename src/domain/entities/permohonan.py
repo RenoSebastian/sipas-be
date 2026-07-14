@@ -17,7 +17,7 @@ from typing import List, Optional
 class SubmissionStatus(str, Enum):
     """Representasi mutlak status berkas permohonan dalam alur birokrasi dinas."""
     DRAFT = 'Draft'
-    MENUNGGU_VERIFIKASI = 'Menunggu Verifikasi'
+    MENUNGGU_VERIFIKASI = 'Pengajuan Dokumen'
     VERIFIKASI_ADMINISTRASI = 'Verifikasi Administrasi'
     VERIFIKASI_TEKNIS = 'Verifikasi Teknis'
     MENUNGGU_REKOMENDASI = 'Menunggu Rekomendasi'  # Tahap Peninjauan & Veto Kabid
@@ -55,6 +55,7 @@ class PermohonanTpu:
         no_pks: Optional[str] = None,
         nominal_kompensasi: Optional[float] = None,
         alamat: Optional[str] = None,
+        koordinat: Optional[str] = None,
         bukti_dokumen_url: Optional[str] = None,
         status_verifikasi: str = "PENDING",
         catatan_verifikasi: Optional[str] = None,
@@ -70,6 +71,7 @@ class PermohonanTpu:
         self.no_pks = no_pks
         self.nominal_kompensasi = nominal_kompensasi
         self.alamat = alamat
+        self.koordinat = koordinat
         self.bukti_dokumen_url = bukti_dokumen_url
         self.status_verifikasi = status_verifikasi
         self.catatan_verifikasi = catatan_verifikasi
