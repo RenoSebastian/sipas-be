@@ -15,10 +15,11 @@ from pydantic import BaseModel, Field
 import os
 import json
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 from typing import Optional, List, cast
 
 from src.infrastructure.database.connection import get_db
-from src.infrastructure.database.models import UserModel
+from src.infrastructure.database.models import UserModel, AuditTrailModel
 from src.infrastructure.security.auth import (
     hash_password,
     verify_password,
@@ -314,4 +315,49 @@ def get_system_config():
 def update_system_config(req: dict, token_payload: dict = Depends(requires_roles([UserRole.ADMIN]))):
     """Memperbarui konfigurasi sistem global (Hanya Admin)."""
     save_system_config(req)
-    return {"status": "SUCCESS", "message": "Konfigurasi sistem global berhasil diperbarui."}
+    return {"status": "SUCCESS", "message": "Konfigurasi sistem global berhasil diperbarui."}
+
+@router.get("/audit-logs")
+def get_all_audit_logs(
+    limit: int = 50,
+    page: int = 1,
+    search: Optional[str] = None,
+    db: Session = Depends(get_db),
+    token_payload: dict = Depends(requires_roles([UserRole.ADMIN]))
+):
+    """Mendapatkan seluruh daftar log aktivitas sistem dengan pagination dan filter pencarian (Hanya Admin/Super Admin)."""
+    query = db.query(AuditTrailModel)
+    if search:
+        search_filter = f"%{search}%"
+        query = query.filter(
+            or_(
+                AuditTrailModel.submission_id.ilike(search_filter),
+                AuditTrailModel.actor_name.ilike(search_filter),
+                AuditTrailModel.action.ilike(search_filter),
+                AuditTrailModel.notes.ilike(search_filter)
+            )
+        )
+    
+    total = query.count()
+    logs = query.order_by(AuditTrailModel.created_at.desc()).offset((page - 1) * limit).limit(limit).all()
+    
+    return {
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "items": [
+            {
+                "id": log.id,
+                "submission_id": log.submission_id,
+                "actor_name": log.actor_name,
+                "role": log.role,
+                "action": log.action,
+                "status_before": log.status_before,
+                "status_after": log.status_after,
+                "notes": log.notes,
+                "digital_signature_hash": log.digital_signature_hash,
+                "created_at": log.created_at.strftime("%Y-%m-%d %H:%M:%S")
+            }
+            for log in logs
+        ]
+    }
