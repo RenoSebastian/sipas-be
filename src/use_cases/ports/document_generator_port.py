@@ -92,3 +92,22 @@ class DocumentGeneratorPort(ABC):
             str: Jalur lokasi fisik absolut berkas PDF SK final siap TTE.
         """
         pass
+
+    @abstractmethod
+    def generate_receipt_pdf(
+        self, 
+        permohonan: Permohonan,
+        generated_by: Optional[str] = None
+    ) -> str:
+        """
+        Menghasilkan lembar bukti tanda terima permohonan site plan (receipt) untuk pemohon,
+        dilengkapi dengan nomor permohonan, ringkasan berkas, dan panduan monitoring.
+
+        Args:
+            permohonan: Entitas permohonan yang baru saja dikirimkan.
+            generated_by: Nama operator/sistem pembuat tanda terima.
+
+        Returns:
+            str: Jalur lokasi fisik absolut berkas PDF tanda terima di server.
+        """
+        pass

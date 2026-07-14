@@ -561,38 +561,48 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
         status: Optional[str] = None,
         category: Optional[str] = None,
         page: int = 1,
-        limit: int = 10
+        limit: int = 10,
+        user_id: Optional[int] = None
     ) -> Tuple[List[Permohonan], int]:
         """Mendapatkan seluruh daftar permohonan ter-paginasi dengan filter [Liskov Substitution Compliant]."""
         from src.infrastructure.database.models import PermohonanModel
         query = self.db.query(PermohonanModel)
 
+        # Filter berdasarkan kepemilikan user (jika pemohon)
+        if user_id is not None:
+            query = query.filter(PermohonanModel.user_id == user_id)
+
         if status and status != 'Semua':
-            # Map status ramah pengguna ke nilai enum database jika berbeda
-            db_status = status
-            if status == 'Pengajuan Dokumen':
-                db_status = 'Pengajuan Dokumen'
-            elif status == 'Verifikasi Administrasi':
-                db_status = 'Verifikasi_Administrasi'
-            elif status == 'Verifikasi Teknis':
-                db_status = 'Verifikasi_Teknis'
-            query = query.filter(PermohonanModel.status == db_status)
+            # Gunakan status asli karena database menyimpan value string enum dengan spasi (e.g. 'Verifikasi Administrasi')
+            query = query.filter(PermohonanModel.status == status)
 
         if category:
-            query = query.filter(PermohonanModel.submission_category == category)
+            # Map kategori ramah filter ke enum database yang tersimpan
+            db_category = category
+            if category == 'KOMERSIAL':
+                db_category = 'NON_PERUMAHAN'
+            elif category == 'FASILITAS_UMUM':
+                db_category = 'FASUM'
+            query = query.filter(PermohonanModel.submission_category == db_category)
 
         if search:
             search_pattern = f"%{search}%"
             query = query.filter(
                 (PermohonanModel.housing_name.ilike(search_pattern)) |
                 (PermohonanModel.developer_name.ilike(search_pattern)) |
-                (PermohonanModel.submission_no.ilike(search_pattern))
+                (PermohonanModel.submission_no.ilike(search_pattern)) |
+                (PermohonanModel.location_district.ilike(search_pattern)) |
+                (PermohonanModel.location_village.ilike(search_pattern))
             )
 
         total_count = query.count()
 
         offset = (page - 1) * limit
-        models = query.order_by(PermohonanModel.submission_date.desc()).offset(offset).limit(limit).all()
+        # Urutkan berdasarkan tanggal pengajuan terbaru dan ID permohonan untuk konsistensi paginasi
+        models = query.order_by(
+            PermohonanModel.submission_date.desc(), 
+            PermohonanModel.id_permohonan.desc()
+        ).offset(offset).limit(limit).all()
         
         return [self._to_domain(m) for m in models], total_count
 

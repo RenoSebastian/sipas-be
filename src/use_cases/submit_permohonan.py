@@ -54,7 +54,8 @@ class PermohonanRepositoryPort(ABC):
         status: Optional[str] = None,
         category: Optional[str] = None,
         page: int = 1,
-        limit: int = 10
+        limit: int = 10,
+        user_id: Optional[int] = None
     ) -> Tuple[List[Permohonan], int]:
         """Mendapatkan seluruh daftar permohonan ter-paginasi dengan filter [Liskov Substitution Compliant]."""
         pass
