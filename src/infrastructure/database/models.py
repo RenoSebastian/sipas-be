@@ -1,25 +1,24 @@
 ﻿"""
 ============================================================================
-SIPAS INFRASTRUCTURE ADAPTER — Database Models [models.py] (REVISED v5)
+SIPAS INFRASTRUCTURE ADAPTER — Database Models [models.py] (REVISED v5.1)
 ============================================================================
 Peran: Mendefinisikan skema tabel fisik database PostgreSQL & PostGIS
        menggunakan deklarasi tipe data statis SQLAlchemy 2.0 (Mapped).
        Diekspansi penuh untuk menampung seluruh detail formulir 10-tahap,
-       metrik komparasi tiga sisi, dynamic checklist evaluasi dengan audit,
-       Master RDTR, metadata dokumen biner JSONB Telaah Staf, serta tabel baru
-       sk_draft untuk menampung produk hukum draf Surat Keputusan (SK).
+       metrik komparasi tiga sisi, biner JSONB dokumen resmi, serta
+       skema silsilah permohonan self-referential untuk audit-trail revisi.
 ============================================================================
 """
 
 from datetime import datetime, date, timezone
 from typing import List, Optional, Any
 from sqlalchemy import String, Float, Integer, Date, DateTime, ForeignKey, Text, Boolean, Enum as SQLEnum, event
-from sqlalchemy.dialects.postgresql import JSONB  # Impor tipe data JSONB murni untuk PostgreSQL
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from geoalchemy2 import Geometry
 
 from src.infrastructure.database.connection import Base
-from src.domain.entities.permohonan import KKPRVerdict  # Impor langsung dari domain (Single Source of Truth)
+from src.domain.entities.permohonan import KKPRVerdict
 
 # Enum penampung status verifikasi satuan checklist dinas
 import enum
@@ -28,7 +27,6 @@ class ChecklistStatus(str, enum.Enum):
     SESUAI_BERSYARAT = "SESUAI_BERSYARAT"
     TIDAK_SESUAI = "TIDAK_SESUAI"
     PENDING = "PENDING"
-
 
 
 class UserModel(Base):
@@ -197,8 +195,30 @@ class PermohonanModel(Base):
 
     # F. Referensi Nomor SK Ter-generate (Fase 3 Domain Sync)
     sk_number: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, unique=True, index=True)
+    baseline_source: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
 
-    # Relasi Anak
+    # ─── UPDATE FASE 5 (REVISI): SILSILAH PERMOHONAN SELF-REFERENTIAL ────────
+    parent_id_permohonan: Mapped[Optional[str]] = mapped_column(
+        String(50), 
+        ForeignKey("permohonan.id_permohonan", ondelete="SET NULL"), 
+        nullable=True
+    )
+    replaced_sk_number: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    replaced_sk_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    replaced_sk_doc_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+
+    # Relasi Self-Referential (Tree Structure)
+    parent_permohonan: Mapped[Optional["PermohonanModel"]] = relationship(
+        "PermohonanModel",
+        remote_side=[id_permohonan],
+        back_populates="child_permohonan"
+    )
+    child_permohonan: Mapped[List["PermohonanModel"]] = relationship(
+        "PermohonanModel",
+        back_populates="parent_permohonan"
+    )
+
+    # Relasi Anak Lainnya
     kompensasi: Mapped[List["LahanKompensasiModel"]] = relationship(
         "LahanKompensasiModel", 
         back_populates="permohonan", 
@@ -223,7 +243,7 @@ class PermohonanModel(Base):
         cascade="all, delete-orphan"
     )
 
-    # ─── UPDATE FASE 3: RELASI SATU-KE-SATU DENGAN MODEL SK_DRAFT ───
+    # Relasi satu-ke-satu dengan Model SkDraftModel
     sk_draft: Mapped[Optional["SkDraftModel"]] = relationship(
         "SkDraftModel",
         back_populates="permohonan",
@@ -258,7 +278,7 @@ class EvaluasiChecklistItemModel(Base):
     catatan_verifikator: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     attachment_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True) # PDF coretan atau hitung dinas
 
-    # ─── UPDATE FASE 1: AUDIT TRACEABILITY CHECKLIST ────────────────────────
+    # Audit Traceability Checklist
     verified_by_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
     verified_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
@@ -319,8 +339,6 @@ class TelaahStafModel(Base):
     # Relasi
     permohonan: Mapped["PermohonanModel"] = relationship("PermohonanModel", back_populates="telaah_staf")
 
-
-# ─── UPDATE FASE 3: IMPLEMENTASI TABEL FISIK SK_DRAFT (MODEL & JSONB) ───
 
 class SkDraftModel(Base):
     """

@@ -5,8 +5,10 @@ import sys
 import re
 import argparse
 import fnmatch
+import io
+import tokenize
 from pathlib import Path
-from typing import Any, Set, List
+from typing import Any, Set, List, Tuple
 
 
 def _reconfigure_stream_encoding(stream: Any) -> None:
@@ -36,13 +38,13 @@ class AggregatorConfig:
         "node_modules", ".git", "dist", "build", "out", "coverage",
         ".vscode", ".idea", "recovered", "temp", "tmp", "__pycache__",
         ".venv", "venv", ".pytest_cache", ".mypy_cache", ".ruff_cache",
-        "postgres_data", "geoserver_data"
+        "postgres_data", "geoserver_data", "versions"  # Ditambahkan 'versions' agar mengabaikan alembic migrations
     }
 
     # 2. Berkas Blacklist (Diabaikan secara mutlak)
     FORBIDDEN_FILES = {
         "poetry.lock", "package-lock.json", "yarn.lock", "pnpm-lock.yaml",
-        ".DS_Store", "Thumbs.db"
+        ".DS_Store", "Thumbs.db", "system_config.json"
     }
 
     # 3. Whitelist Folder Tingkat Root (Hanya turun ke folder di bawah ini jika di root)
@@ -78,8 +80,50 @@ class AggregatorConfig:
 # =========================================================================
 class LLMContextOptimizer:
     @staticmethod
-    def compress_code(content: str) -> str:
-        """Menghapus spasi trailing dan baris kosong ganda secara efisien untuk menghemat token LLM."""
+    def strip_python_comments_and_docstrings(source: str) -> str:
+        """Menghapus komentar (#) dan docstring (triple quotes) dari file Python secara aman."""
+        try:
+            io_obj = io.StringIO(source)
+            prev_toktype = tokenize.INDENT
+            
+            tokens = tokenize.generate_tokens(io_obj.readline)
+            modified_tokens = []
+            
+            for tok in tokens:
+                token_type = tok.type
+                token_string = tok.string
+                
+                # 1. Hapus komentar biasa
+                if token_type == tokenize.COMMENT:
+                    continue
+                
+                # 2. Hapus docstring (string literal di posisi awal blok)
+                if token_type == tokenize.STRING:
+                    if token_string.startswith(('"""', "'''")):
+                        if prev_toktype in (tokenize.INDENT, tokenize.NEWLINE, tokenize.NL, tokenize.ENCODING):
+                            continue
+                
+                modified_tokens.append(tok)
+                if token_type not in (tokenize.NL, tokenize.COMMENT):
+                    prev_toktype = token_type
+            
+            return tokenize.untokenize(modified_tokens)
+        except Exception:
+            # Fallback baris per baris sederhana jika parser token bermasalah
+            lines = []
+            for line in source.splitlines():
+                stripped = line.strip()
+                if stripped.startswith('#'):
+                    continue
+                lines.append(line)
+            return "\n".join(lines)
+
+    @classmethod
+    def compress_code(cls, content: str, suffix: str = "", strip_comments: bool = True) -> str:
+        """Menghapus spasi trailing, baris kosong ganda, komentar, dan docstring."""
+        if strip_comments and suffix == ".py":
+            content = cls.strip_python_comments_and_docstrings(content)
+
         lines = content.splitlines()
         optimized_lines = []
         previous_empty = False
@@ -111,10 +155,17 @@ class LLMContextOptimizer:
 # Orkestrator utama penelusuran dan pembangunan bundel berkas teks
 # =========================================================================
 class CodebaseAggregator:
-    def __init__(self, target_dir: str, output_name: str):
+    def __init__(self, target_dir: str, output_name: str, include_migrations: bool = False, strip_comments: bool = True):
         self.config = AggregatorConfig()
         self.optimizer = LLMContextOptimizer()
+        self.strip_comments = strip_comments
         
+        # Atur perilaku pemindaian migrasi database
+        if include_migrations:
+            self.config.FORBIDDEN_DIRS.discard("versions")
+        else:
+            self.config.FORBIDDEN_DIRS.add("versions")
+
         # Penyelarasan Portabilitas Jalur Direktori
         self.target_path = Path(target_dir).resolve()
         if not self.target_path.is_dir():
@@ -164,27 +215,20 @@ class CodebaseAggregator:
                 return True
 
         # 3. Cek kecocokan dengan pola gitignore
-        # Ubah path menggunakan slash '/' untuk konsistensi di Windows
         rel_path_str = rel_path.as_posix()
         
         for pattern in self.gitignore_patterns:
-            # Hapus leading slash untuk pencocokan relatif
             clean_pattern = pattern.lstrip('/')
             is_pattern_dir = pattern.endswith('/')
             match_pattern = clean_pattern.rstrip('/')
             
-            # Jika pola khusus direktori tapi path saat ini bukan direktori, skip
             if is_pattern_dir and not is_dir:
                 continue
                 
-            # Pencocokan pola:
-            # a. Jika pola mengandung '/', cocokkan terhadap rel_path_str lengkap
-            # b. Jika tidak, cocokkan terhadap tiap komponen path (parts) atau nama file/direktori langsung
             if '/' in match_pattern:
                 if fnmatch.fnmatch(rel_path_str, match_pattern) or fnmatch.fnmatch(rel_path_str, f"{match_pattern}/*"):
                     return True
             else:
-                # Cocokkan nama file/direktori langsung atau salah satu bagiannya
                 if any(fnmatch.fnmatch(part, match_pattern) for part in parts):
                     return True
                     
@@ -192,15 +236,21 @@ class CodebaseAggregator:
 
     def execute(self):
         print(f"🔍 Memulai penggabungan kode dari target: {self.target_path}")
-        
+        if "versions" in self.config.FORBIDDEN_DIRS:
+            print("🚫 Folder Migrasi Database ('alembic/versions') diabaikan untuk menghemat ruang.")
+        else:
+            print("⚠️ Folder Migrasi Database ('alembic/versions') disertakan.")
+            
         file_count = 0
         original_total_size = 0
         compressed_total_size = 0
+        
+        # Menyimpan berkas terbesar untuk statistik
+        processed_files_stats: List[Tuple[str, int]] = []
 
         try:
-            # Membuka file output dengan mode stream buffer langsung
             with open(self.output_file, "w", encoding="utf-8") as out_file:
-                out_file.write("=== STRUKTUR & ISI KODE BACKEND (COMPRESSED PARADIGM) ===\n\n")
+                out_file.write("=== STRUKTUR & ISI KODE BACKEND (HIGH OPTIMIZED PARADIGM) ===\n\n")
 
                 for root, dirs, files in os.walk(self.target_path):
                     root_path = Path(root)
@@ -243,7 +293,11 @@ class CodebaseAggregator:
                                 continue
 
                             content = file_path.read_text("utf-8", errors="ignore")
-                            compressed_content = self.optimizer.compress_code(content)
+                            compressed_content = self.optimizer.compress_code(
+                                content, 
+                                suffix=file_path.suffix, 
+                                strip_comments=self.strip_comments
+                            )
 
                             # Tulis langsung ke stream buffer tanpa menahan seluruh isi memori di RAM
                             out_file.write(f"\n--- FILE: {relative_file_path} ---\n")
@@ -251,8 +305,11 @@ class CodebaseAggregator:
                             out_file.write("\n")
 
                             file_count += 1
+                            comp_size = len(compressed_content.encode('utf-8'))
                             original_total_size += file_size
-                            compressed_total_size += len(compressed_content.encode('utf-8'))
+                            compressed_total_size += comp_size
+                            
+                            processed_files_stats.append((str(relative_file_path), comp_size))
                             print(f"-> Menyalin & mengompresi: {relative_file_path}")
 
                         except Exception as e:
@@ -262,10 +319,16 @@ class CodebaseAggregator:
             print(f"📊 Ukuran Asli: {original_total_size / 1024:.2f} KB")
             print(f"🚀 Ukuran Kompresi (LLM Ready): {compressed_total_size / 1024:.2f} KB")
             
-            # SINKRONISASI EVALUASI: Perbaikan Typo NameError secara presisi
             if original_total_size > 0:
                 saving_percent = ((original_total_size - compressed_total_size) / original_total_size) * 100
                 print(f"📉 Penghematan Ruang Konteks: ~{saving_percent:.1f}%")
+                
+            # Tampilkan 5 Berkas Terbesar untuk Identifikasi Bloat
+            if processed_files_stats:
+                print("\n📦 5 Berkas Terbesar yang Disalin (Setelah Kompresi):")
+                sorted_files = sorted(processed_files_stats, key=lambda x: x[1], reverse=True)[:5]
+                for idx, (f_path, f_size) in enumerate(sorted_files, 1):
+                    print(f"   {idx}. {f_path} ({f_size / 1024:.2f} KB)")
 
         except Exception as e:
             print(f"Critical Error: Gagal menulis file output: {e}")
@@ -280,8 +343,15 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Optimasi Bundel Kode Backend - GFW Paradigm")
     parser.add_argument("--dir", type=str, default=config_default.DEFAULT_TARGET, help="Direktori target yang akan dipindai")
     parser.add_argument("--out", type=str, default=config_default.DEFAULT_OUTPUT, help="Nama berkas keluaran (.txt)")
+    parser.add_argument("--include-migrations", action="store_true", help="Sertakan folder migrasi database alembic (versions)")
+    parser.add_argument("--keep-comments", action="store_true", help="Jangan hapus komentar dan docstring pada file Python")
     
     args = parser.parse_args()
 
-    aggregator = CodebaseAggregator(target_dir=args.dir, output_name=args.out)
+    aggregator = CodebaseAggregator(
+        target_dir=args.dir, 
+        output_name=args.out, 
+        include_migrations=args.include_migrations,
+        strip_comments=not args.keep_comments
+    )
     aggregator.execute()

@@ -1,11 +1,12 @@
 """
 ============================================================================
-SIPAS DOMAIN ENTITY — Permohonan [permohonan.py] (REVISED v5 - TYPE SAFE)
+SIPAS DOMAIN ENTITY — Permohonan [permohonan.py] (REVISED v5.1 - TYPE SAFE)
 ============================================================================
 Peran: Entitas domain murni (Pure Python) yang merepresentasikan berkas
        pengajuan pengesahan site plan. Menegakkan aturan transisi status (SLA),
-       matriks perbandingan tiga sisi, pengamanan veto Kabid, serta perpindahan
-       hak otorisasi TTE akhir ke Kepala Dinas (Kadis) secara legal.
+       matriks perbandingan tiga sisi, pengamanan veto Kabid, perpindahan
+       hak otorisasi TTE akhir ke Kepala Dinas (Kadis) secara legal, serta
+       riwayat silsilah dokumen pengesahan terdahulu (Revisi/Perubahan).
 ============================================================================
 """
 
@@ -183,7 +184,7 @@ class Permohonan:
         kabid_signature: Optional[str] = None,       # Paraf verifikasi teknis Kabid
         kadis_signature: Optional[str] = None,       # Visual TTE Final Kepala Dinas
 
-        # ─── REVISI: METRIK INTENSITAS BANGUNAN (THREE-SIDED COMPARISON LEDGER) ──
+        # ─── REVISI: METRIK INTENSITAS TATA RUANG KOMPARASI ──────────────────────
         applicant_land_area: Optional[float] = None,
         applicant_building_area: Optional[float] = None,
         applicant_kdb: Optional[float] = None,
@@ -208,9 +209,17 @@ class Permohonan:
         kkpr_verified_at: Optional[datetime] = None,
         kkpr_verifier_name: Optional[str] = None,
 
-        # ─── UPDATE FASE 3: REFERENSI NOMOR SK TER-GENERATE DI ENTITAS PERMOHONAN ───
+        # ─── REFERENSI NOMOR SK TER-GENERATE DI ENTITAS PERMOHONAN ───────────────
         sk_number: Optional[str] = None,
-        tpu_detail: Optional["PermohonanTpu"] = None
+
+        # ─── UPDATE FASE 5 (REVISI): SILSILAH PERMOHONAN SELF-REFERENTIAL ────────
+        parent_id_permohonan: Optional[str] = None,
+        replaced_sk_number: Optional[str] = None,
+        replaced_sk_date: Optional[date] = None,
+        replaced_sk_doc_url: Optional[str] = None,
+
+        tpu_detail: Optional["PermohonanTpu"] = None,
+        baseline_source: Optional[str] = None,
     ):
         self.id_permohonan = id_permohonan
         self.submission_no = submission_no
@@ -304,7 +313,7 @@ class Permohonan:
         self.signature_hash = signature_hash
         self.signed_pdf_url = signed_pdf_url
         self.kabid_signature = kabid_signature
-        self.kadis_signature = kadis_signature  # Tambahan visual coretan TTE Kadis
+        self.kadis_signature = kadis_signature
 
         # Atribut Metrik Intensitas Tata Ruang Komparasi
         self.applicant_land_area = applicant_land_area or resolved_land_area
@@ -331,9 +340,16 @@ class Permohonan:
         self.kkpr_verified_at = kkpr_verified_at
         self.kkpr_verifier_name = kkpr_verifier_name
 
-        # ─── UPDATE FASE 3: PENYEMATAN NOMOR SK PADA ENTITAS DOMAIN PERMOHONAN ───
         self.sk_number = sk_number
+
+        # ─── UPDATE FASE 5 (REVISI): SILSILAH PERMOHONAN SELF-REFERENTIAL ────────
+        self.parent_id_permohonan = parent_id_permohonan
+        self.replaced_sk_number = replaced_sk_number
+        self.replaced_sk_date = replaced_sk_date
+        self.replaced_sk_doc_url = replaced_sk_doc_url
+
         self.tpu_detail = tpu_detail
+        self.baseline_source = baseline_source
 
     @property
     def document_category(self) -> DocumentCategory:
@@ -359,14 +375,11 @@ class Permohonan:
         Membekukan penghitungan waktu (Clock Pause) jika berkas membutuhkan revisi.
         Mendukung nilai negatif (terlambat) untuk menandakan SLA terlampaui.
         """
-        # SLA dibekukan (paused) jika status DRAFT atau DITOLAK (revisi pemohon)
         if self.status in [SubmissionStatus.DRAFT, SubmissionStatus.DITOLAK]:
             total_allocated = self.base_sla + self.buffer_sla
-            # Gunakan elapsed_days statis yang telah dikunci saat status berpindah ke DITOLAK
             return total_allocated - self.elapsed_days
             
         total_sla = self.base_sla + self.buffer_sla
-        # Hitung elapsed days aktif secara dinamis sejak tanggal sla_start_date
         active_elapsed = (date.today() - self.sla_start_date).days
         return total_sla - active_elapsed
 
@@ -396,41 +409,34 @@ class Permohonan:
                 SubmissionStatus.DITOLAK
             ],
             
-            # Tim Teknis dapat mengirim berkas ke Kabid (Menunggu Rekomendasi) setelah membuat Telaah Staf
             SubmissionStatus.VERIFIKASI_TEKNIS: [
                 SubmissionStatus.MENUNGGU_REKOMENDASI,
                 SubmissionStatus.DITOLAK,
-                SubmissionStatus.VERIFIKASI_ADMINISTRASI  # Revert internal ke Admin
+                SubmissionStatus.VERIFIKASI_ADMINISTRASI
             ],
             
-            # Kabid meninjau Telaah Staf: bisa setuju revisi (DITOLAK), override ke Kadis (MENUNGGU_PERSETUJUAN),
-            # atau mengembalikan ke Tim Teknis secara internal.
             SubmissionStatus.MENUNGGU_REKOMENDASI: [
                 SubmissionStatus.MENUNGGU_PERSETUJUAN,
-                SubmissionStatus.VERIFIKASI_TEKNIS,       # Revert internal ke Tim Teknis
-                SubmissionStatus.DITOLAK                   # Revert ke Pemohon untuk Revisi
+                SubmissionStatus.VERIFIKASI_TEKNIS,
+                SubmissionStatus.DITOLAK
             ],
             
-            # Kadis meninjau draf SK: bisa melangkah ke TTE (PROSES_TTE), mengembalikan ke Kabid secara internal,
-            # atau melakukan penolakan keras (DITOLAK).
             SubmissionStatus.MENUNGGU_PERSETUJUAN: [
                 SubmissionStatus.PROSES_TTE,
-                SubmissionStatus.MENUNGGU_REKOMENDASI,     # Revert internal ke Kabid
-                SubmissionStatus.DITOLAK                   # Revert ke Pemohon (Hard Reject)
+                SubmissionStatus.MENUNGGU_REKOMENDASI,
+                SubmissionStatus.DITOLAK
             ],
             
-            # Proses TTE dinas terkunci: hanya boleh beralih ke DISETUJUI atau dibatalkan ke Kadis
             SubmissionStatus.PROSES_TTE: [
                 SubmissionStatus.DISETUJUI,
-                SubmissionStatus.MENUNGGU_PERSETUJUAN      # Rollback jika transaksi API BSrE gagal
+                SubmissionStatus.MENUNGGU_PERSETUJUAN
             ],
             
-            SubmissionStatus.DISETUJUI: [],  # Status terminal akhir yang sah secara hukum
+            SubmissionStatus.DISETUJUI: [],
             
-            # Selesai melakukan revisi, pemohon mengirim draf baru langsung ke verifikasi teknis atau admin
             SubmissionStatus.DITOLAK: [
                 SubmissionStatus.MENUNGGU_VERIFIKASI,
-                SubmissionStatus.VERIFIKASI_TEKNIS         # Akselerasi bypass admin jika revisi bersifat teknis murni
+                SubmissionStatus.VERIFIKASI_TEKNIS
             ]
         }
 
@@ -439,11 +445,9 @@ class Permohonan:
                 f"Ilegal: Tidak diizinkan melakukan transisi status dari '{self.status.value}' langsung ke '{new_status.value}'."
             )
 
-        # Kunci penghitungan hari aktif (elapsed_days) saat status berpindah ke DITOLAK (paused)
         if new_status == SubmissionStatus.DITOLAK and self.status not in [SubmissionStatus.DRAFT, SubmissionStatus.DITOLAK]:
             self.elapsed_days = max(self.elapsed_days, (date.today() - self.sla_start_date).days)
         
-        # Reset SLA (1 bulan/30 hari baru) saat berpindah ke tahapan utama peninjauan yang berbeda
         RESET_SLA_STATUSES = [
             SubmissionStatus.MENUNGGU_VERIFIKASI,
             SubmissionStatus.VERIFIKASI_TEKNIS,

@@ -1,10 +1,11 @@
 """
 ============================================================================
-SIPAS USE CASE — Submit Permohonan [submit_permohonan.py] (REVISED v5)
+SIPAS USE CASE — Submit Permohonan [submit_permohonan.py] (REVISED v5.1)
 ============================================================================
 Peran: Mengorkestrasikan alur pendaftaran permohonan baru satu pintu,
        menegakkan validasi skema dasar, menyimpan entitas ke repositori,
        menyimpan metrik komparasi tata ruang awal (KDB, KLB, KDH, GSB, RTH),
+       mendaftarkan silsilah permohonan revisi (Self-Referential/Legacy),
        dan mendaftarkan log audit perdana [Bogor 4, 7, sipas-fe.txt].
 ============================================================================
 """
@@ -210,7 +211,7 @@ class SubmitPermohonanInputDto:
     photo_west: Optional[str] = None
     photo_access: Optional[str] = None
 
-    # ─── REVISI: METRIK INTENSITAS SPASIAL PEMOHON (PROPOSED VS BYLAW) ───
+    # REVISI: METRIK INTENSITAS SPASIAL PEMOHON & BATAS RDTR
     applicant_land_area: Optional[float] = None
     applicant_building_area: Optional[float] = None
     applicant_kdb: Optional[float] = None
@@ -236,6 +237,13 @@ class SubmitPermohonanInputDto:
     tpu_koordinat: Optional[str] = None
     tpu_bukti_dokumen: Optional[str] = None
     self_declared_compensations: Optional[List[dict]] = None
+
+    # ─── UPDATE FASE 5 (REVISI): SILSILAH PERMOHONAN INPUT DTO ────────────────
+    baseline_source: Optional[str] = None         # "DIGITAL" | "LEGACY"
+    parent_id_permohonan: Optional[str] = None    # ID Permohonan lama (jika ada di DB)
+    replaced_sk_number: Optional[str] = None      # Nomor SK Fisik Lama
+    replaced_sk_date: Optional[date] = None        # Tanggal SK Fisik Lama
+    replaced_sk_doc_url: Optional[str] = None     # URL Berkas SK Fisik Lama
 
 # ─── SECTION: USE CASE INTERACTOR ─────────────────────────────────────────
 
@@ -338,7 +346,7 @@ class SubmitPermohonanUseCase:
             polygon=input_dto.polygon,
             user_id=input_dto.user_id,
 
-            # ─── REVISI: METRIK INTENSITAS SPASIAL PEMOHON & BATAS RDTR ───
+            # REVISI: METRIK INTENSITAS SPASIAL PEMOHON & BATAS RDTR
             applicant_land_area=input_dto.applicant_land_area,
             applicant_building_area=input_dto.applicant_building_area,
             applicant_kdb=input_dto.applicant_kdb,
@@ -351,8 +359,44 @@ class SubmitPermohonanUseCase:
             bylaw_max_klb=input_dto.bylaw_max_klb,
             bylaw_min_kdh=input_dto.bylaw_min_kdh,
             bylaw_min_gsb=input_dto.bylaw_min_gsb,
-            bylaw_min_rth_area=input_dto.bylaw_min_rth_area
+            bylaw_min_rth_area=input_dto.bylaw_min_rth_area,
+
+            # ─── UPDATE FASE 5 (REVISI): SILSILAH DOMAIN MAPPING KPD ENTIAS DOMAIN ───
+            baseline_source=input_dto.baseline_source,
+            parent_id_permohonan=input_dto.parent_id_permohonan,
+            replaced_sk_number=input_dto.replaced_sk_number,
+            replaced_sk_date=input_dto.replaced_sk_date,
+            replaced_sk_doc_url=input_dto.replaced_sk_doc_url
         )
+
+        # ─── LOGIKA VERIFIKASI SEJARAH SK SECARA PRESISI (HUKUM DAN SPASIAL) ───
+        is_revisi = str(permohonan.submission_type).upper() == "REVISI"
+        if is_revisi and not input_dto.is_draft:
+            if not input_dto.baseline_source:
+                raise ValueError("Proses revisi dibatalkan. Bukti SK Lama mutlak diperlukan.")
+
+            if input_dto.baseline_source == "DIGITAL":
+                if not input_dto.parent_id_permohonan:
+                    raise ValueError("Proses revisi dibatalkan. Bukti SK Lama mutlak diperlukan.")
+                
+                parent = self.permohonan_repo.find_by_id(input_dto.parent_id_permohonan)
+                if not parent:
+                    raise ValueError(f"Proses revisi dibatalkan. Permohonan referensi ID '{input_dto.parent_id_permohonan}' tidak ditemukan.")
+                
+                # Validasi: Ikat sejarah spasial dan legal dari data digital internal
+                permohonan.parent_id_permohonan = parent.id_permohonan
+                permohonan.replaced_sk_number = parent.sk_number
+                permohonan.replaced_sk_date = parent.submission_date # Fallback pada tanggal submit awal
+
+            elif input_dto.baseline_source == "LEGACY":
+                if not input_dto.replaced_sk_number or not input_dto.replaced_sk_date or not input_dto.replaced_sk_doc_url:
+                    raise ValueError("Proses revisi dibatalkan. Bukti SK Lama mutlak diperlukan.")
+                
+                # Validasi: Ikat sejarah spasial dan legal dari data fisik manual
+                permohonan.parent_id_permohonan = None
+                permohonan.replaced_sk_number = input_dto.replaced_sk_number
+                permohonan.replaced_sk_date = input_dto.replaced_sk_date
+                permohonan.replaced_sk_doc_url = input_dto.replaced_sk_doc_url
 
         tpu_detail = None
         if input_dto.tpu_method:
@@ -531,9 +575,9 @@ class SubmitPermohonanUseCase:
             })
         self.permohonan_repo.save_files(saved_permohonan.id_permohonan, files_to_save)
 
-        # ─── BARU: OTOMATISASI PENYEMAIAN POLIGON INTERNAL CAD ───
-        if hasattr(self.permohonan_repo, 'db') and input_dto.polygon and len(input_dto.polygon) >= 3:
-            db_session = self.permohonan_repo.db
+        # ─── DECOUPLED EVENT LISTENER: AUTOMATIC GEOMETRIZATION ───────────────
+        db_session = getattr(self.permohonan_repo, "db", None) # Safe attribute-access (Pylance/Pyright Compliant)
+        if db_session and input_dto.polygon and len(input_dto.polygon) >= 3:
             try:
                 from src.infrastructure.database.seed import seed_internal_geometries
                 # Hitung centroid dari input polygon
