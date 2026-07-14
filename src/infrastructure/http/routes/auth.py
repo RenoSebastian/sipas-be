@@ -19,7 +19,7 @@ from sqlalchemy import or_
 from typing import Optional, List, cast
 
 from src.infrastructure.database.connection import get_db
-from src.infrastructure.database.models import UserModel, AuditTrailModel
+from src.infrastructure.database.models import UserModel, AuditTrailModel, SystemFeedbackModel
 from src.infrastructure.security.auth import (
     hash_password,
     verify_password,
@@ -79,6 +79,11 @@ class UserUpdateAdmin(BaseModel):
     company: Optional[str] = Field(default=None, examples=["Dinas PUPR"])
     phone: Optional[str] = Field(default=None, examples=["081234567890"])
     password: Optional[str] = Field(default=None, min_length=6, examples=["password123"])
+
+class FeedbackCreate(BaseModel):
+    category: str = Field(..., examples=["Fitur Baru"])
+    title: str = Field(..., examples=["Usulan Fitur PDF"])
+    description: str = Field(..., examples=["Mohon tambahkan fitur eksport PDF pada halaman detail..."])
 
 # ─── ENDPOINTS ────────────────────────────────────────────────────────────
 
@@ -359,5 +364,70 @@ def get_all_audit_logs(
                 "created_at": log.created_at.strftime("%Y-%m-%d %H:%M:%S")
             }
             for log in logs
+        ]
+    }
+
+@router.post("/feedback")
+def create_feedback(
+    req: FeedbackCreate,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_active_user)
+):
+    """Mengirimkan usulan pengembangan dan kebutuhan dari user."""
+    feedback = SystemFeedbackModel(
+        user_id=current_user.id,
+        actor_name=current_user.full_name,
+        actor_email=current_user.email,
+        category=req.category,
+        title=req.title,
+        description=req.description
+    )
+    db.add(feedback)
+    db.commit()
+    db.refresh(feedback)
+    return {
+        "status": "SUCCESS",
+        "message": "Usulan pengembangan berhasil disimpan.",
+        "id": feedback.id
+    }
+
+@router.get("/feedbacks")
+def get_all_feedbacks(
+    limit: int = 50,
+    page: int = 1,
+    search: Optional[str] = None,
+    db: Session = Depends(get_db),
+    token_payload: dict = Depends(requires_roles([UserRole.ADMIN]))
+):
+    """Mendapatkan seluruh daftar usulan pengembangan dengan pencarian (Hanya Super Admin / Admin)."""
+    query = db.query(SystemFeedbackModel)
+    if search:
+        search_filter = f"%{search}%"
+        query = query.filter(
+            or_(
+                SystemFeedbackModel.actor_name.ilike(search_filter),
+                SystemFeedbackModel.actor_email.ilike(search_filter),
+                SystemFeedbackModel.category.ilike(search_filter),
+                SystemFeedbackModel.title.ilike(search_filter),
+                SystemFeedbackModel.description.ilike(search_filter)
+            )
+        )
+    total = query.count()
+    items = query.order_by(SystemFeedbackModel.created_at.desc()).offset((page - 1) * limit).limit(limit).all()
+    return {
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "items": [
+            {
+                "id": item.id,
+                "actor_name": item.actor_name,
+                "actor_email": item.actor_email,
+                "category": item.category,
+                "title": item.title,
+                "description": item.description,
+                "created_at": item.created_at.strftime("%Y-%m-%d %H:%M:%S")
+            }
+            for item in items
         ]
     }

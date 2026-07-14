@@ -45,8 +45,19 @@ def main():
         "ALTER TABLE permohonan ADD COLUMN IF NOT EXISTS kabid_signature TEXT;",
         "ALTER TABLE lahan_kompensasi ADD COLUMN IF NOT EXISTS alamat_lokasi VARCHAR(500);",
         "ALTER TABLE permohonan_tpu ADD COLUMN IF NOT EXISTS koordinat VARCHAR(100);",
-        "DROP TABLE IF EXISTS region_references CASCADE;"
-
+        "DROP TABLE IF EXISTS region_references CASCADE;",
+        """
+        CREATE TABLE IF NOT EXISTS system_feedbacks (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            actor_name VARCHAR(255) NOT NULL,
+            actor_email VARCHAR(255) NOT NULL,
+            category VARCHAR(100) NOT NULL,
+            title VARCHAR(255) NOT NULL,
+            description TEXT NOT NULL,
+            created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW()
+        );
+        """
     ]
     try:
         with engine.begin() as conn:
