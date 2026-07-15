@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Tanda Terima Permohonan - {{ permohonan.submission_no }}</title>
+    <style>
+        @page {
+            size: A4;
+            margin: 20mm;
+            @bottom-right {
+                content: "Halaman 1 dari 1";
+                font-family: Arial, Helvetica, sans-serif;
+                font-size: 8pt;
+            }
+        }
+        body {
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 10pt;
+            line-height: 1.6;
+            color: #1e293b;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+            border-bottom: 3px double #0f172a;
+            padding-bottom: 12px;
+        }
+        .kop-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .kop-table td { padding: 0; vertical-align: middle; }
+        .kop-logo-cell { width: 75px; text-align: center; }
+        .kop-logo-cell img { width: 64px; height: 64px; object-fit: contain; }
+        .kop-text-cell { text-align: center; }
+        .kop-instansi { margin: 0; font-size: 11pt; font-weight: bold; text-transform: uppercase; }
+        .kop-dinas { margin: 2px 0 0 0; font-size: 13pt; font-weight: bold; text-transform: uppercase; color: #0f172a; }
+        .kop-alamat { margin: 3px 0 0 0; font-size: 8pt; color: #475569; font-style: italic; }
+        
+        .title {
+            text-align: center;
+            font-size: 14pt;
+            font-weight: bold;
+            text-transform: uppercase;
+            margin-top: 20px;
+            margin-bottom: 25px;
+            color: #0f172a;
+            letter-spacing: 0.5px;
+        }
+        
+        .info-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 25px;
+        }
+        .info-table td {
+            padding: 8px 12px;
+            vertical-align: top;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        .info-table td.label {
+            width: 30%;
+            font-weight: bold;
+            color: #475569;
+        }
+        .info-table td.value {
+            color: #0f172a;
+        }
+        
+        .alert-box {
+            background-color: #f0fdf4;
+            border-left: 4px solid #16a34a;
+            padding: 15px;
+            margin-bottom: 25px;
+            border-radius: 4px;
+        }
+        .alert-box p {
+            margin: 0;
+            font-size: 9.5pt;
+            color: #14532d;
+        }
+        
+        .guide-section {
+            margin-top: 20px;
+            background-color: #f8fafc;
+            border: 1px solid #e2e8f0;
+            padding: 20px;
+            border-radius: 6px;
+        }
+        .guide-title {
+            font-size: 11pt;
+            font-weight: bold;
+            color: #0f172a;
+            margin-top: 0;
+            margin-bottom: 12px;
+            border-bottom: 1px solid #cbd5e1;
+            padding-bottom: 6px;
+            text-transform: uppercase;
+        }
+        .guide-list {
+            margin: 0;
+            padding-left: 20px;
+        }
+        .guide-list li {
+            margin-bottom: 10px;
+            font-size: 9pt;
+            color: #334155;
+        }
+        .guide-list li strong {
+            color: #0f172a;
+        }
+        
+        .footer {
+            margin-top: 40px;
+            text-align: center;
+            font-size: 8pt;
+            color: #94a3b8;
+            border-top: 1px solid #e2e8f0;
+            padding-top: 10px;
+        }
+        .signature-area {
+            margin-top: 30px;
+            float: right;
+            width: 250px;
+            text-align: center;
+        }
+        .signature-name {
+            font-size: 9.5pt;
+            font-weight: bold;
+            color: #0f172a;
+            border-bottom: 1px solid #0f172a;
+            padding-bottom: 2px;
+            display: inline-block;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <table class="kop-table">
+            <tr>
+                <td class="kop-logo-cell">
+                    {% if logo_base64 %}
+                        <img src="{{ logo_base64 }}" />
+                    {% else %}
+                        <div style="width: 55px; height: 55px; background: #e2e8f0; border: 1px solid #cbd5e1; line-height: 55px; font-size: 8pt; font-weight: bold; color: #64748b; border-radius: 50%;">SIPAS</div>
+                    {% endif %}
+                </td>
+                <td class="kop-text-cell">
+                    <div class="kop-instansi">Pemerintah Kabupaten Bogor</div>
+                    <div class="kop-dinas">Dinas Penanaman Modal dan Pelayanan Terpadu Satu Pintu</div>
+                    <div class="kop-alamat">Jl. Tegar Beriman No. 1, Cibinong, Kabupaten Bogor, Jawa Barat 16914</div>
+                </td>
+            </tr>
+        </table>
+    </div>
+ 
+    <div class="title">Tanda Terima Permohonan</div>
+ 
+    <div class="alert-box">
+        <p>
+            <strong>Pemberitahuan:</strong> Berkas permohonan pengesahan site plan Anda telah sukses diunggah dan diterima oleh sistem GEOSIPAS. Dokumen tanda terima ini diterbitkan sebagai bukti registrasi awal.
+        </p>
+    </div>
+ 
+    <table class="info-table">
+        <tr>
+            <td class="label">Nomor Permohonan</td>
+            <td class="value" style="font-weight: bold; color: #16a34a;">{{ permohonan.submission_no }}</td>
+        </tr>
+        <tr>
+            <td class="label">Nama Pemohon</td>
+            <td class="value">{{ permohonan.applicant_name }}</td>
+        </tr>
+        <tr>
+            <td class="label">Nama Perumahan/Kegiatan</td>
+            <td class="value">{{ permohonan.housing_name }}</td>
+        </tr>
+        <tr>
+            <td class="label">Kategori Dokumen</td>
+            <td class="value">{{ permohonan.document_category }}</td>
+        </tr>
+        <tr>
+            <td class="label">Luas Lahan</td>
+            <td class="value">{{ permohonan.land_area }} m²</td>
+        </tr>
+        <tr>
+            <td class="label">Tanggal Diterima</td>
+            <td class="value">{{ system_log.generated_at }}</td>
+        </tr>
+    </table>
+ 
+    <div class="guide-section">
+        <div class="guide-title">Panduan Pemantauan (Monitoring) Permohonan</div>
+        <ol class="guide-list">
+            <li>Buka peramban (browser) dan akses halaman aplikasi <strong>GEOSIPAS</strong>.</li>
+            <li>Masuk (Login) menggunakan akun Pemohon terdaftar yang Anda gunakan saat mengajukan berkas.</li>
+            <li>Arahkan ke menu utama pada sidebar sebelah kiri, pilih menu <strong>Daftar Pengajuan</strong>.</li>
+            <li>Cari berkas Anda berdasarkan <strong>Nomor Permohonan</strong> atau <strong>Nama Perumahan</strong>.</li>
+            <li>Klik tombol <strong>Detail</strong> pada baris pengajuan untuk memantau status secara real-time:
+                <ul style="margin-top: 5px; padding-left: 15px;">
+                    <li><strong>Pengajuan Dokumen:</strong> Berkas sedang berada di antrean verifikasi administrasi awal.</li>
+                    <li><strong>Verifikasi Administrasi:</strong> Pemeriksaan kelengkapan berkas administratif oleh petugas.</li>
+                    <li><strong>Verifikasi Teknis:</strong> Evaluasi batas-batas spasial RDTR dan kesesuaian gambar rencana tapak oleh Tim Teknis.</li>
+                    <li><strong>Menunggu Rekomendasi/Persetujuan:</strong> Peninjauan draf Surat Keputusan (SK) oleh Kepala Bidang dan Kepala Dinas.</li>
+                    <li><strong>Disetujui:</strong> Dokumen SK resmi telah ditandatangani secara elektronik (TTE) dan siap diunduh.</li>
+                </ul>
+            </li>
+        </ol>
+    </div>
+ 
+    <div class="signature-area" style="font-family: 'Segoe UI', Helvetica, Arial, sans-serif; text-align: center; width: 220px; margin: 20px auto; color: #334155;">
+        <!-- Judul Atas -->
+        <div class="signature-title" style="font-size: 8pt; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #64748b; margin-bottom: 12px;">
+            Sistem Administrasi GEOSIPAS
+        </div>
+        
+        <!-- Box Verifikasi Sistem -->
+        <div class="signature-badge" style="border: 1.5px dashed #cbd5e1; background-color: #f8fafc; border-radius: 6px; padding: 10px 8px; margin-bottom: 15px;">
+            <div style="font-size: 7.5pt; font-weight: bold; color: #0284c7; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">
+                ✓ TERVERIFIKASI SISTEM
+            </div>
+            <div style="font-size: 6.5pt; color: #64748b; line-height: 1.3;">
+                Dokumen ini sah dan ditandatangani secara elektronik oleh sistem
+            </div>
+        </div>
+        
+        <!-- Nama Penandatangan -->
+        <div class="signature-name" style="font-size: 9pt; font-weight: bold; color: #0f172a; border-top: 1px solid #e2e8f0; padding-top: 8px;">
+            GEOSIPAS KAB. BOGOR
+        </div>
+    </div>
+ 
+    <div style="clear: both;"></div>
+ 
+    <div class="footer">
+        Dokumen ini diterbitkan oleh sistem e-Siteplan GEOSIPAS Kabupaten Bogor secara elektronik pada {{ system_log.generated_date }} {{ system_log.generated_time }}.
+    </div>
+</body>
+</html>

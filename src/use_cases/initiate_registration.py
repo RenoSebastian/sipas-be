@@ -1,4 +1,3 @@
-# --- FILE: src/use_cases/initiate_registration.py ---
 """
 ============================================================================
 SIPAS USE CASE — Initiate Registration [initiate_registration.py] (REVISED v2)
@@ -6,6 +5,7 @@ SIPAS USE CASE — Initiate Registration [initiate_registration.py] (REVISED v2)
 Peran: Mengelola alur pendaftaran sementara tahap pertama.
        Menjamin pencegahan brute-force spamming OTP, penyelarasan zona waktu,
        serta perlindungan transaksional terhadap Unique Key Violation database.
+       Mengunci peran pendaftaran mandiri publik wajib selalu menjadi "PEMOHON".
 ============================================================================
 """
 
@@ -114,13 +114,17 @@ class InitiateRegistrationUseCase:
         expires_at = now_utc + timedelta(minutes=5)
 
         # 7. Buat Entity Domain PendingRegistration Baru
+        # ─── KEBIJAKAN KEAMANAN (SECURITY INVARIANT) ───
+        # Nilai peran ('role') dipaksa secara mutlak selalu menjadi "PEMOHON" pada pendaftaran OTP mandiri.
+        # Hal ini menutup potensi eksploitasi bypass skema di mana peretas mencoba memanipulasi payload HTTP
+        # untuk mendaftarkan akun internal (KADIS/KABID_PUPR) melalui jalur pendaftaran mandiri luar.
         pending_reg = PendingRegistration(
             session_id=session_id,
             username=dto.username,
             email=dto.email,
             hashed_password=hashed_pw,
             full_name=dto.full_name,
-            role=dto.role,
+            role="PEMOHON",
             phone=dto.phone,
             nip=dto.nip,
             company=dto.company,
@@ -134,7 +138,7 @@ class InitiateRegistrationUseCase:
 
         # 8. Simpan Sesi Registrasi Sementara Baru ke Repositori
         self.otp_repo.save(pending_reg)
-        logger.info(f"[OTP_INITIATE] Sesi pendaftaran sementara berhasil dibuat. ID Sesi: {session_id}")
+        logger.info(f"[OTP_INITIATE] Sesi pendaftaran sementara berhasil dibuat dengan peran paksa 'PEMOHON'. ID Sesi: {session_id}")
 
         # 9. Kirim Kode OTP (Plain Text) Melalui WhatsApp Gateway Port secara Asinkron
         success = await self.whatsapp_gateway.send_otp(dto.phone, otp_code)

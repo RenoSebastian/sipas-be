@@ -1,0 +1,26 @@
+<table class="recital-table">
+    <!-- Menimbang -->
+    {% for item in considerations.menimbang %}
+    <tr>
+        <td class="clause">{% if loop.first %}Menimbang{% endif %}</td>
+        <td class="num">:</td>
+        <td class="text">{{ item }}</td>
+    </tr>
+    {% endfor %}
+    <!-- Mengingat -->
+    {% for item in considerations.mengingat %}
+    <tr>
+        <td class="clause">{% if loop.first %}Mengingat{% endif %}</td>
+        <td class="num">:</td>
+        <td class="text">{{ item }}</td>
+    </tr>
+    {% endfor %}
+    <!-- Memperhatikan -->
+    {% for item in considerations.memperhatikan %}
+    <tr>
+        <td class="clause">{% if loop.first %}Memperhatikan{% endif %}</td>
+        <td class="num">:</td>
+        <td class="text">{{ item }}</td>
+    </tr>
+    {% endfor %}
+</table>

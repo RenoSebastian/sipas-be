@@ -1,0 +1,20 @@
+<div class="signer-block">
+    <table class="signer-table">
+        <tr>
+            <td class="spacer"></td>
+            <td class="content">
+                <p>Ditetapkan di Cibinong<br>pada tanggal {{ document_metadata.created_at }}</p>
+                <p><strong>{{ signer.office_title }}<br>Kabupaten Bogor</strong></p>
+                {% if signer.signature_base64 %}
+                    <div class="tte-box">
+                        <img src="{{ signer.signature_base64 }}" style="max-height: 52px; display: block; margin: 0 auto 4px auto;" />
+                        <span>Dokumen ini ditandatangani secara elektronik (TTE BSrE BSSN)</span>
+                    </div>
+                {% else %}
+                    <br><br><br>
+                {% endif %}
+                <p><strong>{{ signer.name }}</strong><br>NIP. {{ signer.nip }}</p>
+            </td>
+        </tr>
+    </table>
+</div>
