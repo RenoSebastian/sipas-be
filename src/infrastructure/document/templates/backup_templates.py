@@ -1,10 +1,11 @@
 """
 ============================================================================
-SIPAS INFRASTRUCTURE TEMPLATES — Backup Inline HTML [backup_templates.py]
+SIPAS INFRASTRUCTURE TEMPLATES — Backup Inline HTML [backup_templates.py] (REVISED v10.1)
 ============================================================================
 Peran: Menyimpan string HTML Jinja2 inline default sebagai cadangan (fallback)
        jika file template fisik tidak ditemukan pada sistem file server.
-       Memisahkan urusan visual/dokumen dari logika kompilasi PDF Engine.
+       Mendukung penomoran diktum hukum dinamis (Diktum Pencabutan SK Lama)
+       pada draf Surat Keputusan (SK) jika permohonan bertipe Revisi.
 ============================================================================
 """
 
@@ -709,6 +710,33 @@ DEFAULT_SK_TEMPLATE = """
                 </table>
             </td>
         </tr>
+        
+        <!-- ─── UPDATE FASE 5 (REVISI): SILSILAH PENOMORAN DIKTUM HUKUM DINAMIS ─── -->
+        {% if considerations.replaced_sk_number %}
+        <tr>
+            <td class="dictum-name">Ketiga</td>
+            <td class="separator">:</td>
+            <td class="content">
+                Mencabut dan menyatakan tidak berlaku lagi Surat Keputusan Kepala Dinas Penanaman Modal dan Pelayanan Terpadu Satu Pintu Kabupaten Bogor 
+                Nomor: <strong>{{ considerations.replaced_sk_number }}</strong> tanggal <strong>{{ considerations.replaced_sk_date }}</strong> 
+                terhitung sejak ditetapkannya Keputusan ini.
+            </td>
+        </tr>
+        <tr>
+            <td class="dictum-name">Keempat</td>
+            <td class="separator">:</td>
+            <td class="content">
+                Apabila keterangan dan rincian spesifikasi teknis pada Diktum KEDUA tidak dipenuhi, tidak ditaati, atau disalahgunakan di luar peruntukan yang disahkan, maka Surat Keputusan Persetujuan Rencana Tapak (Site Plan) ini dinyatakan <strong>BATAL DEMI HUKUM</strong>.
+            </td>
+        </tr>
+        <tr>
+            <td class="dictum-name">Kelima</td>
+            <td class="separator">:</td>
+            <td class="content">
+                Keputusan ini mulai berlaku pada tanggal ditetapkan dengan ketentuan bahwa segala sesuatunya akan ditinjau kembali dan diperbaiki sebagaimana mestinya apabila di kemudian hari terdapat kekeliruan.
+            </td>
+        </tr>
+        {% else %}
         <tr>
             <td class="dictum-name">Ketiga</td>
             <td class="separator">:</td>
@@ -723,6 +751,7 @@ DEFAULT_SK_TEMPLATE = """
                 Keputusan ini mulai berlaku pada tanggal ditetapkan dengan ketentuan bahwa segala sesuatunya akan ditinjau kembali dan diperbaiki sebagaimana mestinya apabila di kemudian hari terdapat kekeliruan.
             </td>
         </tr>
+        {% endif %}
     </table>
 
     <!-- SIGNATURE BLOCK -->
@@ -765,7 +794,6 @@ DEFAULT_SK_TEMPLATE = """
 """
 
 
-# ─── TEMPLATE 3: EXECUTIVE REPORT DEFAULT TEMPLATE ────────────────────────────
 # ─── TEMPLATE 3: EXECUTIVE REPORT DEFAULT TEMPLATE ────────────────────────────
 DEFAULT_REPORT_TEMPLATE = """
 <!DOCTYPE html>
@@ -877,7 +905,7 @@ DEFAULT_REPORT_TEMPLATE = """
             letter-spacing: 0.3px;
         }
         .kpi-value {
-            font-size: 10pt; /* Diturunkan ke 10pt agar lebih kecil dari Sub Judul (11pt) */
+            font-size: 10pt; 
             font-weight: bold;
             color: #111d13;
             margin-top: 4px;
@@ -1213,11 +1241,6 @@ DEFAULT_RECEIPT_TEMPLATE = """
             float: right;
             width: 250px;
             text-align: center;
-        }
-        .signature-title {
-            font-size: 9pt;
-            color: #475569;
-            margin-bottom: 50px;
         }
         .signature-name {
             font-size: 9.5pt;

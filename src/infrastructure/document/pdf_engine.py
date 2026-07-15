@@ -1,13 +1,12 @@
 """
 ============================================================================
-SIPAS INFRASTRUCTURE ADAPTER — Enterprise PDF Engine [pdf_engine.py] (REVISED v10)
+SIPAS INFRASTRUCTURE ADAPTER — Enterprise PDF Engine [pdf_engine.py] (REVISED v10.2)
 ============================================================================
 Peran: Engine pencetakan dokumen yang bertugas menyatukan template HTML Jinja2 
        dengan data JSONB menjadi berkas PDF fisik.
        Mewarisi DocumentGeneratorPort untuk menegakkan Dependency Inversion,
-       serta mengamankan pengikatan variabel WeasyPrint (Anti-Unbound Pylance).
-       Membaca inline template cadangan dari modul terpisah guna menjaga
-       prinsip High Cohesion dan kelegaan pembacaan kode.
+       mengamankan pengikatan variabel WeasyPrint (Anti-Unbound Pylance),
+       serta memproses penyusunan silsilah SK lama untuk diktum pencabutan.
 ============================================================================
 """
 
@@ -15,7 +14,7 @@ import os
 import logging
 from pathlib import Path
 from typing import Dict, Any, Optional
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, date, timezone, timedelta
 
 # Impor loader konfigurasi sistem (logo & nama aplikasi) — lazy-import untuk menghindari circular
 def _load_branding() -> Dict[str, Any]:
@@ -144,7 +143,7 @@ class HtmlToPdfEngine(DocumentGeneratorPort):
             except Exception as e:
                 logger.error(f"[PDF_ENGINE_CRASH] Gagal mengompilasi PDF via WeasyPrint: {str(e)}", exc_info=True)
 
-        # ─── FALLBACK PDF GENERATOR (Jika WeasyPrint rusak/tidak terinstal) ─────
+        # Fallback PDF Generator (Jika WeasyPrint rusak/tidak terinstal)
         logger.warning("[PDF_ENGINE_FALLBACK] Mengaktifkan penulisan dokumen Fail-Safe.")
         return self._generate_fallback_pdf(html_content, output_path)
 
@@ -171,8 +170,8 @@ class HtmlToPdfEngine(DocumentGeneratorPort):
         )
         
         objects = []
-        objects.append("1 0 obj\n<</Type /Catalog /Pages 2 0 R>>\nendobj\n")
-        objects.append("2 0 obj\n<</Type /Pages /Kids [3 0 R] /Count 1>>\nendobj\n")
+        objects.append("1 0 obj\n<</Type /Catalog /Pages 2 0 R>>\nobj\n")
+        objects.append("2 0 obj\n<</Type /Pages /Kids [3 0 R] /Count 1>>\nobj\n")
         objects.append(
             "3 0 obj\n"
             "<</Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] "
@@ -305,7 +304,7 @@ class HtmlToPdfEngine(DocumentGeneratorPort):
             }
         }
 
-        # ─── System Log (Generated User, Tanggal & Waktu) ───
+        # System Log (Generated User, Tanggal & Waktu)
         wib_tz = timezone(timedelta(hours=7))
         now = datetime.now(wib_tz)
         gen_user = generated_by or (telaah_staf.verifier.name if getattr(telaah_staf, "verifier", None) else None) or getattr(telaah_staf, "admin_verifier_name", None) or "Sistem"
@@ -316,8 +315,7 @@ class HtmlToPdfEngine(DocumentGeneratorPort):
             "generated_at": now.strftime("%d-%m-%Y %H:%M:%S WIB")
         }
 
-
-        # ─── Inject Branding (Logo + App Name dari System Config Admin) ───
+        # Inject Branding (Logo + App Name dari System Config Admin)
         branding = _load_branding()
 
         context = {
@@ -388,7 +386,7 @@ class HtmlToPdfEngine(DocumentGeneratorPort):
         output_path = output_dir / f"Telaah_Staf_{permohonan.id_permohonan}.pdf"
         return self.compile_to_pdf(html_content, str(output_path))
 
-    # ─── BARU: RENDER PDF DRAF SK & SK FINAL SECARA PRESISI (TAHAP 5) ───────────
+    # ─── RENDER PDF DRAF SK & SK FINAL SECARA PRESISI (TAHAP 5) ───────────
 
     def _build_sk_context(self, permohonan: Permohonan, sk_draft: SkDraft, is_draft: bool, generated_by: Optional[str] = None) -> Dict[str, Any]:
         """Menyusun payload konteks data untuk dirender ke dalam Surat Keputusan HTML."""
@@ -449,20 +447,36 @@ class HtmlToPdfEngine(DocumentGeneratorPort):
                 "signature_base64": sk_draft.signer.signature_base64
             }
 
-        # 5. Merakit Konsiderans
+        # 5. Merakit Konsiderans (dan Penyeragaman silsilah SK Lama)
         considerations_payload = {
             "menimbang": [],
             "mengingat": [],
-            "memperhatikan": []
+            "memperhatikan": [],
+            "replaced_sk_number": None,
+            "replaced_sk_date": None
         }
         if sk_draft.considerations:
-            considerations_payload = {
+            considerations_payload.update({
                 "menimbang": sk_draft.considerations.menimbang,
                 "mengingat": sk_draft.considerations.mengingat,
                 "memperhatikan": sk_draft.considerations.memperhatikan
-            }
+            })
 
-        # ─── System Log (Generated User, Tanggal & Waktu) ───
+        # ─── UPDATE FASE 5 (REVISI): SILSILAH PROSES INJEKSI PENGIKAT JINJA CONTEXT (FIX PYLANCE OPTIONAL TYPE) ───
+        if getattr(permohonan, "replaced_sk_number", None):
+            considerations_payload["replaced_sk_number"] = permohonan.replaced_sk_number
+            replaced_date = getattr(permohonan, "replaced_sk_date", None)
+            if replaced_date is not None:
+                # Memastikan penyempitan tipe statis (isinstance) sebelum akses properti (Anti-Optional-Unbound)
+                if isinstance(replaced_date, (date, datetime)):
+                    MONTH_NAMES = ["Januari", "Februari", "Maret", "April", "Mei", "Juni",
+                                   "Juli", "Agustus", "September", "Oktober", "November", "Desember"]
+                    formatted_date = f"{replaced_date.day} {MONTH_NAMES[replaced_date.month - 1]} {replaced_date.year}"
+                    considerations_payload["replaced_sk_date"] = formatted_date
+                else:
+                    considerations_payload["replaced_sk_date"] = str(replaced_date)
+
+        # System Log (Generated User, Tanggal & Waktu)
         wib_tz = timezone(timedelta(hours=7))
         now = datetime.now(wib_tz)
         system_log = {
@@ -472,7 +486,7 @@ class HtmlToPdfEngine(DocumentGeneratorPort):
             "generated_at": now.strftime("%d-%m-%Y %H:%M:%S WIB")
         }
 
-        # ─── Inject Branding (Logo + App Name dari System Config Admin) ───
+        # Inject Branding (Logo + App Name dari System Config Admin)
         branding = _load_branding()
 
         # Return payload lengkap terstruktur
@@ -555,7 +569,7 @@ class HtmlToPdfEngine(DocumentGeneratorPort):
     ) -> str:
         """Mengonversi data permohonan menjadi berkas PDF tanda terima (receipt) fisik."""
         
-        # ─── System Log (Generated User, Tanggal & Waktu) ───
+        # System Log (Generated User, Tanggal & Waktu)
         wib_tz = timezone(timedelta(hours=7))
         now = datetime.now(wib_tz)
         system_log = {
@@ -565,7 +579,7 @@ class HtmlToPdfEngine(DocumentGeneratorPort):
             "generated_at": now.strftime("%d-%m-%Y %H:%M:%S WIB")
         }
 
-        # ─── Inject Branding (Logo + App Name dari System Config Admin) ───
+        # Inject Branding (Logo + App Name dari System Config Admin)
         branding = _load_branding()
 
         context = {
@@ -588,4 +602,4 @@ class HtmlToPdfEngine(DocumentGeneratorPort):
         output_dir = Path("docs")
         output_dir.mkdir(parents=True, exist_ok=True)
         output_path = output_dir / f"Tanda_Terima_{permohonan.id_permohonan}.pdf"
-        return self.compile_to_pdf(html_content, str(output_path))
+        return self.compile_to_pdf(html_content, str(output_path))

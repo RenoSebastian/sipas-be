@@ -1,9 +1,10 @@
 """
 ============================================================================
-SIPAS HTTP CONTROLLER — Submissions Router [submissions.py] (REVISED v8)
+SIPAS HTTP CONTROLLER — Submissions Router [submissions.py] (REVISED v8.2)
 ============================================================================
 Peran: Menyediakan REST endpoints bertingkat untuk mengelola pendaftaran
-       10-tahap terpadu, kalibrasi, audit spasial, dan verifikasi berjenjang.
+       10-tahap terpadu (pendaftaran baru maupun revisi), kalibrasi,
+       audit spasial, dan verifikasi berjenjang.
        Menegakkan otorisasi SoD API-Level untuk penandatanganan TTE Kadis,
        serta menyajikan visualisasi spasial instan dalam bentuk GeoJSON.
 ============================================================================
@@ -295,7 +296,14 @@ def submit_permohonan(
             tpu_address=req.tpu.alamat if req.tpu else None,
             tpu_koordinat=req.tpu.koordinat if req.tpu else None,
             tpu_bukti_dokumen=req.tpu.buktiDokumenUrl if req.tpu else None,
-            self_declared_compensations=[comp.model_dump() for comp in req.compensations] if req.compensations else None
+            self_declared_compensations=[comp.model_dump() for comp in req.compensations] if req.compensations else None,
+
+            # ─── UPDATE FASE 5 (REVISI): SILSILAH PEMOHON INPUT DTO (MAPPER DARI HTTP SCHEMAS) ───
+            baseline_source=req.baseline_source,
+            parent_id_permohonan=req.parent_id_permohonan,
+            replaced_sk_number=req.legacy_metadata.replaced_sk_number if req.legacy_metadata else None,
+            replaced_sk_date=req.legacy_metadata.replaced_sk_date if req.legacy_metadata else None,
+            replaced_sk_doc_url=req.legacy_metadata.replaced_sk_doc_url if req.legacy_metadata else None
         )
         result = use_case.execute(dto)
 
@@ -628,7 +636,14 @@ def get_all_submissions(
             "verifiedKlb": r.verified_klb,
             "verifiedKdh": r.verified_kdh,
             "verifiedGsb": r.verified_gsb,
-            "verifiedRthArea": r.verified_rth_area
+            "verifiedRthArea": r.verified_rth_area,
+
+            # ─── UPDATE FASE 5 (REVISI): SILSILAH SERIALIZER KOLEKTIF ──────────
+            "baseline_source": r.baseline_source,
+            "parent_id_permohonan": r.parent_id_permohonan,
+            "replaced_sk_number": r.replaced_sk_number,
+            "replaced_sk_date": r.replaced_sk_date.isoformat() if r.replaced_sk_date else None,
+            "replaced_sk_doc_url": r.replaced_sk_doc_url
         }
 
     import math
@@ -653,7 +668,7 @@ def get_submission_by_id(id_permohonan: str, db: Session = Depends(get_db), curr
     db_files = db.query(PermohonanFileModel).filter(PermohonanFileModel.id_permohonan == id_permohonan).all()
     docs_list = []
     
-    # ─── REVISI: DEKLARASI TIPE EKSPLISIT UNTUK MENCEGAH REPORTE_ARGUMENT_TYPE (Pylance compilation fix) ───
+    # Deklarasi tipe eksplisit untuk mencegah reportAttributeAccessIssue (Pylance compilation fix)
     photos_dict: Dict[str, Optional[str]] = {
         "photoNorth": None,
         "photoSouth": None,
@@ -712,7 +727,7 @@ def get_submission_by_id(id_permohonan: str, db: Session = Depends(get_db), curr
             "id": comp.id_kompensasi,
             "type": comp.tipe_kompensasi.value,
             "requiredAreaM2": comp.luas_kompensasi_m2,
-            "fulfillmentMethod": "PENYEDIAAN_FISIK_OFFSITE" if comp.tipe_kompensasi.value in ['LAHAN_SAWAH', 'LAHAN_MAKAM_FISIK'] else "KOMPENSASI_UANG",
+            "fulfillmentMethod": "PENYEDIAAN_FISIK_OFFSITE" if comp.tipe_kompensasi.value in ['LAHAN_SAWAH', 'LAUK_MAKAM_FISIK', 'LAHAN_MAKAM_FISIK'] else "KOMPENSASI_UANG",
             "locationAddress": comp.alamat_lokasi or "-",
             "nominalAmount": comp.nilai_nominal,
             "documentUrl": comp.bukti_legalitas_url,
@@ -734,7 +749,7 @@ def get_submission_by_id(id_permohonan: str, db: Session = Depends(get_db), curr
             "payload": telaah_model.document_payload
         }
 
-    # ─── BARU: SINKRONISASI TAFSIRAN PAYLOAD DRAFT SK UNTUK DETAIL KADIS (TAHAP 5) ───
+    # SINKRONISASI TAFSIRAN PAYLOAD DRAFT SK UNTUK DETAIL KADIS (TAHAP 5)
     sk_draft_data = None
     sk_model = db.query(SkDraftModel).filter(SkDraftModel.id_permohonan == id_permohonan).first()
     if sk_model:
@@ -853,6 +868,7 @@ def get_submission_by_id(id_permohonan: str, db: Session = Depends(get_db), curr
         
         # Paraf Kabid & TTE Kadis
         "kabidSignature": r.kabid_signature,
+        "disabledAccess": r.tech_disabled_access,
         "kadisSignature": r.kadis_signature,
 
         # TPU & Kompensasi Mandiri
@@ -897,11 +913,18 @@ def get_submission_by_id(id_permohonan: str, db: Session = Depends(get_db), curr
             for log in db.query(AuditTrailModel).filter(AuditTrailModel.submission_id == r.id_permohonan).order_by(AuditTrailModel.created_at.asc()).all()
         ] or [
             { "date": r.submission_date.isoformat() + " 09:00", "status": "Draft", "action": "Draft", "notes": "Pengajuan dibuat", "actor": r.applicant_name or "Pemohon", "digitalSignatureHash": None }
-        ])()
+        ])(),
+
+        # ─── UPDATE FASE 5 (REVISI): SILSILAH SERIALIZER SATUAN ──────────
+        "baseline_source": r.baseline_source,
+        "parent_id_permohonan": r.parent_id_permohonan,
+        "replaced_sk_number": r.replaced_sk_number,
+        "replaced_sk_date": r.replaced_sk_date.isoformat() if r.replaced_sk_date else None,
+        "replaced_sk_doc_url": r.replaced_sk_doc_url
     }
 
 
-# ─── UPDATE BARU FASE 3: INSTAN PRE-COMPILED GEOJSON ENDPOINT (PENGGANTI GEOSERVER) ───
+# ─── INSTAN PRE-COMPILED GEOJSON ENDPOINT (PENGGANTI GEOSERVER) ───
 
 @router.get("/{id_permohonan}/geojson", status_code=status.HTTP_200_OK)
 async def get_submission_geojson(
@@ -1104,4 +1127,4 @@ async def download_receipt_pdf(id_permohonan: str, db: Session = Depends(get_db)
         path=str(pdf_path),
         filename=pdf_path.name,
         media_type="application/pdf"
-    )
+    )

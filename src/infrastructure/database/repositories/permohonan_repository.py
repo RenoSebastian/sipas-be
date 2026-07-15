@@ -1,10 +1,11 @@
 """
 ============================================================================
-SIPAS INFRASTRUCTURE ADAPTER — Permohonan Repository [permohonan_repository.py] (REVISED v9)
+SIPAS INFRASTRUCTURE ADAPTER — Permohonan Repository [permohonan_repository.py] (REVISED v9.2)
 ============================================================================
 Peran: Mengimplementasikan ExtendedPermohonanRepositoryPort untuk berinteraksi dengan
        database transaksional PostgreSQL & PostGIS secara aman.
-       Mendukung pemetaan metrik tiga sisi (Proposed vs Bylaw vs Verified),
+       Mendukung pemetaan silsilah permohonan self-referential,
+       pemetaan metrik tiga sisi (Proposed vs Bylaw vs Verified),
        menyimpan checklist verifikasi evaluasi manual beserta audit verifikator
        (verified_by_id, verified_at) secara idempotent, mengamankan visual
        TTE Kepala Dinas (kadis_signature), menyinkronkan Nomor SK baru,
@@ -15,6 +16,7 @@ Peran: Mengimplementasikan ExtendedPermohonanRepositoryPort untuk berinteraksi d
 
 import json
 import asyncio
+from datetime import date, datetime
 from typing import Any, Optional, List, Tuple, Dict
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -40,7 +42,8 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
     def _to_domain(self, model: PermohonanModel) -> Permohonan:
         """
         Konversi dari Model Database ke Entitas Domain Murni (Mapping To Domain).
-        Mengambil seluruh variabel yang dibutuhkan oleh domain logic dan administrative data.
+        Mengambil seluruh variabel yang dibutuhkan oleh domain logic dan data administrasi.
+        Secara konsisten mengosongkan data silsilah jika permohonan bertipe "BARU".
         """
         polygon_coords = None
         if model.geom:
@@ -73,6 +76,13 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
                 diverifikasi_pada=model.tpu_detail.diverifikasi_pada,
                 bukti_dokumen_url=str(model.tpu_detail.bukti_dokumen_url) if model.tpu_detail.bukti_dokumen_url else None
             )
+
+        # Penegakan aturan bisnis: Kosongkan data silsilah jika permohonan bertipe baru (BARU)
+        is_baru = str(model.submission_type).upper() == "BARU"
+        parent_id_permohonan = None if is_baru else (str(model.parent_id_permohonan) if model.parent_id_permohonan else None)
+        replaced_sk_number = None if is_baru else (str(model.replaced_sk_number) if model.replaced_sk_number else None)
+        replaced_sk_date = None if is_baru else model.replaced_sk_date
+        replaced_sk_doc_url = None if is_baru else (str(model.replaced_sk_doc_url) if model.replaced_sk_doc_url else None)
 
         return Permohonan(
             id_permohonan=str(model.id_permohonan),
@@ -170,7 +180,7 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
             kabid_signature=model.kabid_signature,
             kadis_signature=model.kadis_signature,  # Sinkronisasi visual TTE Kadis
 
-            # ─── REVISI: METRIK INTENSITAS BANGUNAN KOMPARASI TIGA SISI ───
+            # REVISI: METRIK INTENSITAS BANGUNAN KOMPARASI TIGA SISI
             applicant_land_area=float(model.applicant_land_area) if model.applicant_land_area is not None else None,
             applicant_building_area=float(model.applicant_building_area) if model.applicant_building_area is not None else None,
             applicant_kdb=float(model.applicant_kdb) if model.applicant_kdb is not None else None,
@@ -195,14 +205,22 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
             kkpr_verified_at=model.kkpr_verified_at if model.kkpr_verified_at else None,
             kkpr_verifier_name=str(model.kkpr_verifier_name) if model.kkpr_verifier_name else None,
 
-            # ─── UPDATE FASE 3: MAPPER NOMOR SK BARU PADA ENTITAS DOMAIN ───
+            # MAPPER NOMOR SK BARU PADA ENTITAS DOMAIN PERMOHONAN
             sk_number=str(model.sk_number) if model.sk_number else None,
-            tpu_detail=tpu_entity
+            tpu_detail=tpu_entity,
+
+            # ─── UPDATE FASE 5 (REVISI): PEMETAAN SILSILAH SELF-REFERENTIAL KPD DOMAIN ───
+            parent_id_permohonan=parent_id_permohonan,
+            replaced_sk_number=replaced_sk_number,
+            replaced_sk_date=replaced_sk_date,
+            replaced_sk_doc_url=replaced_sk_doc_url,
+            baseline_source=str(model.baseline_source) if model.baseline_source else None 
         )
 
     def _to_model(self, entity: Permohonan) -> PermohonanModel:
         """
         Konversi dari Entitas Domain ke Model Database (Mapping To Model).
+        Secara konsisten mengosongkan data silsilah jika permohonan bertipe "BARU".
         """
         tpu_model = None
         if entity.tpu_detail:
@@ -236,6 +254,13 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
                 geom = from_shape(ShapelyPolygon(coords), srid=4326)
             except Exception:
                 pass
+
+        # Penegakan aturan bisnis: Kosongkan data silsilah jika permohonan bertipe baru (BARU)
+        is_baru = str(entity.submission_type).upper() == "BARU"
+        parent_id_permohonan = None if is_baru else entity.parent_id_permohonan
+        replaced_sk_number = None if is_baru else entity.replaced_sk_number
+        replaced_sk_date = None if is_baru else entity.replaced_sk_date
+        replaced_sk_doc_url = None if is_baru else entity.replaced_sk_doc_url
 
         return PermohonanModel(
             id_permohonan=entity.id_permohonan,
@@ -333,7 +358,7 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
             kabid_signature=entity.kabid_signature,
             kadis_signature=entity.kadis_signature,  # Menyimpan coretan tanda tangan Kadis
 
-            # ─── REVISI: METRIK INTENSITAS SPASIAL PEMOHON & BATAS RDTR ───
+            # REVISI: METRIK INTENSITAS SPASIAL PEMOHON & BATAS RDTR
             applicant_land_area=entity.applicant_land_area,
             applicant_building_area=entity.applicant_building_area,
             applicant_kdb=entity.applicant_kdb,
@@ -358,9 +383,16 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
             kkpr_verified_at=entity.kkpr_verified_at,
             kkpr_verifier_name=entity.kkpr_verifier_name,
 
-            # ─── UPDATE FASE 3: MAPPER NOMOR SK BARU KPD SKEMA DATABASE ───
+            # UPDATE FASE 3: UPDATE NOMOR SK FISIK PADA DATABASE
             sk_number=entity.sk_number,
-            tpu_detail=tpu_model
+            tpu_detail=tpu_model,
+
+            # ─── UPDATE FASE 5 (REVISI): SILSILAH PERMOHONAN SELF-REFERENTIAL DI DATABASE ───
+            parent_id_permohonan=parent_id_permohonan,
+            replaced_sk_number=replaced_sk_number,
+            replaced_sk_date=replaced_sk_date,
+            replaced_sk_doc_url=replaced_sk_doc_url,
+            baseline_source=entity.baseline_source 
         )
 
     def find_by_id(self, id_permohonan: str) -> Optional[Permohonan]:
@@ -375,6 +407,8 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
         existing_model = self.db.query(PermohonanModel).filter(
             PermohonanModel.id_permohonan == permohonan.id_permohonan
         ).first()
+
+        is_baru = str(permohonan.submission_type).upper() == "BARU"
 
         if existing_model:
             # Perbarui seluruh kolom domain model (inklusif 10-tahap & Helmert)
@@ -469,7 +503,7 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
             existing_model.kabid_signature = permohonan.kabid_signature
             existing_model.kadis_signature = permohonan.kadis_signature
 
-            # ─── REVISI: METRIK INTENSITAS SPASIAL PEMOHON & BATAS RDTR ───
+            # REVISI: METRIK INTENSITAS SPASIAL PEMOHON & BATAS RDTR
             existing_model.applicant_land_area = permohonan.applicant_land_area
             existing_model.applicant_building_area = permohonan.applicant_building_area
             existing_model.applicant_kdb = permohonan.applicant_kdb
@@ -494,8 +528,15 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
             existing_model.kkpr_verified_at = permohonan.kkpr_verified_at
             existing_model.kkpr_verifier_name = permohonan.kkpr_verifier_name
 
-            # ─── UPDATE FASE 3: UPDATE NOMOR SK FISIK PADA DATABASE ───
+            # UPDATE FASE 3: UPDATE NOMOR SK FISIK PADA DATABASE
             existing_model.sk_number = permohonan.sk_number
+
+            # ─── UPDATE FASE 5 (REVISI): SILSILAH PERMOHONAN SELF-REFERENTIAL DI DATABASE ───
+            existing_model.parent_id_permohonan = None if is_baru else permohonan.parent_id_permohonan
+            existing_model.replaced_sk_number = None if is_baru else permohonan.replaced_sk_number
+            existing_model.replaced_sk_date = None if is_baru else permohonan.replaced_sk_date
+            existing_model.replaced_sk_doc_url = None if is_baru else permohonan.replaced_sk_doc_url
+            existing_model.baseline_source = permohonan.baseline_source 
 
             # Save polygon geom if updated
             if permohonan.polygon:
@@ -738,7 +779,7 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
             EvaluasiChecklistItemModel.id_permohonan == id_permohonan
         ).all()
 
-    # ─── BARU: DECOUPLED FIND USER BY ID (Fase 7 Realization) ───────────────────
+    # ─── DECOUPLED FIND USER BY ID (Fase 7 Realization) ───────────────────
     def find_user_by_id(self, user_id: int) -> Optional[UserModel]:
         """
         Mengenkapsulasi query pencarian user agar dependensi database (SQLAlchemy)

@@ -1,11 +1,11 @@
 # --- FILE: src/infrastructure/http/routes/auth.py ---
 """
 ============================================================================
-SIPAS HTTP CONTROLLER — Auth Router [auth.py] (REVISED v5)
+SIPAS HTTP CONTROLLER — Auth Router [auth.py] (REVISED v6)
 ============================================================================
 Peran: Menyediakan REST endpoints otentikasi, pendaftaran user baru, 
-       pemutakhiran profil, serta otorisasi administrasi pengguna.
-       Pembaruan: Penyelarasan decorator requires_roles menggunakan Enum UserRole.
+       pemutakhiran profil, otorisasi administrasi pengguna, serta
+       layanan pendaftaran akun berbasis verifikasi OTP WhatsApp.
 ============================================================================
 """
 
@@ -19,19 +19,119 @@ from sqlalchemy import or_
 from typing import Optional, List, cast
 
 from src.infrastructure.database.connection import get_db
-from src.infrastructure.database.models import UserModel, AuditTrailModel, SystemFeedbackModel
+from src.infrastructure.database.models import UserModel, PendingRegistrationModel, AuditTrailModel
 from src.infrastructure.security.auth import (
     hash_password,
     verify_password,
     create_access_token,
     get_current_active_user,
     requires_roles,
-    UserRole # Perbaikan: Impor kelas Enum UserRole resmi dari modul keamanan
+    UserRole
 )
+
+# Integrasi Domain Ports, Use Cases, dan Adapters OTP WhatsApp
+from src.use_cases.ports.otp_ports import OtpSessionRepositoryPort, UserRepositoryPort
+from src.use_cases.initiate_registration import InitiateRegistrationUseCase, InitiateRegistrationInputDto
+from src.use_cases.verify_registration_otp import VerifyRegistrationOtpUseCase, VerifyRegistrationOtpInputDto
+from src.infrastructure.adapters.whatsapp_local_adapter import WhatsAppLocalAdapter
 
 router = APIRouter(prefix="/api/v1/auth", tags=["Authentication & User Management"])
 
+# ─── ADAPTOR REPOSITORI LOKAL SQL (CLEAN ARCHITECTURE INTERFACE) ──────────
+
+class SqlOtpSessionRepository(OtpSessionRepositoryPort):
+    def __init__(self, db: Session):
+        self.db = db
+
+    def save(self, pending_reg, commit: bool = True):
+        model = self.db.query(PendingRegistrationModel).filter(PendingRegistrationModel.session_id == pending_reg.session_id).first()
+        if model:
+            model.attempts = pending_reg.attempts
+            model.resend_count = pending_reg.resend_count
+            model.status = pending_reg.status
+            model.last_sent_at = pending_reg.last_sent_at
+        else:
+            model = PendingRegistrationModel(
+                session_id=pending_reg.session_id,
+                username=pending_reg.username,
+                email=pending_reg.email,
+                hashed_password=pending_reg.hashed_password,
+                full_name=pending_reg.full_name,
+                role=pending_reg.role,
+                phone=pending_reg.phone,
+                nip=pending_reg.nip,
+                company=pending_reg.company,
+                otp_hash=pending_reg.otp_hash,
+                expires_at=pending_reg.expires_at,
+                attempts=pending_reg.attempts,
+                resend_count=pending_reg.resend_count,
+                last_sent_at=pending_reg.last_sent_at,
+                status=pending_reg.status,
+                created_at=pending_reg.created_at
+            )
+            self.db.add(model)
+        if commit:
+            self.db.commit()
+        else:
+            self.db.flush()
+        return pending_reg
+
+    def find_by_session_id(self, session_id: str) -> Optional[PendingRegistrationModel]:
+        return self.db.query(PendingRegistrationModel).filter(PendingRegistrationModel.session_id == session_id).first()
+
+    def find_by_username(self, username: str) -> Optional[PendingRegistrationModel]:
+        return self.db.query(PendingRegistrationModel).filter(PendingRegistrationModel.username == username).first()
+
+    def find_by_email(self, email: str) -> Optional[PendingRegistrationModel]:
+        return self.db.query(PendingRegistrationModel).filter(PendingRegistrationModel.email == email).first()
+
+    def find_by_phone(self, phone: str) -> Optional[PendingRegistrationModel]:
+        return self.db.query(PendingRegistrationModel).filter(PendingRegistrationModel.phone == phone).first()
+
+    def delete(self, session_id: str, commit: bool = True) -> None:
+        self.db.query(PendingRegistrationModel).filter(PendingRegistrationModel.session_id == session_id).delete()
+        if commit:
+            self.db.commit()
+        else:
+            self.db.flush()
+
+
+class SqlUserRepository(UserRepositoryPort):
+    def __init__(self, db: Session):
+        self.db = db
+
+    def find_by_username(self, username: str) -> Optional[UserModel]:
+        return self.db.query(UserModel).filter(UserModel.username == username).first()
+
+    def find_by_email(self, email: str) -> Optional[UserModel]:
+        return self.db.query(UserModel).filter(UserModel.email == email).first()
+
+    def find_by_phone(self, phone: str) -> Optional[UserModel]:
+        return self.db.query(UserModel).filter(UserModel.phone == phone).first()
+
+    def save(self, user: UserModel) -> UserModel:
+        self.db.add(user)
+        self.db.commit()
+        return user
+
+
 # ─── SCHEMAS ──────────────────────────────────────────────────────────────
+
+class InitiateRegisterRequest(BaseModel):
+    username: str = Field(..., examples=["ahmad_fauzi"])
+    email: str = Field(..., examples=["ahmad@geocitra.co.id"])
+    password: str = Field(..., min_length=6, examples=["password123"])
+    full_name: str = Field(..., examples=["Ahmad Fauzi"])
+    role: str = Field(default="PEMOHON", pattern="^(PEMOHON|ADMIN|TIM_TEKNIS|KABID_PUPR|KADIS)$", examples=["PEMOHON"])
+    phone: str = Field(..., examples=["081234567890"])
+    nip: Optional[str] = Field(default=None, examples=["9120301938192"])
+    company: Optional[str] = Field(default=None, examples=["PT Geocitra Raya"])
+
+
+class VerifyOtpRequest(BaseModel):
+    session_id: str = Field(..., examples=["session-uuid-string-here"])
+    plain_otp: str = Field(..., min_length=6, max_length=6, examples=["123456"])
+
 
 class UserCreate(BaseModel):
     username: str = Field(..., examples=["ahmad_fauzi"])
@@ -80,16 +180,78 @@ class UserUpdateAdmin(BaseModel):
     phone: Optional[str] = Field(default=None, examples=["081234567890"])
     password: Optional[str] = Field(default=None, min_length=6, examples=["password123"])
 
-class FeedbackCreate(BaseModel):
-    category: str = Field(..., examples=["Fitur Baru"])
-    title: str = Field(..., examples=["Usulan Fitur PDF"])
-    description: str = Field(..., examples=["Mohon tambahkan fitur eksport PDF pada halaman detail..."])
-
 # ─── ENDPOINTS ────────────────────────────────────────────────────────────
+
+@router.post("/register-otp", status_code=status.HTTP_202_ACCEPTED)
+async def initiate_registration_otp(req: InitiateRegisterRequest, db: Session = Depends(get_db)):
+    """Menginisiasi registrasi user baru dengan mengirimkan kode OTP asinkron ke WhatsApp."""
+    otp_repo = SqlOtpSessionRepository(db)
+    user_repo = SqlUserRepository(db)
+    wa_gateway = WhatsAppLocalAdapter()
+
+    use_case = InitiateRegistrationUseCase(
+        otp_repo=otp_repo,
+        user_repo=user_repo,
+        whatsapp_gateway=wa_gateway
+    )
+
+    try:
+        dto = InitiateRegistrationInputDto(
+            username=req.username,
+            email=req.email,
+            password=req.password,
+            full_name=req.full_name,
+            role=req.role,
+            phone=req.phone,
+            nip=req.nip,
+            company=req.company
+        )
+        session_id = await use_case.execute(dto)
+        return {
+            "status": "SUCCESS",
+            "message": "Kode OTP pendaftaran berhasil dikirim melalui WhatsApp.",
+            "session_id": session_id
+        }
+    except ValueError as val_err:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(val_err))
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
+@router.post("/verify-otp", response_model=TokenResponse)
+async def verify_registration_otp(req: VerifyOtpRequest, db: Session = Depends(get_db)):
+    """Memvalidasi kode OTP WhatsApp untuk mengaktifkan akun dan mengembalikan token JWT."""
+    otp_repo = SqlOtpSessionRepository(db)
+    user_repo = SqlUserRepository(db)
+
+    use_case = VerifyRegistrationOtpUseCase(
+        otp_repo=otp_repo,
+        user_repo=user_repo
+    )
+
+    try:
+        dto = VerifyRegistrationOtpInputDto(
+            session_id=req.session_id,
+            plain_otp=req.plain_otp
+        )
+        result = await use_case.execute(dto)
+        return {
+            "access_token": result["access_token"],
+            "token_type": result["token_type"],
+            "user": result["user"],
+            "username": result["user"]["username"],
+            "role": result["user"]["role"],
+            "full_name": result["user"]["full_name"]
+        }
+    except ValueError as val_err:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(val_err))
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
 
 @router.post("/register", status_code=status.HTTP_201_CREATED)
 def register_user(req: UserCreate, db: Session = Depends(get_db)):
-    """Mendaftar user baru ke sistem secara aman."""
+    """Mendaftar user baru langsung tanpa OTP (Mekanisme Bypass Lama)."""
     existing_user = db.query(UserModel).filter(UserModel.username == req.username).first()
     if existing_user:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Username sudah terdaftar.")
@@ -367,67 +529,3 @@ def get_all_audit_logs(
         ]
     }
 
-@router.post("/feedback")
-def create_feedback(
-    req: FeedbackCreate,
-    db: Session = Depends(get_db),
-    current_user: UserModel = Depends(get_current_active_user)
-):
-    """Mengirimkan usulan pengembangan dan kebutuhan dari user."""
-    feedback = SystemFeedbackModel(
-        user_id=current_user.id,
-        actor_name=current_user.full_name,
-        actor_email=current_user.email,
-        category=req.category,
-        title=req.title,
-        description=req.description
-    )
-    db.add(feedback)
-    db.commit()
-    db.refresh(feedback)
-    return {
-        "status": "SUCCESS",
-        "message": "Usulan pengembangan berhasil disimpan.",
-        "id": feedback.id
-    }
-
-@router.get("/feedbacks")
-def get_all_feedbacks(
-    limit: int = 50,
-    page: int = 1,
-    search: Optional[str] = None,
-    db: Session = Depends(get_db),
-    token_payload: dict = Depends(requires_roles([UserRole.ADMIN]))
-):
-    """Mendapatkan seluruh daftar usulan pengembangan dengan pencarian (Hanya Super Admin / Admin)."""
-    query = db.query(SystemFeedbackModel)
-    if search:
-        search_filter = f"%{search}%"
-        query = query.filter(
-            or_(
-                SystemFeedbackModel.actor_name.ilike(search_filter),
-                SystemFeedbackModel.actor_email.ilike(search_filter),
-                SystemFeedbackModel.category.ilike(search_filter),
-                SystemFeedbackModel.title.ilike(search_filter),
-                SystemFeedbackModel.description.ilike(search_filter)
-            )
-        )
-    total = query.count()
-    items = query.order_by(SystemFeedbackModel.created_at.desc()).offset((page - 1) * limit).limit(limit).all()
-    return {
-        "total": total,
-        "page": page,
-        "limit": limit,
-        "items": [
-            {
-                "id": item.id,
-                "actor_name": item.actor_name,
-                "actor_email": item.actor_email,
-                "category": item.category,
-                "title": item.title,
-                "description": item.description,
-                "created_at": item.created_at.strftime("%Y-%m-%d %H:%M:%S")
-            }
-            for item in items
-        ]
-    }

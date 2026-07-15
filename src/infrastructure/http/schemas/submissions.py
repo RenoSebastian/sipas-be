@@ -1,5 +1,18 @@
+"""
+============================================================================
+SIPAS HTTP SCHEMAS — Submissions [submissions.py] (REVISED v5.1 - TYPE SAFE)
+============================================================================
+Peran: Skema validasi data request HTTP menggunakan Pydantic untuk fungsionalitas
+       core permohonan. Menjamin tipe data yang masuk sesuai dengan standar
+       dinas, serta mendukung validasi pengajuan draf parsial (is_draft) dan
+       silsilah permohonan revisi secara deklaratif.
+============================================================================
+"""
+
 from pydantic import BaseModel, Field, model_validator, SecretStr
+from datetime import date
 from typing import Tuple, Optional, List, Any
+
 
 class ApplicantDto(BaseModel):
     type: Optional[str] = Field(default="PERORANGAN", pattern="^(PERORANGAN|BADAN_USAHA)$", examples=["BADAN_USAHA"])
@@ -12,10 +25,12 @@ class ApplicantDto(BaseModel):
     email: Optional[str] = Field(default=None, examples=["ahmad.fauzi@geocitra.co.id"])
     address: Optional[str] = Field(default=None, examples=["Gedung Sentosa Lt. 4, Jakarta Pusat"])
 
+
 class SubmissionDetailsDto(BaseModel):
     submissionType: Optional[str] = Field(default="BARU", pattern="^(BARU|REVISI|PERPANJANGAN)$", examples=["BARU"])
     activityName: Optional[str] = Field(default=None, examples=["Grand Bogor Residence"])
     category: Optional[str] = Field(default="PERUMAHAN", pattern="^(PERUMAHAN|NON_PERUMAHAN|FASUM|INDUSTRI)$", examples=["PERUMAHAN"])
+
 
 class LocationDetailsDto(BaseModel):
     locationName: Optional[str] = Field(default=None, examples=["Lahan Baranangsiang"])
@@ -29,6 +44,7 @@ class LocationDetailsDto(BaseModel):
     certificateNumber: Optional[str] = Field(default=None, examples=["SHM No. 10293/Baranangsiang"])
     certificateOwner: Optional[str] = Field(default=None, examples=["PT Geocitra Raya"])
 
+
 class CoordinateDto(BaseModel):
     polygon: Optional[list] = Field(default=None)
     coordinatesText: Optional[str] = Field(default=None)
@@ -40,10 +56,12 @@ class CoordinateDto(BaseModel):
     cadScale: Optional[float] = Field(default=None)
     cadRotation: Optional[float] = Field(default=None)
 
+
 class SpatialDetailsDto(BaseModel):
     kkprNumber: Optional[str] = Field(default=None, examples=["503/KKPR/PUPR/2026/089"])
     landUse: Optional[str] = Field(default=None, examples=["Zona Perumahan Kepadatan Sedang"])
     greenArea: Optional[float] = Field(default=0.0, examples=[3850.0])
+
 
 class TechnicalDetailsDto(BaseModel):
     lotCount: Optional[int] = Field(default=None, examples=[120])
@@ -77,13 +95,16 @@ class TechnicalDetailsDto(BaseModel):
     applicantGsb: Optional[float] = Field(default=None, examples=[5.0])
     applicantRthArea: Optional[float] = Field(default=None, examples=[2500.0])
 
+
 class ConsultantDto(BaseModel):
     consultantName: Optional[str] = Field(default=None, examples=["Ir. Hermawan Pratama"])
     companyName: Optional[str] = Field(default=None, examples=["CV Rencana Semesta"])
     picName: Optional[str] = Field(default=None, examples=["Hermawan Pratama"])
 
+
 class StatementDto(BaseModel):
     agreed: bool = Field(default=True)
+
 
 class DocumentDto(BaseModel):
     legalDoc: Optional[str] = Field(default=None)
@@ -95,12 +116,14 @@ class DocumentDto(BaseModel):
     ktpDoc: Optional[str] = Field(default=None)
     nibDoc: Optional[str] = Field(default=None)
 
+
 class PhotoDto(BaseModel):
     photoNorth: Optional[str] = Field(default=None)
     photoSouth: Optional[str] = Field(default=None)
     photoEast: Optional[str] = Field(default=None)
     photoWest: Optional[str] = Field(default=None)
     photoAccess: Optional[str] = Field(default=None)
+
 
 class TPUDetailsDto(BaseModel):
     method: str = Field(..., pattern="^(MANDIRI|EKSISTING|KERJASAMA|KOMPENSASI_UANG|INTEGRASI_WARGA)$")
@@ -113,6 +136,7 @@ class TPUDetailsDto(BaseModel):
     koordinat: Optional[str] = None
     buktiDokumenUrl: Optional[str] = None
 
+
 class SelfDeclaredCompensationDto(BaseModel):
     type: str = Field(..., pattern="^(LAHAN_SAWAH|LAHAN_MAKAM_FISIK|LAHAN_MAKAM_UANG|PSU_FISIK_TAMBAHAN)$")
     requiredAreaM2: float
@@ -121,9 +145,23 @@ class SelfDeclaredCompensationDto(BaseModel):
     nominalAmount: Optional[float] = None
     documentUrl: Optional[str] = None
 
+
+# ─── UPDATE FASE 5 (REVISI): SKEMA DETIL METADATA FISIK/LEGACY SK LAMA ───────
+class LegacyMetadataDto(BaseModel):
+    replaced_sk_number: str = Field(..., examples=["600/120/415.19/2020"])
+    replaced_sk_date: date = Field(..., examples=["2020-08-15"])
+    replaced_sk_doc_url: str = Field(..., examples=["/uploads/permohonan/sk_lama.pdf"])
+
+
 class SubmitRequest(BaseModel):
     id_permohonan: Optional[str] = Field(default=None, examples=["sub-123456"])
     is_draft: bool = Field(default=False)
+    
+    # ─── UPDATE FASE 5 (REVISI): SILSILAH PERMOHONAN SELF-REFERENTIAL ────────
+    baseline_source: Optional[str] = Field(default=None, pattern="^(DIGITAL|LEGACY)$")
+    parent_id_permohonan: Optional[str] = Field(default=None, examples=["sub-old-12345"])
+    legacy_metadata: Optional[LegacyMetadataDto] = Field(default=None)
+
     applicant: ApplicantDto
     submission: SubmissionDetailsDto
     location: LocationDetailsDto
@@ -148,6 +186,7 @@ class SubmitRequest(BaseModel):
                         data[field] = {}
         return data
 
+
 class CalibrateRequest(BaseModel):
     cad_file_path: str = Field(examples=["C:/temp/blueprint.dxf"])
     anchor_cad_1: Tuple[float, float] = Field(examples=[(10.0, 15.0)])
@@ -155,12 +194,14 @@ class CalibrateRequest(BaseModel):
     anchor_map_1: Tuple[float, float] = Field(examples=[(106.8272, -6.5971)])
     anchor_map_2: Tuple[float, float] = Field(examples=[(106.8295, -6.5990)])
 
+
 class EvaluasiChecklistItemDto(BaseModel):
     aspek_code: str = Field(..., examples=["M3_KDB", "legalDoc"])
     aspek_label: str = Field(..., examples=["Koefisien Dasar Bangunan (KDB)", "Sertifikat Tanah BPN"])
     status_kelayakan: str = Field(..., pattern="^(Sesuai|Sesuai Bersyarat|Tidak Sesuai|Pending|SESUAI|SESUAI_BERSYARAT|TIDAK_SESUAI|PENDING)$", examples=["Sesuai"])
     catatan_verifikator: Optional[str] = Field(default=None, examples=["Memenuhi batas aman"])
     attachment_url: Optional[str] = Field(default=None, examples=["/uploads/evaluasi/revisi_kdb.pdf"])
+
 
 class VerifyRequest(BaseModel):
     nip: Optional[str] = Field(default=None, examples=["197503112000031001"])
