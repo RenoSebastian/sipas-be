@@ -470,6 +470,16 @@ async def verify_submission(
         )
 
         result = await use_case.execute(dto)
+
+        # Bersihkan kunci klaim (claim lock) berkas pasca verifikasi sukses ditransisikan
+        db_permohonan = db.query(PermohonanModel).filter(PermohonanModel.id_permohonan == id_permohonan).first()
+        if db_permohonan:
+            # Jika kembali ke admin/pemohon, reset kunci klaim agar bisa diklaim ulang oleh siapa pun
+            if req.action_type in ["REVERT_TO_ADMINISTRATIVE", "REJECT"]:
+                db_permohonan.admin_lock_id = None
+                db_permohonan.teknisi_lock_id = None
+            db.commit()
+
         return {
             "status": "SUCCESS",
             "message": f"Keputusan verifikasi berhasil direkam. Status berkas: {result.status.value}"
@@ -522,6 +532,7 @@ def get_all_submissions(
     search: Optional[str] = Query(None, description="Kata kunci pencarian (nama perumahan, developer, atau no. berkas)"),
     status_filter: Optional[str] = Query(None, alias="status", description="Filter berdasarkan status"),
     category: Optional[str] = Query(None, description="Filter berdasarkan kategori dokumen"),
+    my_verifications: bool = Query(False, description="Filter berkas yang sedang atau sudah diklaim oleh admin ini"),
     page: int = Query(1, ge=1, description="Nomor halaman (mulai dari 1)"),
     limit: int = Query(10, ge=1, le=1000, description="Jumlah data per halaman (maks. 1000)")
 ):
@@ -529,13 +540,33 @@ def get_all_submissions(
     repo = PermohonanRepository(db)
     # Filter hanya data milik sendiri jika login sebagai PEMOHON
     user_id = current_user.id if current_user.role == "PEMOHON" else None
+
+    # Filter khusus Admin SIPAS & Tim Teknis
+    admin_lock_id = None
+    teknisi_lock_id = None
+    allowed_statuses = None
+
+    if current_user.role == "ADMIN":
+        if my_verifications:
+            admin_lock_id = current_user.id
+        elif not status_filter or status_filter == 'Semua':
+            allowed_statuses = ["Pengajuan Dokumen", "Verifikasi Administrasi"]
+    elif current_user.role == "TIM_TEKNIS":
+        if my_verifications:
+            teknisi_lock_id = current_user.id
+        elif not status_filter or status_filter == 'Semua':
+            allowed_statuses = ["Verifikasi Teknis"]
+
     results, total_count = repo.find_all(
         search=search or None,
         status=status_filter or None,
         category=category or None,
         page=page,
         limit=limit,
-        user_id=user_id
+        user_id=user_id,
+        admin_lock_id=admin_lock_id,
+        teknisi_lock_id=teknisi_lock_id,
+        allowed_statuses=allowed_statuses
     )
 
     def serialize(r):
@@ -653,7 +684,10 @@ def get_all_submissions(
             "parent_id_permohonan": r.parent_id_permohonan,
             "replaced_sk_number": r.replaced_sk_number,
             "replaced_sk_date": r.replaced_sk_date.isoformat() if r.replaced_sk_date else None,
-            "replaced_sk_doc_url": r.replaced_sk_doc_url
+            "adminLockId": r.admin_lock_id,
+            "adminLockName": r.admin_lock_name,
+            "teknisiLockId": r.teknisi_lock_id,
+            "teknisiLockName": r.teknisi_lock_name
         }
 
     import math
@@ -930,7 +964,10 @@ def get_submission_by_id(id_permohonan: str, db: Session = Depends(get_db), curr
         "parent_id_permohonan": r.parent_id_permohonan,
         "replaced_sk_number": r.replaced_sk_number,
         "replaced_sk_date": r.replaced_sk_date.isoformat() if r.replaced_sk_date else None,
-        "replaced_sk_doc_url": r.replaced_sk_doc_url
+        "adminLockId": r.admin_lock_id,
+        "adminLockName": r.admin_lock_name,
+        "teknisiLockId": r.teknisi_lock_id,
+        "teknisiLockName": r.teknisi_lock_name
     }
 
 
@@ -1238,3 +1275,91 @@ async def download_receipt_pdf(id_permohonan: str, db: Session = Depends(get_db)
         filename=pdf_path.name,
         media_type="application/pdf"
     )
+
+
+@router.post("/{id_permohonan}/claim", status_code=status.HTTP_200_OK)
+def claim_submission(
+    id_permohonan: str,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user)
+):
+    """Mendapatkan hak eksklusif (claim lock) untuk memverifikasi berkas (Hanya Admin & Tim Teknis)."""
+    if current_user.role not in ["ADMIN", "TIM_TEKNIS"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Akses Ditolak: Hanya Admin atau Tim Teknis yang dapat mengunci berkas verifikasi."
+        )
+
+    repo = PermohonanRepository(db)
+    permohonan = repo.find_by_id(id_permohonan)
+    if not permohonan:
+        raise HTTPException(status_code=404, detail="Permohonan tidak ditemukan.")
+
+    if current_user.role == "ADMIN":
+        if permohonan.admin_lock_id is not None and permohonan.admin_lock_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Gagal mengunci: Berkas ini sedang dikunci oleh {permohonan.admin_lock_name}."
+            )
+        permohonan.admin_lock_id = current_user.id
+    else:  # TIM_TEKNIS
+        if permohonan.teknisi_lock_id is not None and permohonan.teknisi_lock_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Gagal mengunci: Berkas ini sedang dikunci oleh {permohonan.teknisi_lock_name}."
+            )
+        permohonan.teknisi_lock_id = current_user.id
+
+    repo.save(permohonan)
+
+    return {
+        "status": "SUCCESS",
+        "message": "Berkas berhasil dikunci untuk verifikasi Anda.",
+        "data": {
+            "adminLockId": permohonan.admin_lock_id,
+            "adminLockName": permohonan.admin_lock_name,
+            "teknisiLockId": permohonan.teknisi_lock_id,
+            "teknisiLockName": permohonan.teknisi_lock_name
+        }
+    }
+
+
+@router.post("/{id_permohonan}/unclaim", status_code=status.HTTP_200_OK)
+def unclaim_submission(
+    id_permohonan: str,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user)
+):
+    """Melepaskan hak eksklusif (unclaim lock) verifikasi berkas."""
+    if current_user.role not in ["ADMIN", "TIM_TEKNIS"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Akses Ditolak: Hanya Admin atau Tim Teknis yang dapat melepaskan kunci berkas."
+        )
+
+    repo = PermohonanRepository(db)
+    permohonan = repo.find_by_id(id_permohonan)
+    if not permohonan:
+        raise HTTPException(status_code=404, detail="Permohonan tidak ditemukan.")
+
+    if current_user.role == "ADMIN":
+        if permohonan.admin_lock_id is not None and permohonan.admin_lock_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Gagal: Anda tidak dapat melepaskan kunci berkas milik admin lain."
+            )
+        permohonan.admin_lock_id = None
+    else:  # TIM_TEKNIS
+        if permohonan.teknisi_lock_id is not None and permohonan.teknisi_lock_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Gagal: Anda tidak dapat melepaskan kunci berkas milik verifikator teknis lain."
+            )
+        permohonan.teknisi_lock_id = None
+
+    repo.save(permohonan)
+
+    return {
+        "status": "SUCCESS",
+        "message": "Kunci berkas berhasil dilepaskan."
+    }

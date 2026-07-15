@@ -222,6 +222,10 @@ class Permohonan:
 
         tpu_detail: Optional["PermohonanTpu"] = None,
         baseline_source: Optional[str] = None,
+        admin_lock_id: Optional[int] = None,
+        admin_lock_name: Optional[str] = None,
+        teknisi_lock_id: Optional[int] = None,
+        teknisi_lock_name: Optional[str] = None,
     ):
         self.id_permohonan = id_permohonan
         self.submission_no = submission_no
@@ -352,6 +356,10 @@ class Permohonan:
 
         self.tpu_detail = tpu_detail
         self.baseline_source = baseline_source
+        self.admin_lock_id = admin_lock_id
+        self.admin_lock_name = admin_lock_name
+        self.teknisi_lock_id = teknisi_lock_id
+        self.teknisi_lock_name = teknisi_lock_name
 
     @property
     def document_category(self) -> DocumentCategory:

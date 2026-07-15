@@ -1,3 +1,4 @@
+# --- FILE: src/infrastructure/http/routes/auth.py ---
 """
 ============================================================================
 SIPAS HTTP CONTROLLER — Auth Router [auth.py] (REVISED v6)
@@ -14,10 +15,11 @@ from pydantic import BaseModel, Field
 import os
 import json
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 from typing import Optional, List, cast
 
 from src.infrastructure.database.connection import get_db
-from src.infrastructure.database.models import UserModel, PendingRegistrationModel
+from src.infrastructure.database.models import UserModel, PendingRegistrationModel, AuditTrailModel
 from src.infrastructure.security.auth import (
     hash_password,
     verify_password,
@@ -142,6 +144,7 @@ class UserCreate(BaseModel):
     phone: Optional[str] = Field(default=None, examples=["081234567890"])
 
 class UserProfileResponse(BaseModel):
+    id: Optional[int] = None
     username: str
     email: str
     full_name: str
@@ -359,6 +362,7 @@ def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db:
 
     access_token = create_access_token(data={"sub": user.username, "role": user.role})
     profile_data = {
+        "id": user.id,
         "username": user.username,
         "email": user.email,
         "full_name": user.full_name,
@@ -382,6 +386,7 @@ def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db:
 def get_me(current_user: UserModel = Depends(get_current_active_user)):
     """Mengambil data profil pengguna aktif berdasarkan token JWT."""
     return {
+        "id": current_user.id,
         "username": current_user.username,
         "email": current_user.email,
         "full_name": current_user.full_name,
@@ -410,6 +415,7 @@ def update_profile(req: ProfileUpdate, db: Session = Depends(get_db), current_us
     db.commit()
     db.refresh(current_user)
     return {
+        "id": current_user.id,
         "username": current_user.username,
         "email": current_user.email,
         "full_name": current_user.full_name,
@@ -426,6 +432,7 @@ def list_users(db: Session = Depends(get_db), token_payload: dict = Depends(requ
     users = db.query(UserModel).all()
     return [
         {
+            "id": u.id,
             "username": u.username,
             "email": u.email,
             "full_name": u.full_name,
@@ -581,164 +588,48 @@ def update_system_config(req: dict, token_payload: dict = Depends(requires_roles
     save_system_config(req)
     return {"status": "SUCCESS", "message": "Konfigurasi sistem global berhasil diperbarui."}
 
-
-from fastapi import UploadFile, File
-from fastapi.responses import StreamingResponse
-import csv
-import io
-from src.infrastructure.database.models import RegionReferenceModel
-
-@router.get("/config/regions/template")
-def download_regions_template():
-    """Mengunduh berkas template CSV untuk referensi wilayah."""
-    output = io.StringIO()
-    output.write("sep=;\n")
-    writer = csv.writer(output, delimiter=';')
-    writer.writerow(["provinsi", "kabupaten", "kecamatan", "desa_kelurahan", "kode_pos"])
-    writer.writerow(["Jawa Barat", "Kabupaten Bogor", "Cibinong", "Cibinong", "16911"])
-    writer.writerow(["Jawa Barat", "Kabupaten Bogor", "Babakan Madang", "Sentul", "16810"])
-    
-    output.seek(0)
-    return StreamingResponse(
-        io.BytesIO(output.getvalue().encode('utf-8-sig')),
-        media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=template_referensi_wilayah.csv"}
-    )
-
-@router.get("/config/regions")
-def get_regions(db: Session = Depends(get_db)):
-    """Mengambil daftar seluruh referensi wilayah dari database."""
-    regions = db.query(RegionReferenceModel).all()
-    return [
-        {
-            "id": r.id,
-            "province": r.province,
-            "regency": r.regency,
-            "district": r.district,
-            "village": r.village,
-            "postal_code": r.postal_code
-        }
-        for r in regions
-    ]
-
-@router.delete("/config/regions/clear")
-def clear_regions(db: Session = Depends(get_db), token_payload: dict = Depends(requires_roles([UserRole.ADMIN]))):
-    """Membersihkan seluruh tabel wilayah referensi (Hanya Admin)."""
-    try:
-        db.query(RegionReferenceModel).delete()
-        db.commit()
-        return {"status": "SUCCESS", "message": "Seluruh wilayah referensi berhasil dibersihkan."}
-    except Exception as e:
-        db.rollback()
-        return {"status": "ERROR", "message": f"Gagal membersihkan wilayah: {str(e)}"}
-
-@router.post("/config/regions/upload")
-async def upload_regions(
-    file: UploadFile = File(...),
+@router.get("/audit-logs")
+def get_all_audit_logs(
+    limit: int = 50,
+    page: int = 1,
+    search: Optional[str] = None,
     db: Session = Depends(get_db),
     token_payload: dict = Depends(requires_roles([UserRole.ADMIN]))
 ):
-    """Unggah berkas CSV wilayah referensi untuk di-seed ke database (Hanya Admin)."""
-    try:
-        contents = await file.read()
-        try:
-            decoded = contents.decode('utf-8-sig')
-        except UnicodeDecodeError:
-            decoded = contents.decode('latin-1')
-
-        # Parse CSV
-        lines = [line for line in decoded.split('\n') if line.strip()]
-        if not lines:
-            return {"status": "ERROR", "message": "Berkas kosong."}
-            
-        start_idx = 0
-        delimiter = ';'
-        first_line = lines[0].strip()
-        
-        # Check for sep=; declaration
-        if first_line.lower().startswith('sep='):
-            delimiter = first_line[4:]
-            start_idx = 1
-            
-        csv_data = '\n'.join(lines[start_idx:])
-        
-        if start_idx == 0:
-            if ',' in first_line:
-                delimiter = ','
-            elif '\t' in first_line:
-                delimiter = '\t'
-
-        reader = csv.reader(io.StringIO(csv_data), delimiter=delimiter)
-        
-        headers = next(reader, None)
-        if not headers:
-            return {"status": "ERROR", "message": "Berkas kosong atau tidak memiliki header."}
-
-        headers = [h.strip().lower() for h in headers]
-        
-        col_map = {}
-        for idx, h in enumerate(headers):
-            if h in ['provinsi', 'province']:
-                col_map['province'] = idx
-            elif h in ['kabupaten', 'regency', 'kab']:
-                col_map['regency'] = idx
-            elif h in ['kecamatan', 'district', 'kec']:
-                col_map['district'] = idx
-            elif h in ['desa_kelurahan', 'desa/kelurahan', 'desa', 'kelurahan', 'village']:
-                col_map['village'] = idx
-            elif h in ['kode_pos', 'kode pos', 'postal_code', 'zip_code']:
-                col_map['postal_code'] = idx
-
-        required = ['province', 'regency', 'district', 'village']
-        missing = [r for r in required if r not in col_map]
-        if missing:
-            return {
-                "status": "ERROR",
-                "message": f"Kolom wajib tidak ditemukan: {', '.join(missing)}. Kolom yang wajib ada: provinsi, kabupaten, kecamatan, desa/kelurahan."
+    """Mendapatkan seluruh daftar log aktivitas sistem dengan pagination dan filter pencarian (Hanya Admin/Super Admin)."""
+    query = db.query(AuditTrailModel)
+    if search:
+        search_filter = f"%{search}%"
+        query = query.filter(
+            or_(
+                AuditTrailModel.submission_id.ilike(search_filter),
+                AuditTrailModel.actor_name.ilike(search_filter),
+                AuditTrailModel.action.ilike(search_filter),
+                AuditTrailModel.notes.ilike(search_filter)
+            )
+        )
+    
+    total = query.count()
+    logs = query.order_by(AuditTrailModel.created_at.desc()).offset((page - 1) * limit).limit(limit).all()
+    
+    return {
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "items": [
+            {
+                "id": log.id,
+                "submission_id": log.submission_id,
+                "actor_name": log.actor_name,
+                "role": log.role,
+                "action": log.action,
+                "status_before": log.status_before,
+                "status_after": log.status_after,
+                "notes": log.notes,
+                "digital_signature_hash": log.digital_signature_hash,
+                "created_at": log.created_at.strftime("%Y-%m-%d %H:%M:%S")
             }
+            for log in logs
+        ]
+    }
 
-        db.query(RegionReferenceModel).delete()
-        
-        new_records = []
-        for row in reader:
-            if not row or all(not val.strip() for val in row):
-                continue
-            
-            # Bound check
-            max_idx = max(col_map.values())
-            if len(row) <= max_idx:
-                continue
-                
-            prov = row[col_map['province']].strip()
-            kab = row[col_map['regency']].strip()
-            kec = row[col_map['district']].strip()
-            desa = row[col_map['village']].strip()
-            
-            p_code = None
-            if 'postal_code' in col_map and len(row) > col_map['postal_code']:
-                p_code = row[col_map['postal_code']].strip() or None
-
-            if prov and kab and kec and desa:
-                new_records.append(
-                    RegionReferenceModel(
-                        province=prov,
-                        regency=kab,
-                        district=kec,
-                        village=desa,
-                        postal_code=p_code
-                    )
-                )
-
-        if not new_records:
-            return {"status": "ERROR", "message": "Tidak ada baris data valid yang berhasil dibaca."}
-
-        db.bulk_save_objects(new_records)
-        db.commit()
-        
-        return {
-            "status": "SUCCESS",
-            "message": f"Berhasil mengimpor {len(new_records)} wilayah referensi baru ke database."
-        }
-    except Exception as e:
-        db.rollback()
-        return {"status": "ERROR", "message": f"Terjadi kesalahan saat parsing berkas: {str(e)}"}

@@ -1,4 +1,4 @@
-﻿"""
+"""
 ============================================================================
 SIPAS INFRASTRUCTURE ADAPTER — Database Models [models.py] (REVISED v5.2)
 ============================================================================
@@ -46,7 +46,11 @@ class UserModel(Base):
     company: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     phone: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
 
-    permohonan: Mapped[List["PermohonanModel"]] = relationship("PermohonanModel", back_populates="user")
+    permohonan: Mapped[List["PermohonanModel"]] = relationship(
+        "PermohonanModel",
+        back_populates="user",
+        foreign_keys="[PermohonanModel.user_id]"
+    )
 
 
 class PendingRegistrationModel(Base):
@@ -88,7 +92,11 @@ class PermohonanModel(Base):
 
     # Relasi User
     user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
-    user: Mapped[Optional["UserModel"]] = relationship("UserModel", back_populates="permohonan")
+    user: Mapped[Optional["UserModel"]] = relationship("UserModel", back_populates="permohonan", foreign_keys=[user_id])
+    admin_lock_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    admin_lock: Mapped[Optional["UserModel"]] = relationship("UserModel", foreign_keys=[admin_lock_id])
+    teknisi_lock_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    teknisi_lock: Mapped[Optional["UserModel"]] = relationship("UserModel", foreign_keys=[teknisi_lock_id])
 
     # ─── KOORDINAT INTI & ADMINISTRASI ────────────────────────────────────────
     id_permohonan: Mapped[str] = mapped_column(String(50), primary_key=True, index=True)
@@ -472,6 +480,18 @@ class AuditTrailModel(Base):
     digital_signature_hash: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
+class SystemFeedbackModel(Base):
+    __tablename__ = "system_feedbacks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    actor_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    actor_email: Mapped[str] = mapped_column(String(255), nullable=False)
+    category: Mapped[str] = mapped_column(String(100), nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+
 
 class SitePlanGeometryModel(Base):
     __tablename__ = "site_plan_geometries"
@@ -500,19 +520,6 @@ class PermohonanFileModel(Base):
     uploaded_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
     permohonan: Mapped["PermohonanModel"] = relationship("PermohonanModel", back_populates="files")
-
-
-class RegionReferenceModel(Base):
-    __tablename__ = "region_references"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    province: Mapped[str] = mapped_column(String(100), nullable=False)
-    regency: Mapped[str] = mapped_column(String(100), nullable=False)
-    district: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
-    village: Mapped[str] = mapped_column(String(100), nullable=False)
-    postal_code: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
-
-
 
 # ─── EVENT LISTENERS UNTUK FORMATTING TITLE CASE (CAPITALIZE EACH WORD) ───
 from sqlalchemy import event

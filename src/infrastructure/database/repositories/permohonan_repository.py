@@ -216,7 +216,11 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
             replaced_sk_number=replaced_sk_number,
             replaced_sk_date=replaced_sk_date,
             replaced_sk_doc_url=replaced_sk_doc_url,
-            baseline_source=str(model.baseline_source) if model.baseline_source else None 
+            baseline_source=str(model.baseline_source) if model.baseline_source else None,
+            admin_lock_id=model.admin_lock_id,
+            admin_lock_name=model.admin_lock.full_name if model.admin_lock else None,
+            teknisi_lock_id=model.teknisi_lock_id,
+            teknisi_lock_name=model.teknisi_lock.full_name if model.teknisi_lock else None
         )
 
     def _to_model(self, entity: Permohonan) -> PermohonanModel:
@@ -394,7 +398,9 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
             replaced_sk_number=replaced_sk_number,
             replaced_sk_date=replaced_sk_date,
             replaced_sk_doc_url=replaced_sk_doc_url,
-            baseline_source=entity.baseline_source 
+            baseline_source=entity.baseline_source,
+            admin_lock_id=entity.admin_lock_id,
+            teknisi_lock_id=entity.teknisi_lock_id
         )
 
     def find_by_id(self, id_permohonan: str) -> Optional[Permohonan]:
@@ -539,6 +545,8 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
             existing_model.replaced_sk_date = None if is_baru else permohonan.replaced_sk_date
             existing_model.replaced_sk_doc_url = None if is_baru else permohonan.replaced_sk_doc_url
             existing_model.baseline_source = permohonan.baseline_source 
+            existing_model.admin_lock_id = permohonan.admin_lock_id
+            existing_model.teknisi_lock_id = permohonan.teknisi_lock_id
 
             # Save polygon geom if updated
             if permohonan.polygon:
@@ -608,7 +616,10 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
         category: Optional[str] = None,
         page: int = 1,
         limit: int = 10,
-        user_id: Optional[int] = None
+        user_id: Optional[int] = None,
+        admin_lock_id: Optional[int] = None,
+        teknisi_lock_id: Optional[int] = None,
+        allowed_statuses: Optional[List[str]] = None
     ) -> Tuple[List[Permohonan], int]:
         """Mendapatkan seluruh daftar permohonan ter-paginasi dengan filter [Liskov Substitution Compliant]."""
         from src.infrastructure.database.models import PermohonanModel
@@ -617,6 +628,15 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
         # Filter berdasarkan kepemilikan user (jika pemohon)
         if user_id is not None:
             query = query.filter(PermohonanModel.user_id == user_id)
+
+        if allowed_statuses:
+            query = query.filter(PermohonanModel.status.in_(allowed_statuses))
+
+        if admin_lock_id is not None:
+            query = query.filter(PermohonanModel.admin_lock_id == admin_lock_id)
+
+        if teknisi_lock_id is not None:
+            query = query.filter(PermohonanModel.teknisi_lock_id == teknisi_lock_id)
 
         if status and status != 'Semua':
             # Gunakan status asli karena database menyimpan value string enum dengan spasi (e.g. 'Verifikasi Administrasi')
