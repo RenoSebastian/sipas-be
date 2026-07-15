@@ -1,12 +1,14 @@
 """
 ============================================================================
-SIPAS USE CASE — Verify & Approve Submission [verify_submission.py] (REVISED v9)
+SIPAS USE CASE — Verify & Approve Submission [verify_submission.py] (REVISED v10.1)
 ============================================================================
 Peran: Mengorkestrasikan ulasan penilaian berjenjang (Admin -> Tim Teknis ->
        Kabid -> Kadis) sesuai dengan matriks status birokrasi baru.
        Mendukung penguncian draf keputusan SK (SkDraft) saat disetujui Kabid,
        penandatanganan visual TTE Coret Kepala Dinas pada draf keputusan,
        serta perlindungan atomisitas transaksi basis data.
+       Menambahkan penanganan Pure Fabrication untuk pengaitan silsilah manual
+       (LinkParentSubmissionUseCase) dengan proteksi silsilah melingkar.
 ============================================================================
 """
 
@@ -14,9 +16,10 @@ import logging
 import asyncio
 import uuid
 from abc import ABC, abstractmethod
-from typing import Optional, List, Any
+from typing import Optional, List, Any, cast
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime  # Impor tanggal eksplisit untuk DTO baru
+from pydantic import SecretStr  # Ditambahkan untuk Koreksi 1 (Pylance compilation fix)
 
 # Impor Entitas Domain sebagai Single Source of Truth
 from src.domain.entities.permohonan import Permohonan, SubmissionStatus, KKPRVerdict
@@ -96,6 +99,15 @@ class ExtendedPermohonanRepositoryPort(PermohonanRepositoryPort):
         pass
 
     @abstractmethod
+    def find_spatial_overlaps(self, id_permohonan: str) -> List[Any]:
+        """Menemukan data permohonan lain yang tumpang tindih secara geografis."""
+        pass
+
+    @abstractmethod
+    def expire_all(self) -> None:
+        pass
+
+    @abstractmethod
     def commit(self) -> None:
         pass
 
@@ -123,7 +135,7 @@ class VerifySubmissionInputDto:
     actor_name: str
     role: str
     nip: Optional[str]              # Wajib dilampirkan jika aktor memproses TTE Kadis
-    passphrase: Optional[str]       # Wajib dilampirkan untuk TTE BSrE Kadis / Verifikasi PIN
+    passphrase: Optional[str]       # Wajib dilampirkan untuk TTE BSrE Kadis / Verifikasi PIN (str murni agar terbebas dari kopling Pydantic)
     action_type: str                # 'APPROVE' | 'REJECT' | 'REVERT_TO_TECHNICAL' | 'REVERT_TO_ADMINISTRATIVE' | 'OVERRIDE_VERDICT' | 'SAVE_TECHNICAL_MATRIX'
     notes: str                      # Catatan justifikasi / alasan revisi
     is_spatially_compliant: bool = True
@@ -139,14 +151,28 @@ class VerifySubmissionInputDto:
     checklist_items: Optional[List[EvaluasiChecklistItemDto]] = None
 
 
-# ─── SECTION 3: USE CASE INTERACTOR CLASS ──────────────────────────────────
+# ─── ADDED FASE 5 (REVISI): DATA TRANSFER OBJECT UNTUK PURE FABRICATION ──
+@dataclass(frozen=True)
+class LinkParentSubmissionInputDto:
+    id_permohonan: str
+    actor_name: str
+    role: str
+    baseline_source: str            # "DIGITAL" | "LEGACY"
+    parent_id_permohonan: Optional[str] = None
+    replaced_sk_number: Optional[str] = None
+    replaced_sk_date: Optional[date] = None
+    replaced_sk_doc_url: Optional[str] = None
+    notes: str = ""
+
+
+# ─── SECTION 3: USE CASE INTERACTOR CLASSES ────────────────────────────────
 
 class VerifySubmissionUseCase:
     def __init__(
         self,
         permohonan_repo: ExtendedPermohonanRepositoryPort,
         telaah_staf_repo: TelaahStafRepositoryPort,
-        sk_draft_repo: SkDraftRepositoryPort,  # <--- INJEKSI BARU
+        sk_draft_repo: SkDraftRepositoryPort,
         document_generator: DocumentGeneratorPort,
         digital_signature_client: DigitalSignaturePort,
         audit_trail_repo: AuditTrailRepositoryPort
@@ -165,7 +191,7 @@ class VerifySubmissionUseCase:
         actor_nip: Optional[str],
         signature_base64: Optional[str]
     ) -> TelaahStaf:
-        """Membuat draft Telaah Staf minimal saat dokumen review belum ada."""
+        """Membuat draf Telaah Staf minimal saat dokumen review belum ada."""
         eval_items = self.permohonan_repo.get_evaluasi_items(permohonan.id_permohonan)
 
         admin_items: List[AdminChecklistItem] = []
@@ -263,6 +289,7 @@ class VerifySubmissionUseCase:
             SubmissionStatus.VERIFIKASI_TEKNIS:       ["TIM_TEKNIS"],
             SubmissionStatus.MENUNGGU_REKOMENDASI:    ["KABID_PUPR"],
             SubmissionStatus.MENUNGGU_PERSETUJUAN:    ["KADIS"],
+            SubmissionStatus.PROSES_TTE:              ["KADIS"],
         }
 
         if status_awal in allowed_roles:
@@ -916,12 +943,13 @@ class VerifySubmissionUseCase:
                     crypto_hash = await self.digital_signature_client.sign_pdf_document(
                         pdf_path=sk_path,
                         certificate_owner_nip=kadis_nip_clean,
-                        passphrase=input_dto.passphrase or "bypass_passphrase"
+                        passphrase=input_dto.passphrase if input_dto.passphrase else "bypass_passphrase"
                     )
                 except Exception as e:
                     logger.error(f"[TTE_TRANSACTION_FAILURE] TTE BSrE gagal diproses: {str(e)}. Rollback status...")
                     def rollback_tte_failure() -> None:
                         self.permohonan_repo.rollback()
+                        self.permohonan_repo.expire_all()
                         p = self.permohonan_repo.find_by_id(permohonan.id_permohonan)
                         if p:
                             p.transition_status(SubmissionStatus.MENUNGGU_PERSETUJUAN)
@@ -940,6 +968,25 @@ class VerifySubmissionUseCase:
                     p.attach_signature(crypto_hash, signed_url)
                     p.kadis_signature = kadis_sig_clean           # Coretan TTE Kadis
                     p.sk_number = sk_draft.sk_number               # Rekam Nomor SK ke tabel Permohonan
+
+                    # Nonaktifkan SK lama yang digantikan (jika ada parent)
+                    if p.parent_id_permohonan:
+                        parent_p = self.permohonan_repo.find_by_id(p.parent_id_permohonan)
+                        if parent_p:
+                            parent_p.status = SubmissionStatus.TIDAK_BERLAKU
+                            self.permohonan_repo.save(parent_p, commit=False)
+
+                    # Nonaktifkan semua SK lama lainnya yang tumpang tindih secara spasial
+                    try:
+                        overlaps = self.permohonan_repo.find_spatial_overlaps(p.id_permohonan)
+                        for item in overlaps:
+                            if item.get("status") == "Disetujui":
+                                overlapping_p = self.permohonan_repo.find_by_id(item["id_permohonan"])
+                                if overlapping_p:
+                                    overlapping_p.status = SubmissionStatus.TIDAK_BERLAKU
+                                    self.permohonan_repo.save(overlapping_p, commit=False)
+                    except Exception as e:
+                        logger.error(f"[AUTO_DEACTIVATE_OVERLAPS_ERROR] Gagal menonaktifkan overlap otomatis: {str(e)}")
 
                     self.permohonan_repo.save(p, commit=False)
                     self.audit_trail_repo.log_action(
@@ -964,3 +1011,147 @@ class VerifySubmissionUseCase:
     def _to_payload(self, entity: Any) -> dict:
         # Backward compatibility / Helper mapping
         return entity.to_dict() if hasattr(entity, "to_dict") else {}
+
+
+# ─── ADDED FASE 5 (REVISI): PURE FABRICATION - LINK PARENT USE CASE ───────
+
+class LinkParentSubmissionUseCase:
+    """
+    Kelas Pure Fabrication untuk mengisolasi tanggung jawab pengaitan silsilah permohonan
+    sebelumnya (parent-child) secara transaksional, lengkap dengan penegakan SoD 
+    dan mitigasi silsilah melingkar (circular ancestry).
+    """
+    def __init__(
+        self,
+        permohonan_repo: ExtendedPermohonanRepositoryPort,
+        audit_trail_repo: AuditTrailRepositoryPort
+    ):
+        self.permohonan_repo = permohonan_repo
+        self.audit_trail_repo = audit_trail_repo
+
+    def _detect_circular_ancestry(self, child_id: str, target_parent_id: str) -> bool:
+        """
+        Mendeteksi adanya circular dependency di level logika silsilah permohonan.
+        (Protected Variations - Menjamin keandalan struktur pohon/silsilah di DB)
+        """
+        if child_id == target_parent_id:
+            return True
+
+        visited = {child_id}
+        current_parent_id: Optional[str] = target_parent_id # Dianotasi Optional[str] untuk kelancaran Pylance assignment
+
+        while current_parent_id is not None:
+            # Type Narrowing: Penambat asersi bertipe str murni (anti-None)
+            parent_id: str = current_parent_id
+            
+            if parent_id in visited:
+                return True
+            visited.add(parent_id)
+
+            # Memanfaatkan repositori terabstraksi untuk menelusuri rantai silsilah ke atas
+            parent_record = self.permohonan_repo.find_by_id(parent_id)
+            if parent_record and parent_record.parent_id_permohonan:
+                current_parent_id = parent_record.parent_id_permohonan
+            else:
+                break
+
+        return False
+
+    async def execute(self, input_dto: LinkParentSubmissionInputDto) -> Permohonan:
+        """Mengeksekusi pengaitan silsilah secara transaksional aman."""
+        
+        # 1. Penegakan Otorisasi SoD tingkat Use Case
+        if input_dto.role != "ADMIN":
+            logger.warning(
+                "[SECURITY_ALERT] Non-ADMIN user '%s' (Role: %s) attempted to link parent lineage for submission: %s",
+                input_dto.actor_name, input_dto.role, input_dto.id_permohonan
+            )
+            raise PermissionError(
+                f"Akses Ditolak: Peran '{input_dto.role}' tidak memiliki otorisasi untuk mengaitkan silsilah permohonan."
+            )
+
+        # 2. Ambil data permohonan yang akan dikaitkan (child)
+        def get_current_permohonan() -> Permohonan:
+            p = self.permohonan_repo.find_by_id(input_dto.id_permohonan)
+            if not p:
+                raise ValueError(f"Ilegal: Permohonan dengan ID '{input_dto.id_permohonan}' tidak ditemukan.")
+            return p
+
+        permohonan = await asyncio.to_thread(get_current_permohonan)
+
+        # 3. Proses penautan berdasarkan jenis rujukan baseline
+        if input_dto.baseline_source == "DIGITAL":
+            if not input_dto.parent_id_permohonan:
+                raise ValueError("Gagal: Parameter 'parent_id_permohonan' wajib disertakan untuk rujukan tipe 'DIGITAL'.")
+
+            # Cegah circular dependency (Protected Variations)
+            if self._detect_circular_ancestry(input_dto.id_permohonan, input_dto.parent_id_permohonan):
+                logger.error(
+                    "[LINEAGE_ERROR] Hubungan silsilah melingkar terdeteksi! Current ID: %s | Target Parent ID: %s",
+                    input_dto.id_permohonan, input_dto.parent_id_permohonan
+                )
+                raise ValueError(
+                    "Pemberitahuan Sistem: Hubungan silsilah melingkar (circular reference) terdeteksi. "
+                    "Pengaitan ditolak karena akan merusak silsilah historis basis data."
+                )
+
+            # Tarik berkas rujukan (parent) dari database
+            def get_parent_permohonan() -> Permohonan:
+                # Type Narrowing: target_parent_id dijamin str karena sudah meloloskan asersi di atas
+                target_parent_id: str = cast(str, input_dto.parent_id_permohonan)
+                parent_p = self.permohonan_repo.find_by_id(target_parent_id)
+                if not parent_p:
+                    raise ValueError(f"Gagal: Permohonan rujukan (parent) dengan ID '{target_parent_id}' tidak ditemukan.")
+                return parent_p
+
+            parent_record = await asyncio.to_thread(get_parent_permohonan)
+
+            # Tautkan data silsilah
+            permohonan.parent_id_permohonan = parent_record.id_permohonan
+            permohonan.replaced_sk_number = parent_record.sk_number or "-"
+            permohonan.replaced_sk_date = parent_record.submission_date
+            permohonan.replaced_sk_doc_url = parent_record.signed_pdf_url
+            permohonan.baseline_source = "DIGITAL"
+
+        elif input_dto.baseline_source == "LEGACY":
+            if not input_dto.replaced_sk_number:
+                raise ValueError("Gagal: Parameter 'replaced_sk_number' wajib disertakan untuk rujukan tipe 'LEGACY'.")
+            if not input_dto.replaced_sk_date:
+                raise ValueError("Gagal: Parameter 'replaced_sk_date' wajib disertakan untuk rujukan tipe 'LEGACY'.")
+            if not input_dto.replaced_sk_doc_url:
+                raise ValueError("Gagal: Parameter 'replaced_sk_doc_url' wajib disertakan untuk rujukan tipe 'LEGACY'.")
+
+            # Tautkan data rujukan fisik offline
+            permohonan.parent_id_permohonan = None
+            permohonan.replaced_sk_number = input_dto.replaced_sk_number
+            permohonan.replaced_sk_date = input_dto.replaced_sk_date
+            permohonan.replaced_sk_doc_url = input_dto.replaced_sk_doc_url
+            permohonan.baseline_source = "LEGACY"
+
+        else:
+            raise ValueError(f"Gagal: Jenis baseline_source '{input_dto.baseline_source}' tidak valid.")
+
+        # Ubah tipe permohonan secara otomatis menjadi REVISI karena sekarang telah dikaitkan dengan SK lama
+        permohonan.submission_type = "REVISI"
+
+        # 4. Simpan perubahan ke database & catat log aktivitas secara transaksional aman
+        def persist_linkage() -> None:
+            self.permohonan_repo.save(permohonan, commit=False)
+            self.audit_trail_repo.log_action(
+                submission_id=permohonan.id_permohonan,
+                actor_name=input_dto.actor_name,
+                role=input_dto.role,
+                action="LINK_PARENT_LINEAGE",
+                status_before=permohonan.status.value,
+                status_after=permohonan.status.value,
+                notes=(
+                    f"Admin mengaitkan silsilah permohonan dengan SK rujukan tipe '{input_dto.baseline_source}'. "
+                    f"Nomor SK Rujukan: {permohonan.replaced_sk_number}. Catatan Admin: {input_dto.notes}"
+                ),
+                commit=False
+            )
+            self.permohonan_repo.commit()
+
+        await asyncio.to_thread(persist_linkage)
+        logger.info(f"[USE_CASE] Sukses mengaitkan silsilah permohonan ID '{permohonan.id_permohonan}' secara hukum transaksional.")
+        return permohonan

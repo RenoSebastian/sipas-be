@@ -129,23 +129,59 @@ class HtmlToPdfEngine(DocumentGeneratorPort):
     def compile_to_pdf(self, html_content: str, output_pdf_path: str) -> str:
         """
         Mengompilasi lembar kode HTML menjadi berkas biner PDF fisik.
-        Menggunakan pengaman tipe statis yang ketat untuk menguji keberadaan WP_HTML.
+        Menggunakan penulisan berkas sementara (temporary file) dan pemindahan atomik (atomic move)
+        untuk menghindari risiko tabrakan penguncian berkas (file locking / race conditions).
         """
         output_path = Path(output_pdf_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
+        import uuid
+        import os
+        temp_filename = f"{output_path.name}.tmp.{uuid.uuid4().hex}"
+        temp_path = output_path.parent / temp_filename
+
         if WEASYPRINT_AVAILABLE and WP_HTML is not None:
             try:
-                logger.info(f"[PDF_ENGINE] Memulai kompilasi WeasyPrint untuk output: {output_pdf_path}")
-                WP_HTML(string=html_content).write_pdf(str(output_path))
-                logger.info("[PDF_ENGINE] Kompilasi WeasyPrint sukses.")
+                logger.info(f"[PDF_ENGINE] Memulai kompilasi WeasyPrint untuk output sementara: {temp_path}")
+                WP_HTML(string=html_content).write_pdf(str(temp_path))
+                
+                # Pemindahan secara atomik (atomic replace) ke file tujuan
+                os.replace(str(temp_path), str(output_path))
+                logger.info("[PDF_ENGINE] Kompilasi WeasyPrint sukses secara atomik.")
                 return str(output_path.resolve())
             except Exception as e:
                 logger.error(f"[PDF_ENGINE_CRASH] Gagal mengompilasi PDF via WeasyPrint: {str(e)}", exc_info=True)
+                if temp_path.exists():
+                    try:
+                        temp_path.unlink()
+                    except Exception:
+                        pass
 
         # Fallback PDF Generator (Jika WeasyPrint rusak/tidak terinstal)
-        logger.warning("[PDF_ENGINE_FALLBACK] Mengaktifkan penulisan dokumen Fail-Safe.")
-        return self._generate_fallback_pdf(html_content, output_path)
+        logger.warning("[PDF_ENGINE_FALLBACK] Mengaktifkan penulisan dokumen Fail-Safe secara atomik.")
+        try:
+            temp_html_path = temp_path.with_suffix(".html")
+            final_html_path = output_path.with_suffix(".html")
+
+            self._generate_fallback_pdf(html_content, temp_path)
+            
+            # Pemindahan secara atomik (atomic replace) ke file tujuan
+            os.replace(str(temp_path), str(output_path))
+            if temp_html_path.exists():
+                os.replace(str(temp_html_path), str(final_html_path))
+            return str(output_path.resolve())
+        except Exception as e:
+            if temp_path.exists():
+                try:
+                    temp_path.unlink()
+                except Exception:
+                    pass
+            if temp_html_path.exists():
+                try:
+                    temp_html_path.unlink()
+                except Exception:
+                    pass
+            raise e
 
     def _generate_fallback_pdf(self, html_content: str, output_path: Path) -> str:
         """

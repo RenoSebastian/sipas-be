@@ -1,11 +1,12 @@
 """
 ============================================================================
-SIPAS HTTP SCHEMAS — Submissions [submissions.py] (REVISED v5.1 - TYPE SAFE)
+SIPAS HTTP SCHEMAS — Submissions [submissions.py] (REVISED v5.2 - TYPE SAFE)
 ============================================================================
 Peran: Skema validasi data request HTTP menggunakan Pydantic untuk fungsionalitas
        core permohonan. Menjamin tipe data yang masuk sesuai dengan standar
-       dinas, serta mendukung validasi pengajuan draf parsial (is_draft) dan
-       silsilah permohonan revisi secara deklaratif.
+       dinas, serta mendukung validasi pengajuan draf parsial (is_draft),
+       silsilah permohonan revisi secara deklaratif, serta mekanisme pengaitan
+       induk permohonan oleh Admin.
 ============================================================================
 """
 
@@ -15,7 +16,8 @@ from typing import Tuple, Optional, List, Any
 
 
 class ApplicantDto(BaseModel):
-    type: Optional[str] = Field(default="PERORANGAN", pattern="^(PERORANGAN|BADAN_USAHA)$", examples=["BADAN_USAHA"])
+    # Pelonggaran pola regex agar menerima nilai kosong ("" atau None) untuk mendukung penyimpanan draf parsial
+    type: Optional[str] = Field(default="PERORANGAN", pattern="^(PERORANGAN|BADAN_USAHA|)$", examples=["BADAN_USAHA"])
     name: Optional[str] = Field(default=None, examples=["PT Geocitra Raya"])
     nik: Optional[str] = Field(default=None, examples=["3201020304050607"])
     nib: Optional[str] = Field(default=None, examples=["9120301938192"])
@@ -27,9 +29,9 @@ class ApplicantDto(BaseModel):
 
 
 class SubmissionDetailsDto(BaseModel):
-    submissionType: Optional[str] = Field(default="BARU", pattern="^(BARU|REVISI|PERPANJANGAN)$", examples=["BARU"])
+    submissionType: Optional[str] = Field(default="BARU", pattern="^(BARU|REVISI|PERPANJANGAN|)$", examples=["BARU"])
     activityName: Optional[str] = Field(default=None, examples=["Grand Bogor Residence"])
-    category: Optional[str] = Field(default="PERUMAHAN", pattern="^(PERUMAHAN|NON_PERUMAHAN|FASUM|INDUSTRI)$", examples=["PERUMAHAN"])
+    category: Optional[str] = Field(default="PERUMAHAN", pattern="^(PERUMAHAN|NON_PERUMAHAN|FASUM|INDUSTRI|)$", examples=["PERUMAHAN"])
 
 
 class LocationDetailsDto(BaseModel):
@@ -40,7 +42,7 @@ class LocationDetailsDto(BaseModel):
     province: Optional[str] = Field(default="Jawa Barat", examples=["Jawa Barat"])
     fullAddress: Optional[str] = Field(default=None, examples=["Jl. Raya Pajajaran No.21, Kec. Bogor Timur"])
     landArea: Optional[float] = Field(default=None, examples=[25000.0])
-    ownershipStatus: Optional[str] = Field(default="SHM", pattern="^(SHM|HGB|HAK_PAKAI|LAINNYA)$", examples=["SHM"])
+    ownershipStatus: Optional[str] = Field(default="SHM", pattern="^(SHM|HGB|HAK_PAKAI|LAINNYA|)$", examples=["SHM"])
     certificateNumber: Optional[str] = Field(default=None, examples=["SHM No. 10293/Baranangsiang"])
     certificateOwner: Optional[str] = Field(default=None, examples=["PT Geocitra Raya"])
 
@@ -146,7 +148,6 @@ class SelfDeclaredCompensationDto(BaseModel):
     documentUrl: Optional[str] = None
 
 
-# ─── UPDATE FASE 5 (REVISI): SKEMA DETIL METADATA FISIK/LEGACY SK LAMA ───────
 class LegacyMetadataDto(BaseModel):
     replaced_sk_number: str = Field(..., examples=["600/120/415.19/2020"])
     replaced_sk_date: date = Field(..., examples=["2020-08-15"])
@@ -157,8 +158,7 @@ class SubmitRequest(BaseModel):
     id_permohonan: Optional[str] = Field(default=None, examples=["sub-123456"])
     is_draft: bool = Field(default=False)
     
-    # ─── UPDATE FASE 5 (REVISI): SILSILAH PERMOHONAN SELF-REFERENTIAL ────────
-    baseline_source: Optional[str] = Field(default=None, pattern="^(DIGITAL|LEGACY)$")
+    baseline_source: Optional[str] = Field(default=None, pattern="^(DIGITAL|LEGACY|)$")
     parent_id_permohonan: Optional[str] = Field(default=None, examples=["sub-old-12345"])
     legacy_metadata: Optional[LegacyMetadataDto] = Field(default=None)
 
@@ -211,7 +211,6 @@ class VerifyRequest(BaseModel):
     is_spatially_compliant: bool = Field(default=True)
     signature_base64: Optional[str] = Field(default=None, description="Visual signature coretan tangan")
 
-    # Parameter Penilaian Spasial & Komparasi Tiga Sisi
     kkpr_verdict: Optional[str] = Field(default=None, pattern="^(Sesuai|Sesuai Bersyarat|Perlu Perbaikan / Revisi|Tidak Sesuai / Ditolak|SESUAI|SESUAI_BERSYARAT|PERLU_PERBAIKAN|TIDAK_SESUAI)$")
     verified_kdb: Optional[float] = None
     verified_klb: Optional[float] = None
@@ -219,3 +218,58 @@ class VerifyRequest(BaseModel):
     verified_gsb: Optional[float] = None
     verified_rth_area: Optional[float] = None
     checklist_items: Optional[List[EvaluasiChecklistItemDto]] = None
+
+
+# ─── ADDED FASE 5 (REVISI): VALIDASI KONTRAK INPUT LINK PARENT OLEH ADMIN ──
+class LinkParentRequest(BaseModel):
+    """
+    Skema validasi permintaan pengaitan manual silsilah permohonan (parent-child) oleh Admin.
+    Menjamin kelengkapan dokumen pendukung yang dikirim berdasarkan skenario baseline yang dipilih.
+    """
+    baseline_source: str = Field(
+        ..., 
+        pattern="^(DIGITAL|LEGACY)$", 
+        description="Sumber rujukan SK Lama yang dipilih", 
+        examples=["DIGITAL"]
+    )
+    parent_id_permohonan: Optional[str] = Field(
+        default=None, 
+        description="ID permohonan rujukan yang terdaftar aktif dalam database (untuk tipe DIGITAL)", 
+        examples=["sub-12345"]
+    )
+    replaced_sk_number: Optional[str] = Field(
+        default=None, 
+        description="Nomor Surat Keputusan rujukan fisik / lama (untuk tipe LEGACY)", 
+        examples=["600/120/415.19/2020"]
+    )
+    replaced_sk_date: Optional[date] = Field(
+        default=None, 
+        description="Tanggal terbit Surat Keputusan rujukan fisik / lama (untuk tipe LEGACY)", 
+        examples=["2020-08-15"]
+    )
+    replaced_sk_doc_url: Optional[str] = Field(
+        default=None, 
+        description="URL berkas pindaian dokumen rujukan fisik / lama (untuk tipe LEGACY)", 
+        examples=["/uploads/permohonan/sk_lama.pdf"]
+    )
+    notes: str = Field(
+        ..., 
+        min_length=5, 
+        description="Justifikasi atau catatan tertulis dari Admin terkait pengaitan silsilah", 
+        examples=["Menghubungkan permohonan revisi dengan SK Utama yang tumpang tindih spasial."]
+    )
+
+    @model_validator(mode='after')
+    def validate_linkage_requirements(self) -> 'LinkParentRequest':
+        if self.baseline_source == "DIGITAL" and not self.parent_id_permohonan:
+            raise ValueError("Pengaitan bertipe 'DIGITAL' wajib melampirkan parameter 'parent_id_permohonan'.")
+        
+        if self.baseline_source == "LEGACY":
+            if not self.replaced_sk_number:
+                raise ValueError("Pengaitan bertipe 'LEGACY' wajib mengisi parameter 'replaced_sk_number'.")
+            if not self.replaced_sk_date:
+                raise ValueError("Pengaitan bertipe 'LEGACY' wajib mengisi parameter 'replaced_sk_date'.")
+            if not self.replaced_sk_doc_url:
+                raise ValueError("Pengaitan bertipe 'LEGACY' wajib mengunggah dokumen rujukan pada 'replaced_sk_doc_url'.")
+                
+        return self

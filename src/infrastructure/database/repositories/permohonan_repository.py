@@ -1,6 +1,6 @@
 """
 ============================================================================
-SIPAS INFRASTRUCTURE ADAPTER — Permohonan Repository [permohonan_repository.py] (REVISED v9.2)
+SIPAS INFRASTRUCTURE ADAPTER — Permohonan Repository [permohonan_repository.py] (REVISED v10)
 ============================================================================
 Peran: Mengimplementasikan ExtendedPermohonanRepositoryPort untuk berinteraksi dengan
        database transaksional PostgreSQL & PostGIS secara aman.
@@ -9,8 +9,10 @@ Peran: Mengimplementasikan ExtendedPermohonanRepositoryPort untuk berinteraksi d
        menyimpan checklist verifikasi evaluasi manual beserta audit verifikator
        (verified_by_id, verified_at) secara idempotent, mengamankan visual
        TTE Kepala Dinas (kadis_signature), menyinkronkan Nomor SK baru,
-       menyimpan geometri detail rencana tapak secara transaksional, serta
-       menyediakan kompilasi cepat GeoJSON FeatureCollection dari PostGIS.
+       menyimpan geometri detail rencana tapak secara transaksional,
+       mendeteksi tumpang tindih spasial antar permohonan (PostGIS),
+       memvalidasi silsilah melingkar, serta menyediakan kompilasi cepat
+       GeoJSON FeatureCollection langsung dari database PostGIS.
 ============================================================================
 """
 
@@ -209,7 +211,7 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
             sk_number=str(model.sk_number) if model.sk_number else None,
             tpu_detail=tpu_entity,
 
-            # ─── UPDATE FASE 5 (REVISI): PEMETAAN SILSILAH SELF-REFERENTIAL KPD DOMAIN ───
+            # ─── UPDATE FASE 5 (REVISI): SILSILAH PERMOHONAN SELF-REFERENTIAL KPD DOMAIN ───
             parent_id_permohonan=parent_id_permohonan,
             replaced_sk_number=replaced_sk_number,
             replaced_sk_date=replaced_sk_date,
@@ -593,6 +595,9 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
                         diverifikasi_pada=tpu_data.diverifikasi_pada,
                         bukti_dokumen_url=tpu_data.bukti_dokumen_url
                     )
+            else:
+                if existing_model.tpu_detail:
+                    self.db.delete(existing_model.tpu_detail)
         else:
             # Jika merupakan data baru, lakukan pendaftaran awal (INSERT)
             new_model = self._to_model(permohonan)
@@ -704,7 +709,7 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
             )
         return results
 
-    def save_kompensasi(self, kompensasi: Any) -> None:
+    def save_kompensasi(self, kompensasi: Any, commit: bool = True) -> None:
         """Menyimpan atau memperbarui data kompensasi ke database."""
         from src.infrastructure.database.models import LahanKompensasiModel
         from shapely.geometry import Polygon as ShapelyPolygon
@@ -743,9 +748,12 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
                 alamat_lokasi=kompensasi.alamat_lokasi
             )
             self.db.add(new_model)
-        self.db.commit()
+        if commit:
+            self.db.commit()
+        else:
+            self.db.flush()
 
-    def save_files(self, id_permohonan: str, files: List[dict]) -> None:
+    def save_files(self, id_permohonan: str, files: List[dict], commit: bool = True) -> None:
         from src.infrastructure.database.models import PermohonanFileModel
         # 1. Hapus berkas lama
         self.db.query(PermohonanFileModel).filter(PermohonanFileModel.id_permohonan == id_permohonan).delete()
@@ -760,7 +768,10 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
                 file_url=f["file_url"]
             )
             self.db.add(new_file)
-        self.db.commit()
+        if commit:
+            self.db.commit()
+        else:
+            self.db.flush()
 
     # ─── REVISI: PENYIMPANAN ITEM EVALUASI CHECKLIST MANUAL SECARA IDEMPOTENT ───
     def save_evaluasi_items(self, id_permohonan: str, items: List[Any]) -> None:
@@ -887,6 +898,111 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
         kompilasi GeoJSON tanpa menghalangi thread utama event loop FastAPI.
         """
         return await asyncio.to_thread(self.get_siteplan_geojson, id_permohonan)
+
+    # ─── ADDED FASE 5 (REVISI): DETEKSI SPASIAL OVERLAPS DI DATABASE ─────────
+    def find_spatial_overlaps(self, id_permohonan: str) -> List[Dict[str, Any]]:
+        """
+        Menemukan data permohonan lain yang tumpang tindih secara geometris spasial
+        dengan target permohonan menggunakan kueri transaksional ST_Intersection PostGIS.
+        Mengabaikan tumpang tindih spasial di bawah toleransi 5.0% (sliver border).
+        """
+        target = self.db.query(PermohonanModel).filter(PermohonanModel.id_permohonan == id_permohonan).first()
+        if not target or not target.geom:
+            return []
+
+        query = text("""
+            SELECT 
+                p.id_permohonan,
+                p.submission_no,
+                p.housing_name,
+                p.developer_name,
+                p.sk_number,
+                p.status,
+                CASE 
+                    WHEN ST_Area(ST_MakeValid(target.geom)::geography) = 0 THEN 0
+                    ELSE (ST_Area(ST_Intersection(ST_MakeValid(p.geom)::geography, ST_MakeValid(target.geom)::geography)) / ST_Area(ST_MakeValid(target.geom)::geography)) * 100
+                END AS overlap_percentage
+            FROM permohonan p, permohonan target
+            WHERE target.id_permohonan = :id_permohonan
+              AND p.id_permohonan != :id_permohonan
+              AND p.geom IS NOT NULL
+              AND ST_Intersects(ST_MakeValid(p.geom), ST_MakeValid(target.geom))
+              AND p.status IN ('Disetujui', 'Proses TTE', 'Menunggu Persetujuan')
+            ORDER BY overlap_percentage DESC;
+        """)
+
+        try:
+            results = self.db.execute(query, {"id_permohonan": id_permohonan}).all()
+            overlaps = []
+            for row in results:
+                if row.overlap_percentage >= 5.0:
+                    overlaps.append({
+                        "id_permohonan": row.id_permohonan,
+                        "submission_no": row.submission_no,
+                        "housing_name": row.housing_name or "-",
+                        "developer_name": row.developer_name or "-",
+                        "sk_number": row.sk_number or "-",
+                        "status": row.status,
+                        "overlap_percentage": round(row.overlap_percentage, 2)
+                    })
+            return overlaps
+        except Exception as e:
+            raise RuntimeError(f"Gagal memproses analisis tumpang tindih spasial PostGIS: {str(e)}")
+
+
+    # ─── ADDED FASE 5 (REVISI): DETEKSI REKURSIVE SILSILAH MELINGKAR ─────────
+    def check_ancestry_loop(self, child_id: str, target_parent_id: str) -> bool:
+        """
+        Memeriksa apakah terdapat silsilah hubungan melingkar (circular ancestry dependency)
+        di level database sebelum perubahan parent disimpan secara hukum.
+        (Protected Variations - Menjaga keandalan relasi self-referential di DB)
+        """
+        if child_id == target_parent_id:
+            return True
+
+        visited = {child_id}
+        curr_id = target_parent_id
+
+        while curr_id:
+            if curr_id in visited:
+                return True
+            visited.add(curr_id)
+
+            parent_record = self.db.query(PermohonanModel).filter(PermohonanModel.id_permohonan == curr_id).first()
+            if parent_record and parent_record.parent_id_permohonan:
+                curr_id = parent_record.parent_id_permohonan
+            else:
+                break
+
+        return False
+
+    def generate_internal_geometries(
+        self,
+        id_permohonan: str,
+        base_lon: float,
+        base_lat: float,
+        rotation_deg: float,
+        is_type_1: bool = True,
+        commit: bool = True
+    ) -> None:
+        """Menghasilkan poligon detail rencana tapak secara otomatis [Fase 3/Decoupled]."""
+        from src.infrastructure.database.seed import seed_internal_geometries
+        seed_internal_geometries(
+            db=self.db,
+            id_permohonan=id_permohonan,
+            base_lon=base_lon,
+            base_lat=base_lat,
+            rotation_deg=rotation_deg,
+            is_type_1=is_type_1
+        )
+        if commit:
+            self.db.commit()
+        else:
+            self.db.flush()
+
+    def expire_all(self) -> None:
+        """Mengosongkan cache sesi untuk memastikan reload data yang bersih setelah rollback."""
+        self.db.expire_all()
 
     def commit(self) -> None:
         """Commit transaksi database yang sedang aktif secara eksplisit."""

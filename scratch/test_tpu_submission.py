@@ -99,6 +99,74 @@ def run_test():
         assert comp.luas_kompensasi_m2 == 1000.0
         assert comp.bukti_legalitas_url == "http://localhost/uploads/comp/shm_sawah.pdf"
 
+        # ─── PENGUJIAN BARU: VERIFIKASI PENGHAPUSAN DATA TPU YATIM (PROBLEM 2) ───
+        print("[TEST] Verifying Orphan TPU deletion (Problem 2)...")
+        dto_update = SubmitPermohonanInputDto(
+            id_permohonan=id_perm,
+            submission_no=sub_no,
+            housing_name="Maju Jaya Estate (Updated)",
+            developer_name="PT Developer Sukses",
+            land_area=15000.0,
+            actor_name="System Tester",
+            role="SYSTEM",
+            is_draft=True,
+
+            # TPU diubah menjadi None / Dihapus oleh pemohon
+            tpu_method=None,
+            tpu_area=None,
+            tpu_nama=None,
+            tpu_pengurus=None,
+            tpu_no_pks=None,
+            tpu_nominal=None,
+            tpu_address=None,
+            tpu_bukti_dokumen=None,
+            self_declared_compensations=None
+        )
+
+        use_case.execute(dto_update)
+        db.flush()
+
+        tpu_deleted = db.query(PermohonanTpuModel).filter(PermohonanTpuModel.id_permohonan == id_perm).first()
+        if tpu_deleted is not None:
+            print("[TEST_FAILED] PermohonanTpuModel record was not deleted when TPU details were cleared!")
+            sys.exit(1)
+        print(" - TPU record successfully deleted from database.")
+
+        # Re-insert TPU details for subsequent VerifySubmissionUseCase test path
+        print("[TEST] Re-preparing TPU details for verification path...")
+        dto_reinsert = SubmitPermohonanInputDto(
+            id_permohonan=id_perm,
+            submission_no=sub_no,
+            housing_name="Maju Jaya Estate",
+            developer_name="PT Developer Sukses",
+            land_area=15000.0,
+            actor_name="System Tester",
+            role="SYSTEM",
+            is_draft=True,
+            tpu_method="KERJASAMA",
+            tpu_area=350.0,
+            tpu_nama="Makam Muslim Sukamaju",
+            tpu_pengurus="Pak Haji Sobri",
+            tpu_no_pks="PKS/123/TPU/2026",
+            tpu_nominal=0.0,
+            tpu_address="Kecamatan Jonggol, Bogor",
+            tpu_bukti_dokumen="http://localhost/uploads/tpu/pks_tpu.pdf",
+            self_declared_compensations=[
+                {
+                    "type": "LAHAN_SAWAH",
+                    "requiredAreaM2": 1000.0,
+                    "nominalAmount": 0.0,
+                    "documentUrl": "http://localhost/uploads/comp/shm_sawah.pdf"
+                }
+            ]
+        )
+        use_case.execute(dto_reinsert)
+        db.flush()
+
+        # Re-fetch new tpu reference
+        db.refresh(model)
+        tpu = model.tpu_detail
+
         # Transition permohonan to VERIFIKASI_TEKNIS status to perform technical review
         print("[TEST] Transitioning status to Verifikasi Teknis...")
         model.status = "Verifikasi Teknis"

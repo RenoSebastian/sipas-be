@@ -1,12 +1,14 @@
 """
 ============================================================================
-SIPAS USE CASE — Submit Permohonan [submit_permohonan.py] (REVISED v5.1)
+SIPAS USE CASE — Submit Permohonan [submit_permohonan.py] (REVISED v5.2)
 ============================================================================
 Peran: Mengorkestrasikan alur pendaftaran permohonan baru satu pintu,
        menegakkan validasi skema dasar, menyimpan entitas ke repositori,
        menyimpan metrik komparasi tata ruang awal (KDB, KLB, KDH, GSB, RTH),
        mendaftarkan silsilah permohonan revisi (Self-Referential/Legacy),
        dan mendaftarkan log audit perdana [Bogor 4, 7, sipas-fe.txt].
+       Mendukung auto-fill otomatis data diri & lokasi dari SK induk (parent)
+       jika parent_id_permohonan telah terdefinisi.
 ============================================================================
 """
 
@@ -41,7 +43,7 @@ class PermohonanRepositoryPort(ABC):
         pass
 
     @abstractmethod
-    def save_files(self, id_permohonan: str, files: List[dict]) -> None:
+    def save_files(self, id_permohonan: str, files: List[dict], commit: bool = True) -> None:
         pass
 
     @abstractmethod
@@ -66,12 +68,30 @@ class PermohonanRepositoryPort(ABC):
         pass
 
     @abstractmethod
-    def save_kompensasi(self, kompensasi: Any) -> None:
+    def save_kompensasi(self, kompensasi: Any, commit: bool = True) -> None:
         pass
 
     @abstractmethod
     def save_siteplan_geometries(self, id_permohonan: str, geometries: List[Tuple[str, Any]], commit: bool = True) -> None:
         """Menyimpan atau memperbarui data spasial detail secara transaksional [Fase 3]."""
+        pass
+
+    @abstractmethod
+    def generate_internal_geometries(
+        self,
+        id_permohonan: str,
+        base_lon: float,
+        base_lat: float,
+        rotation_deg: float,
+        is_type_1: bool = True,
+        commit: bool = True
+    ) -> None:
+        """Menghasilkan poligon detail rencana tapak secara otomatis [Fase 3/Decoupled]."""
+        pass
+
+    @abstractmethod
+    def expire_all(self) -> None:
+        """Mengosongkan cache sesi untuk memastikan reload data yang bersih setelah rollback."""
         pass
 
     @abstractmethod
@@ -238,11 +258,11 @@ class SubmitPermohonanInputDto:
     tpu_bukti_dokumen: Optional[str] = None
     self_declared_compensations: Optional[List[dict]] = None
 
-    # ─── UPDATE FASE 5 (REVISI): SILSILAH PERMOHONAN INPUT DTO ────────────────
+    # ─── SILSILAH PERMOHONAN INPUT DTO ────────────────
     baseline_source: Optional[str] = None         # "DIGITAL" | "LEGACY"
     parent_id_permohonan: Optional[str] = None    # ID Permohonan lama (jika ada di DB)
     replaced_sk_number: Optional[str] = None      # Nomor SK Fisik Lama
-    replaced_sk_date: Optional[date] = None        # Tanggal SK Fisik Lama
+    replaced_sk_date: Optional[date] = None       # Tanggal SK Fisik Lama
     replaced_sk_doc_url: Optional[str] = None     # URL Berkas SK Fisik Lama
 
 # ─── SECTION: USE CASE INTERACTOR ─────────────────────────────────────────
@@ -268,6 +288,47 @@ class SubmitPermohonanUseCase:
     def execute(self, input_dto: SubmitPermohonanInputDto) -> Permohonan:
         """Menjalankan orkestrasi pendaftaran permohonan satu pintu [Bogor 4]."""
 
+        # ─── RESOLVE FIELD AUTOFILL LOGIC (GRASP INFORMATION EXPERT) ───────────────
+        parent_record = None
+        if input_dto.parent_id_permohonan:
+            parent_record = self.permohonan_repo.find_by_id(input_dto.parent_id_permohonan)
+
+        def resolve_field(dto_val: Any, parent_val: Any, default: Any = None) -> Any:
+            """Memprioritaskan nilai input_dto, lalu fallback ke parent_record jika kosong."""
+            if dto_val is not None and str(dto_val).strip() != "":
+                return dto_val
+            if parent_val is not None:
+                return parent_val
+            return default
+
+        # Pengaitan transaksional data diri pemohon (Tahap 1)
+        resolved_app_type = resolve_field(input_dto.applicant_type, getattr(parent_record, "applicant_type", None), "PERORANGAN")
+        resolved_app_name = resolve_field(input_dto.applicant_name, getattr(parent_record, "applicant_name", None))
+        if not resolved_app_name:
+            resolved_app_name = resolve_field(input_dto.developer_name, getattr(parent_record, "developer_name", None))
+            
+        resolved_app_nik = resolve_field(input_dto.applicant_nik, getattr(parent_record, "applicant_nik", None))
+        resolved_app_nib = resolve_field(input_dto.applicant_nib, getattr(parent_record, "applicant_nib", None))
+        resolved_app_npwp = resolve_field(input_dto.applicant_npwp, getattr(parent_record, "applicant_npwp", None))
+        resolved_app_director = resolve_field(input_dto.applicant_director_name, getattr(parent_record, "applicant_director_name", None))
+        resolved_app_phone = resolve_field(input_dto.applicant_phone, getattr(parent_record, "applicant_phone", None))
+        resolved_app_email = resolve_field(input_dto.applicant_email, getattr(parent_record, "applicant_email", None))
+        resolved_app_address = resolve_field(input_dto.applicant_address, getattr(parent_record, "applicant_address", None))
+
+        # Pengaitan transaksional lokasi permohonan (Tahap 3)
+        resolved_loc_name = resolve_field(input_dto.location_name, getattr(parent_record, "location_name", None))
+        if not resolved_loc_name:
+            resolved_loc_name = resolved_app_name  # Fallback nama kegiatan ke nama pemohon jika kosong
+
+        resolved_loc_village = resolve_field(input_dto.location_village, getattr(parent_record, "location_village", None))
+        resolved_loc_district = resolve_field(input_dto.location_district, getattr(parent_record, "location_district", None))
+        resolved_loc_city = resolve_field(input_dto.location_city, getattr(parent_record, "location_city", None), "Kabupaten Bogor")
+        resolved_loc_province = resolve_field(input_dto.location_province, getattr(parent_record, "location_province", None), "Jawa Barat")
+        resolved_loc_full_address = resolve_field(input_dto.location_full_address, getattr(parent_record, "location_full_address", None))
+        resolved_loc_ownership = resolve_field(input_dto.location_ownership_status, getattr(parent_record, "location_ownership_status", None), "SHM")
+        resolved_loc_certificate_no = resolve_field(input_dto.location_certificate_number, getattr(parent_record, "location_certificate_number", None))
+        resolved_loc_certificate_owner = resolve_field(input_dto.location_certificate_owner, getattr(parent_record, "location_certificate_owner", None))
+
         permohonan = Permohonan(
             id_permohonan=input_dto.id_permohonan,
             submission_no=input_dto.submission_no,
@@ -279,31 +340,31 @@ class SubmitPermohonanUseCase:
             buffer_sla=0,
             elapsed_days=0,
 
-            # Tahap 1
-            applicant_type=input_dto.applicant_type,
-            applicant_name=input_dto.applicant_name or input_dto.developer_name,
-            applicant_nik=input_dto.applicant_nik,
-            applicant_nib=input_dto.applicant_nib,
-            applicant_npwp=input_dto.applicant_npwp,
-            applicant_director_name=input_dto.applicant_director_name,
-            applicant_phone=input_dto.applicant_phone,
-            applicant_email=input_dto.applicant_email,
-            applicant_address=input_dto.applicant_address,
+            # Tahap 1 (Resolved)
+            applicant_type=resolved_app_type,
+            applicant_name=resolved_app_name,
+            applicant_nik=resolved_app_nik,
+            applicant_nib=resolved_app_nib,
+            applicant_npwp=resolved_app_npwp,
+            applicant_director_name=resolved_app_director,
+            applicant_phone=resolved_app_phone,
+            applicant_email=resolved_app_email,
+            applicant_address=resolved_app_address,
 
             # Tahap 2
             submission_type=input_dto.submission_type,
             submission_category=input_dto.submission_category,
 
-            # Tahap 3
-            location_name=input_dto.location_name,
-            location_village=input_dto.location_village,
-            location_district=input_dto.location_district,
-            location_city=input_dto.location_city,
-            location_province=input_dto.location_province,
-            location_full_address=input_dto.location_full_address,
-            location_ownership_status=input_dto.location_ownership_status,
-            location_certificate_number=input_dto.location_certificate_number,
-            location_certificate_owner=input_dto.location_certificate_owner,
+            # Tahap 3 (Resolved)
+            location_name=resolved_loc_name,
+            location_village=resolved_loc_village,
+            location_district=resolved_loc_district,
+            location_city=resolved_loc_city,
+            location_province=resolved_loc_province,
+            location_full_address=resolved_loc_full_address,
+            location_ownership_status=resolved_loc_ownership,
+            location_certificate_number=resolved_loc_certificate_no,
+            location_certificate_owner=resolved_loc_certificate_owner,
 
             # Tahap 4
             cad_file_name=input_dto.cad_file_name,
@@ -361,7 +422,7 @@ class SubmitPermohonanUseCase:
             bylaw_min_gsb=input_dto.bylaw_min_gsb,
             bylaw_min_rth_area=input_dto.bylaw_min_rth_area,
 
-            # ─── UPDATE FASE 5 (REVISI): SILSILAH DOMAIN MAPPING KPD ENTIAS DOMAIN ───
+            # ─── SILSILAH DOMAIN MAPPING KPD ENTIAS DOMAIN ───
             baseline_source=input_dto.baseline_source,
             parent_id_permohonan=input_dto.parent_id_permohonan,
             replaced_sk_number=input_dto.replaced_sk_number,
@@ -376,17 +437,13 @@ class SubmitPermohonanUseCase:
                 raise ValueError("Proses revisi dibatalkan. Bukti SK Lama mutlak diperlukan.")
 
             if input_dto.baseline_source == "DIGITAL":
-                if not input_dto.parent_id_permohonan:
-                    raise ValueError("Proses revisi dibatalkan. Bukti SK Lama mutlak diperlukan.")
+                if not input_dto.parent_id_permohonan or not parent_record:
+                    raise ValueError("Proses revisi dibatalkan. Bukti SK Lama rujukan digital tidak ditemukan.")
                 
-                parent = self.permohonan_repo.find_by_id(input_dto.parent_id_permohonan)
-                if not parent:
-                    raise ValueError(f"Proses revisi dibatalkan. Permohonan referensi ID '{input_dto.parent_id_permohonan}' tidak ditemukan.")
-                
-                # Validasi: Ikat sejarah spasial dan legal dari data digital internal
-                permohonan.parent_id_permohonan = parent.id_permohonan
-                permohonan.replaced_sk_number = parent.sk_number
-                permohonan.replaced_sk_date = parent.submission_date # Fallback pada tanggal submit awal
+                # Validasi: Ikat sejarah spasial dan legal dari data digital internal (Optimasi database fetch)
+                permohonan.parent_id_permohonan = parent_record.id_permohonan
+                permohonan.replaced_sk_number = parent_record.sk_number
+                permohonan.replaced_sk_date = parent_record.submission_date # Fallback pada tanggal submit awal
 
             elif input_dto.baseline_source == "LEGACY":
                 if not input_dto.replaced_sk_number or not input_dto.replaced_sk_date or not input_dto.replaced_sk_doc_url:
@@ -434,152 +491,151 @@ class SubmitPermohonanUseCase:
             if self.oss_port:
                 self.oss_port.sync_licensing_status(input_dto.id_permohonan, status_after)
 
-        saved_permohonan = self.permohonan_repo.save(permohonan)
+        saved_permohonan = permohonan
+        try:
+            saved_permohonan = self.permohonan_repo.save(permohonan, commit=False)
 
-        # Proses penyimpanan deklarasi kompensasi mandiri
-        if input_dto.self_declared_compensations:
-            from src.domain.entities.kompensasi import LahanKompensasi, CompensationType, FulfillmentStatus
-            import uuid
-            for comp in input_dto.self_declared_compensations:
-                comp_id = f"comp-{uuid.uuid4().hex[:8]}"
-                lahan_comp = LahanKompensasi(
-                    id_kompensasi=comp_id,
-                    id_permohonan=input_dto.id_permohonan,
-                    tipe_kompensasi=CompensationType(comp["type"]),
-                    luas_kompensasi_m2=float(comp["requiredAreaM2"]),
-                    status_pemenuhan=FulfillmentStatus.PROSES_VERIFIKASI,
-                    nilai_nominal=float(comp.get("nominalAmount") or 0.0),
-                    bukti_legalitas_url=comp.get("documentUrl"),
-                    alamat_lokasi=comp.get("locationAddress")
-                )
-                self.permohonan_repo.save_kompensasi(lahan_comp)
+            # Proses penyimpanan deklarasi kompensasi mandiri
+            if input_dto.self_declared_compensations:
+                from src.domain.entities.kompensasi import LahanKompensasi, CompensationType, FulfillmentStatus
+                import uuid
+                for comp in input_dto.self_declared_compensations:
+                    comp_id = f"comp-{uuid.uuid4().hex[:8]}"
+                    lahan_comp = LahanKompensasi(
+                        id_kompensasi=comp_id,
+                        id_permohonan=input_dto.id_permohonan,
+                        tipe_kompensasi=CompensationType(comp["type"]),
+                        luas_kompensasi_m2=float(comp["requiredAreaM2"]),
+                        status_pemenuhan=FulfillmentStatus.PROSES_VERIFIKASI,
+                        nilai_nominal=float(comp.get("nominalAmount") or 0.0),
+                        bukti_legalitas_url=comp.get("documentUrl"),
+                        alamat_lokasi=comp.get("locationAddress")
+                    )
+                    self.permohonan_repo.save_kompensasi(lahan_comp, commit=False)
 
-        files_to_save = []
-        if input_dto.document_legal_doc:
-            name, clean_url = extract_filename_and_clean_url(input_dto.document_legal_doc)
-            files_to_save.append({
-                "file_type": "document",
-                "file_key": "legalDoc",
-                "file_name": name,
-                "file_path": clean_url,
-                "file_url": clean_url
-            })
-        if input_dto.document_technical_doc:
-            name, clean_url = extract_filename_and_clean_url(input_dto.document_technical_doc)
-            files_to_save.append({
-                "file_type": "document",
-                "file_key": "technicalDoc",
-                "file_name": name,
-                "file_path": clean_url,
-                "file_url": clean_url
-            })
-        if input_dto.document_support_doc:
-            name, clean_url = extract_filename_and_clean_url(input_dto.document_support_doc)
-            files_to_save.append({
-                "file_type": "document",
-                "file_key": "supportDoc",
-                "file_name": name,
-                "file_path": clean_url,
-                "file_url": clean_url
-            })
-        if input_dto.document_support_doc2:
-            name, clean_url = extract_filename_and_clean_url(input_dto.document_support_doc2)
-            files_to_save.append({
-                "file_type": "document",
-                "file_key": "supportDoc2",
-                "file_name": name,
-                "file_path": clean_url,
-                "file_url": clean_url
-            })
-        if input_dto.document_ska_doc:
-            name, clean_url = extract_filename_and_clean_url(input_dto.document_ska_doc)
-            files_to_save.append({
-                "file_type": "document",
-                "file_key": "skaDoc",
-                "file_name": name,
-                "file_path": clean_url,
-                "file_url": clean_url
-            })
-        if input_dto.document_cad_doc:
-            name, clean_url = extract_filename_and_clean_url(input_dto.document_cad_doc)
-            files_to_save.append({
-                "file_type": "document",
-                "file_key": "cadDoc",
-                "file_name": name,
-                "file_path": clean_url,
-                "file_url": clean_url
-            })
-        if input_dto.document_ktp_doc:
-            name, clean_url = extract_filename_and_clean_url(input_dto.document_ktp_doc)
-            files_to_save.append({
-                "file_type": "document",
-                "file_key": "ktpDoc",
-                "file_name": name,
-                "file_path": clean_url,
-                "file_url": clean_url
-            })
-        if input_dto.document_nib_doc:
-            name, clean_url = extract_filename_and_clean_url(input_dto.document_nib_doc)
-            files_to_save.append({
-                "file_type": "document",
-                "file_key": "nibDoc",
-                "file_name": name,
-                "file_path": clean_url,
-                "file_url": clean_url
-            })
+            files_to_save = []
+            if input_dto.document_legal_doc:
+                name, clean_url = extract_filename_and_clean_url(input_dto.document_legal_doc)
+                files_to_save.append({
+                    "file_type": "document",
+                    "file_key": "legalDoc",
+                    "file_name": name,
+                    "file_path": clean_url,
+                    "file_url": clean_url
+                })
+            if input_dto.document_technical_doc:
+                name, clean_url = extract_filename_and_clean_url(input_dto.document_technical_doc)
+                files_to_save.append({
+                    "file_type": "document",
+                    "file_key": "technicalDoc",
+                    "file_name": name,
+                    "file_path": clean_url,
+                    "file_url": clean_url
+                })
+            if input_dto.document_support_doc:
+                name, clean_url = extract_filename_and_clean_url(input_dto.document_support_doc)
+                files_to_save.append({
+                    "file_type": "document",
+                    "file_key": "supportDoc",
+                    "file_name": name,
+                    "file_path": clean_url,
+                    "file_url": clean_url
+                })
+            if input_dto.document_support_doc2:
+                name, clean_url = extract_filename_and_clean_url(input_dto.document_support_doc2)
+                files_to_save.append({
+                    "file_type": "document",
+                    "file_key": "supportDoc2",
+                    "file_name": name,
+                    "file_path": clean_url,
+                    "file_url": clean_url
+                })
+            if input_dto.document_ska_doc:
+                name, clean_url = extract_filename_and_clean_url(input_dto.document_ska_doc)
+                files_to_save.append({
+                    "file_type": "document",
+                    "file_key": "skaDoc",
+                    "file_name": name,
+                    "file_path": clean_url,
+                    "file_url": clean_url
+                })
+            if input_dto.document_cad_doc:
+                name, clean_url = extract_filename_and_clean_url(input_dto.document_cad_doc)
+                files_to_save.append({
+                    "file_type": "document",
+                    "file_key": "cadDoc",
+                    "file_name": name,
+                    "file_path": clean_url,
+                    "file_url": clean_url
+                })
+            if input_dto.document_ktp_doc:
+                name, clean_url = extract_filename_and_clean_url(input_dto.document_ktp_doc)
+                files_to_save.append({
+                    "file_type": "document",
+                    "file_key": "ktpDoc",
+                    "file_name": name,
+                    "file_path": clean_url,
+                    "file_url": clean_url
+                })
+            if input_dto.document_nib_doc:
+                name, clean_url = extract_filename_and_clean_url(input_dto.document_nib_doc)
+                files_to_save.append({
+                    "file_type": "document",
+                    "file_key": "nibDoc",
+                    "file_name": name,
+                    "file_path": clean_url,
+                    "file_url": clean_url
+                })
 
-        if input_dto.photo_north:
-            name, clean_url = extract_filename_and_clean_url(input_dto.photo_north)
-            files_to_save.append({
-                "file_type": "photo",
-                "file_key": "photoNorth",
-                "file_name": name,
-                "file_path": clean_url,
-                "file_url": clean_url
-            })
-        if input_dto.photo_south:
-            name, clean_url = extract_filename_and_clean_url(input_dto.photo_south)
-            files_to_save.append({
-                "file_type": "photo",
-                "file_key": "photoSouth",
-                "file_name": name,
-                "file_path": clean_url,
-                "file_url": clean_url
-            })
-        if input_dto.photo_east:
-            name, clean_url = extract_filename_and_clean_url(input_dto.photo_east)
-            files_to_save.append({
-                "file_type": "photo",
-                "file_key": "photoEast",
-                "file_name": name,
-                "file_path": clean_url,
-                "file_url": clean_url
-            })
-        if input_dto.photo_west:
-            name, clean_url = extract_filename_and_clean_url(input_dto.photo_west)
-            files_to_save.append({
-                "file_type": "photo",
-                "file_key": "photoWest",
-                "file_name": name,
-                "file_path": clean_url,
-                "file_url": clean_url
-            })
-        if input_dto.photo_access:
-            name, clean_url = extract_filename_and_clean_url(input_dto.photo_access)
-            files_to_save.append({
-                "file_type": "photo",
-                "file_key": "photoAccess",
-                "file_name": name,
-                "file_path": clean_url,
-                "file_url": clean_url
-            })
-        self.permohonan_repo.save_files(saved_permohonan.id_permohonan, files_to_save)
+            if input_dto.photo_north:
+                name, clean_url = extract_filename_and_clean_url(input_dto.photo_north)
+                files_to_save.append({
+                    "file_type": "photo",
+                    "file_key": "photoNorth",
+                    "file_name": name,
+                    "file_path": clean_url,
+                    "file_url": clean_url
+                })
+            if input_dto.photo_south:
+                name, clean_url = extract_filename_and_clean_url(input_dto.photo_south)
+                files_to_save.append({
+                    "file_type": "photo",
+                    "file_key": "photoSouth",
+                    "file_name": name,
+                    "file_path": clean_url,
+                    "file_url": clean_url
+                })
+            if input_dto.photo_east:
+                name, clean_url = extract_filename_and_clean_url(input_dto.photo_east)
+                files_to_save.append({
+                    "file_type": "photo",
+                    "file_key": "photoEast",
+                    "file_name": name,
+                    "file_path": clean_url,
+                    "file_url": clean_url
+                })
+            if input_dto.photo_west:
+                name, clean_url = extract_filename_and_clean_url(input_dto.photo_west)
+                files_to_save.append({
+                    "file_type": "photo",
+                    "file_key": "photoWest",
+                    "file_name": name,
+                    "file_path": clean_url,
+                    "file_url": clean_url
+                })
+            if input_dto.photo_access:
+                name, clean_url = extract_filename_and_clean_url(input_dto.photo_access)
+                files_to_save.append({
+                    "file_type": "photo",
+                    "file_key": "photoAccess",
+                    "file_name": name,
+                    "file_path": clean_url,
+                    "file_url": clean_url
+                })
+            self.permohonan_repo.save_files(saved_permohonan.id_permohonan, files_to_save, commit=False)
 
-        # ─── DECOUPLED EVENT LISTENER: AUTOMATIC GEOMETRIZATION ───────────────
-        db_session = getattr(self.permohonan_repo, "db", None) # Safe attribute-access (Pylance/Pyright Compliant)
-        if db_session and input_dto.polygon and len(input_dto.polygon) >= 3:
-            try:
-                from src.infrastructure.database.seed import seed_internal_geometries
+            # ─── DECOUPLED EVENT LISTENER: AUTOMATIC GEOMETRIZATION ───────────────
+            if input_dto.polygon and len(input_dto.polygon) >= 3:
                 # Hitung centroid dari input polygon
                 base_lon = sum(pt[0] for pt in input_dto.polygon) / len(input_dto.polygon)
                 base_lat = sum(pt[1] for pt in input_dto.polygon) / len(input_dto.polygon)
@@ -590,28 +646,32 @@ class SubmitPermohonanUseCase:
                     import math
                     rotation_deg = math.degrees(input_dto.cad_rotation)
                 
-                # Hasilkan poligon detail site plan
-                seed_internal_geometries(
-                    db=db_session,
+                # Hasilkan poligon detail site plan menggunakan repositori terabstraksi
+                self.permohonan_repo.generate_internal_geometries(
                     id_permohonan=saved_permohonan.id_permohonan,
                     base_lon=base_lon,
                     base_lat=base_lat,
                     rotation_deg=rotation_deg,
-                    is_type_1=True
+                    is_type_1=True,
+                    commit=False
                 )
-            except Exception as e:
-                import logging
-                logger = logging.getLogger("uvicorn")
-                logger.error(f"[AUTO_GEOM_SEED_ERROR] Gagal memicu auto-geometrisasi CAD: {str(e)}", exc_info=True)
 
-        self.audit_trail_repo.log_action(
-            submission_id=saved_permohonan.id_permohonan,
-            actor_name=input_dto.actor_name,
-            role=input_dto.role,
-            action=action_name,
-            status_before=SubmissionStatus.DRAFT.value,
-            status_after=status_after,
-            notes=audit_notes
-        )
+            self.audit_trail_repo.log_action(
+                submission_id=saved_permohonan.id_permohonan,
+                actor_name=input_dto.actor_name,
+                role=input_dto.role,
+                action=action_name,
+                status_before=SubmissionStatus.DRAFT.value,
+                status_after=status_after,
+                notes=audit_notes,
+                commit=False
+            )
+
+            # Selesaikan transaksi atomik di akhir secara eksplisit
+            self.permohonan_repo.commit()
+        except Exception as e:
+            # Batalkan transaksi jika terjadi kesalahan
+            self.permohonan_repo.rollback()
+            raise e
 
         return saved_permohonan

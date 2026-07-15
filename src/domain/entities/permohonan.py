@@ -26,6 +26,8 @@ class SubmissionStatus(str, Enum):
     PROSES_TTE = 'Proses TTE'                      # Kunci Transaksi TTE Kadis Aktif
     DISETUJUI = 'Disetujui'                        # SK Berhasil Ditandatangani Kadis (Final)
     DITOLAK = 'Ditolak'                            # Berkas dikembalikan ke Pemohon untuk Revisi
+    TIDAK_BERLAKU = 'Tidak Berlaku'                # SK Lama yang dinonaktifkan karena revisi baru
+
 
 
 class DocumentCategory(str, Enum):
