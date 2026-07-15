@@ -46,7 +46,11 @@ class UserModel(Base):
     company: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     phone: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
 
-    permohonan: Mapped[List["PermohonanModel"]] = relationship("PermohonanModel", back_populates="user")
+    permohonan: Mapped[List["PermohonanModel"]] = relationship(
+        "PermohonanModel",
+        back_populates="user",
+        foreign_keys="[PermohonanModel.user_id]"
+    )
 
 
 class PendingRegistrationModel(Base):
@@ -88,7 +92,11 @@ class PermohonanModel(Base):
 
     # Relasi User
     user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
-    user: Mapped[Optional["UserModel"]] = relationship("UserModel", back_populates="permohonan")
+    user: Mapped[Optional["UserModel"]] = relationship("UserModel", back_populates="permohonan", foreign_keys=[user_id])
+    admin_lock_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    admin_lock: Mapped[Optional["UserModel"]] = relationship("UserModel", foreign_keys=[admin_lock_id])
+    teknisi_lock_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    teknisi_lock: Mapped[Optional["UserModel"]] = relationship("UserModel", foreign_keys=[teknisi_lock_id])
 
     # ─── KOORDINAT INTI & ADMINISTRASI ────────────────────────────────────────
     id_permohonan: Mapped[str] = mapped_column(String(50), primary_key=True, index=True)

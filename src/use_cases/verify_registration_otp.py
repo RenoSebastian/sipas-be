@@ -101,6 +101,7 @@ class VerifyRegistrationOtpUseCase:
             "access_token": access_token,
             "token_type": "bearer",
             "user": {
+                "id": new_user.id,
                 "username": new_user.username,
                 "email": new_user.email,
                 "full_name": new_user.full_name,

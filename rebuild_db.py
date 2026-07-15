@@ -45,6 +45,8 @@ def main():
         "ALTER TABLE permohonan ADD COLUMN IF NOT EXISTS kabid_signature TEXT;",
         "ALTER TABLE lahan_kompensasi ADD COLUMN IF NOT EXISTS alamat_lokasi VARCHAR(500);",
         "ALTER TABLE permohonan_tpu ADD COLUMN IF NOT EXISTS koordinat VARCHAR(100);",
+        "ALTER TABLE permohonan ADD COLUMN IF NOT EXISTS admin_lock_id INTEGER REFERENCES users(id) ON DELETE SET NULL;",
+        "ALTER TABLE permohonan ADD COLUMN IF NOT EXISTS teknisi_lock_id INTEGER REFERENCES users(id) ON DELETE SET NULL;",
         "DROP TABLE IF EXISTS region_references CASCADE;",
         "DROP TABLE IF EXISTS system_feedbacks CASCADE;"
     ]

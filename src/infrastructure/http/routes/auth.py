@@ -144,6 +144,7 @@ class UserCreate(BaseModel):
     phone: Optional[str] = Field(default=None, examples=["081234567890"])
 
 class UserProfileResponse(BaseModel):
+    id: Optional[int] = None
     username: str
     email: str
     full_name: str
@@ -298,6 +299,7 @@ def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db:
 
     access_token = create_access_token(data={"sub": user.username, "role": user.role})
     profile_data = {
+        "id": user.id,
         "username": user.username,
         "email": user.email,
         "full_name": user.full_name,
@@ -321,6 +323,7 @@ def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db:
 def get_me(current_user: UserModel = Depends(get_current_active_user)):
     """Mengambil data profil pengguna aktif berdasarkan token JWT."""
     return {
+        "id": current_user.id,
         "username": current_user.username,
         "email": current_user.email,
         "full_name": current_user.full_name,
@@ -349,6 +352,7 @@ def update_profile(req: ProfileUpdate, db: Session = Depends(get_db), current_us
     db.commit()
     db.refresh(current_user)
     return {
+        "id": current_user.id,
         "username": current_user.username,
         "email": current_user.email,
         "full_name": current_user.full_name,
@@ -365,6 +369,7 @@ def list_users(db: Session = Depends(get_db), token_payload: dict = Depends(requ
     users = db.query(UserModel).all()
     return [
         {
+            "id": u.id,
             "username": u.username,
             "email": u.email,
             "full_name": u.full_name,
