@@ -530,6 +530,8 @@ class HtmlToPdfEngine(DocumentGeneratorPort):
             "system_log": system_log,
             "logo_base64": branding["logo_base64"],
             "app_name": branding["app_name"],
+            "submission_category": permohonan.submission_category or "PERUMAHAN",
+            "submission_type": permohonan.submission_type or "BARU",
             "document_metadata": {
                 "sk_number": sk_draft.sk_number,
                 "created_at": sk_draft.created_at.strftime("%d %B %Y") if sk_draft.created_at else datetime.now().strftime("%d %B %Y"),
@@ -546,7 +548,8 @@ class HtmlToPdfEngine(DocumentGeneratorPort):
                 "activity_name": permohonan.housing_name or "Proyek Pembangunan",
                 "village": permohonan.location_village or "-",
                 "district": permohonan.location_district or "-",
-                "land_area": f"{permohonan.land_area:,.2f}" if permohonan.land_area is not None else "0.0"
+                "land_area": f"{permohonan.land_area:,.2f}" if permohonan.land_area is not None else "0.0",
+                "spatial_land_use": permohonan.spatial_land_use or "-"
             },
             "considerations": considerations_payload,
             "diktum_hunian": diktum_hunian_payload,

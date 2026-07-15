@@ -1,0 +1,43 @@
+<p>
+  Menetapkan spesifikasi pembangunan dan intensitas pemanfaatan ruang untuk fungsi 
+  <strong>Kawasan Industri / Pergudangan</strong> dengan rincian parameter teknis sebagai berikut:
+</p>
+
+<!-- 1. Rincian Bangunan Industri -->
+<div style="margin-top: 8px; font-weight: bold;">1. Rincian Bangunan Utama (Pabrik/Gudang):</div>
+<ul style="margin: 4px 0; padding-left: 20px; font-size: 9.5pt;">
+    <li><strong>Luas Total Bangunan Terbuka/Tertutup</strong>: {{ project_snapshot.land_area }} m² (Luas Lahan).</li>
+    <li><strong>Rencana Area Pemuatan (Loading Dock)</strong>: Area bongkar muat logistik dengan perkerasan beton bertulang.</li>
+    <li><strong>Daya Dukung Jalan Kawasan (MST)</strong>: Beban gandar roda maksimal disyaratkan minimal 8 ton (MST-8).</li>
+</ul>
+
+<!-- 2. Penyediaan Green Buffer Area -->
+<div style="margin-top: 8px; font-weight: bold;">2. Area Penyangga Hijau (Green Buffer Zone):</div>
+<p style="font-size: 9.5pt; text-align: justify; margin: 4px 0 8px 0;">
+  Wajib menyediakan zona pekarangan hijau penahan polusi/suara (*green buffer zone*) di sepanjang batas pekarangan luar perbatasan industri dengan lebar minimal sesuai RDTR Kabupaten Bogor, dan dihitung sebagai bagian dari Koefisien Dasar Hijau (KDH).
+</p>
+
+<!-- 3. Intensitas Penggunaan Ruang Maksimal -->
+<div style="margin-top: 8px; font-weight: bold;">3. Intensitas Penggunaan Ruang Maksimal (Industri):</div>
+<table class="inner-spec-table" style="width: 70%; margin-left: 0;">
+    <thead>
+        <tr>
+            <th style="text-align: left;">Parameter</th>
+            <th style="text-align: center;">Batas Baku Pengesahan (Verified)</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td>Koefisien Dasar Bangunan (KDB) Maksimal</td>
+            <td style="text-align: center;">{{ diktum_intensity.kdb_max }}%</td>
+        </tr>
+        <tr>
+            <td>Koefisien Lantai Bangunan (KLB) Maksimal</td>
+            <td style="text-align: center;">{{ diktum_intensity.klb_max }}x</td>
+        </tr>
+        <tr>
+            <td>Koefisien Dasar Hijau (KDH) Minimal</td>
+            <td style="text-align: center;">{{ diktum_intensity.kdh_min }}%</td>
+        </tr>
+    </tbody>
+</table>

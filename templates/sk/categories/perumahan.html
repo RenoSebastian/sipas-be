@@ -1,0 +1,54 @@
+<!-- 1. Rincian Hunian -->
+<div style="margin-top: 8px; font-weight: bold;">1. Jumlah Kaveling Hunian Efektif:</div>
+<table class="inner-spec-table">
+    <thead>
+        <tr>
+            <th style="text-align: left;">Klasifikasi Kaveling / Tipe</th>
+            <th style="text-align: center;">Jumlah Unit</th>
+            <th style="text-align: center;">Estimasi Luas Total Hunian</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for item in diktum_hunian %}
+        <tr>
+            <td>{{ item.tipe_rumah }}</td>
+            <td style="text-align: center;">{{ item.jumlah_unit }} Unit</td>
+            <td style="text-align: center;">{{ item.luas_m2 }} m²</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<!-- 2. Rincian PSU -->
+<div style="margin-top: 8px; font-weight: bold;">2. Prasarana, Sarana, dan Utilitas Umum (PSU):</div>
+<ul style="margin: 4px 0; padding-left: 20px; font-size: 9.5pt;">
+    <li><strong>Luas Alokasi Hijau/Taman (RTH)</strong>: {{ diktum_psu.total_psu_area_m2 }} m² (Memenuhi syarat minimal).</li>
+    <li><strong>Komponen Alokasi Utilitas</strong>: {{ diktum_psu.allocation_details }}.</li>
+    <li><strong>Skema Lahan Pemakaman (TPU 2%)</strong>: {{ diktum_psu.cemetery_scheme }}.</li>
+    <li><strong>Lebar Jalan (Rumija)</strong>: Berkisar antara {{ diktum_psu.road_row_min }} meter s/d {{ diktum_psu.road_row_max }} meter dengan konstruksi lapis keras perkerasan jalan paving block dilengkapi {{ diktum_psu.drainage_type }}.</li>
+</ul>
+
+<!-- 3. Rincian Koefisien Intensitas Ruang -->
+<div style="margin-top: 8px; font-weight: bold;">3. Intensitas Penggunaan Ruang Maksimal (Hunian):</div>
+<table class="inner-spec-table" style="width: 70%; margin-left: 0;">
+    <thead>
+        <tr>
+            <th style="text-align: left;">Parameter</th>
+            <th style="text-align: center;">Batas Baku Pengesahan (Verified)</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td>Koefisien Dasar Bangunan (KDB) Maksimal</td>
+            <td style="text-align: center;">{{ diktum_intensity.kdb_max }}%</td>
+        </tr>
+        <tr>
+            <td>Koefisien Lantai Bangunan (KLB) Maksimal</td>
+            <td style="text-align: center;">{{ diktum_intensity.klb_max }}x</td>
+        </tr>
+        <tr>
+            <td>Koefisien Dasar Hijau (KDH) Minimal</td>
+            <td style="text-align: center;">{{ diktum_intensity.kdh_min }}%</td>
+        </tr>
+    </tbody>
+</table>
