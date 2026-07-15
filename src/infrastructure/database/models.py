@@ -1,12 +1,12 @@
 ﻿"""
 ============================================================================
-SIPAS INFRASTRUCTURE ADAPTER — Database Models [models.py] (REVISED v5.1)
+SIPAS INFRASTRUCTURE ADAPTER — Database Models [models.py] (REVISED v5.2)
 ============================================================================
 Peran: Mendefinisikan skema tabel fisik database PostgreSQL & PostGIS
        menggunakan deklarasi tipe data statis SQLAlchemy 2.0 (Mapped).
        Diekspansi penuh untuk menampung seluruh detail formulir 10-tahap,
-       metrik komparasi tiga sisi, biner JSONB dokumen resmi, serta
-       skema silsilah permohonan self-referential untuk audit-trail revisi.
+       metrik komparasi tiga sisi, biner JSONB dokumen resmi, skema silsilah 
+       permohonan, serta tabel penampung sesi registrasi OTP sementara.
 ============================================================================
 """
 
@@ -47,6 +47,40 @@ class UserModel(Base):
     phone: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
 
     permohonan: Mapped[List["PermohonanModel"]] = relationship("PermohonanModel", back_populates="user")
+
+
+class PendingRegistrationModel(Base):
+    """
+    Menampung data registrasi pengguna dan OTP sementara (umur pendek).
+    Mencegah penumpukan data 'sampah' di tabel utama 'users' sebelum 
+    pengguna terbukti memasukkan kode OTP WhatsApp yang benar.
+    """
+    __tablename__ = "pending_registrations"
+
+    session_id: Mapped[str] = mapped_column(String(50), primary_key=True, index=True)
+    username: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
+    email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
+    hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
+    full_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    role: Mapped[str] = mapped_column(String(50), nullable=False, default="PEMOHON")
+    phone: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+
+    nip: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    company: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+
+    # Logika Pengaman dan Masa Berlaku OTP
+    otp_hash: Mapped[str] = mapped_column(String(64), nullable=False) # Hasil SHA-256 OTP
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0) # Pembatasan brute-force
+    resend_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0) # Pembatasan biaya API WA
+    last_sent_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="PENDING") # PENDING | VERIFIED | EXPIRED | FAILED
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, 
+        nullable=False, 
+        default=lambda: datetime.now(timezone.utc).replace(tzinfo=None)
+    )
 
 
 class PermohonanModel(Base):
