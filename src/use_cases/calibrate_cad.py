@@ -100,33 +100,10 @@ class CalibrateCadUseCase:
             rotation_rad=helmert_res["rotation"]
         )
 
-        # 3. Ekstrak data mentah koordinat lokal dari berkas CAD [sipas-fe.txt]
-        raw_cad_layers = self.cad_parser.parse_and_extract_layers(input_dto.cad_file_path)
-
-        # 4. Transformasikan seluruh titik koordinat lokal CAD ke geometri WGS84 murni (Shapely)
-        geometries_to_save: List[Tuple[str, Any]] = []
-        
-        for layer_name, polylines in raw_cad_layers.items():
-            for polyline in polylines:
-                calibrated_coords: List[Tuple[float, float]] = []
-                for x, y in polyline:
-                    # Lakukan transformasi matematis murni Helmert 2D per titik [Jakarta 5]
-                    world_coord = transform_params.transform(x, y)
-                    calibrated_coords.append((world_coord.longitude, world_coord.latitude))
-                
-                if len(calibrated_coords) >= 3:
-                    # Pastikan poligon tertutup rapat (closed ring) sesuai syarat topologi PostGIS
-                    if calibrated_coords[0] != calibrated_coords[-1]:
-                        calibrated_coords.append(calibrated_coords[0])
-                    
-                    # Bangun entitas geometri OGC murni menggunakan Shapely
-                    shapely_poly = ShapelyPolygon(calibrated_coords)
-                    geometries_to_save.append((layer_name, shapely_poly))
-
-        # Ekstrak nama file CAD dinamis dari jalur absolut fisiknya
+        # 3. Ekstrak nama file CAD dinamis dari jalur absolut fisiknya
         cad_filename = os.path.basename(input_dto.cad_file_path)
 
-        # Assign computed Helmert parameters to permohonan to avoid state loss
+        # 4. Assign computed Helmert parameters to permohonan to avoid state loss
         permohonan.cad_file_name = cad_filename
         permohonan.cad_param_a = transform_params.A
         permohonan.cad_param_b = transform_params.B
@@ -138,19 +115,7 @@ class CalibrateCadUseCase:
         # 5. Mutasikan status permohonan ke tahap evaluasi spasial dinas (Verifikasi Teknis)
         permohonan.transition_status(SubmissionStatus.VERIFIKASI_TEKNIS)
 
-        # 6. Simpan pembaruan data spasial detail dan data permohonan secara transaksional
-        # Membaca ketersediaan metode penanganan spasial terpadu secara aman (Duck Typing)
-        # Dilakukan type casting ke Any untuk menenangkan static analysis Pylance
-        repo_extended = cast(Any, self.permohonan_repo)
-        if hasattr(repo_extended, 'save_siteplan_geometries'):
-            # Simpan seluruh geometri ke tabel site_plan_geometries di PostGIS (commit=False)
-            repo_extended.save_siteplan_geometries(
-                permohonan.id_permohonan, 
-                geometries_to_save, 
-                commit=False
-            )
-
-        # Simpan status administratif (commit=True)
+        # 6. Simpan status administratif (commit=True)
         self.permohonan_repo.save(permohonan)
 
         # 7. Catat mutasi berkas dan parameter kalibrasi ke dalam sistem log audit [Bogor 7]

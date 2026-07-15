@@ -1,10 +1,10 @@
 """
 ============================================================================
-SIPAS HTTP CONTROLLER — Submissions Router [submissions.py] (REVISED v8.2)
+SIPAS HTTP CONTROLLER — Submissions Router [submissions.py] (REVISED v8.4)
 ============================================================================
 Peran: Menyediakan REST endpoints bertingkat untuk mengelola pendaftaran
        10-tahap terpadu (pendaftaran baru maupun revisi), kalibrasi,
-       audit spasial, dan verifikasi berjenjang.
+       audit spasial, silsilah rujukan, dan verifikasi berjenjang.
        Menegakkan otorisasi SoD API-Level untuk penandatanganan TTE Kadis,
        serta menyajikan visualisasi spasial instan dalam bentuk GeoJSON.
 ============================================================================
@@ -12,6 +12,7 @@ Peran: Menyediakan REST endpoints bertingkat untuk mengelola pendaftaran
 
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, UploadFile, File, Request, Query
 from pydantic import BaseModel, Field, model_validator, SecretStr
+from sqlalchemy import text  # Ditambahkan untuk menangani kueri spasial raw SQL PostGIS secara aman
 from sqlalchemy.orm import Session
 from typing import Tuple, Optional, Any, List, Dict, cast
 from datetime import datetime, date, timezone
@@ -51,7 +52,13 @@ from src.use_cases.ports.document_generator_port import DocumentGeneratorPort
 # Import Use Cases (Clean Architecture Interactors)
 from src.use_cases.submit_permohonan import SubmitPermohonanUseCase, SubmitPermohonanInputDto
 from src.use_cases.calibrate_cad import CalibrateCadUseCase, CalibrateCadInputDto
-from src.use_cases.verify_submission import VerifySubmissionUseCase, VerifySubmissionInputDto, EvaluasiChecklistItemDto as UsecaseEvaluasiChecklistItemDto
+from src.use_cases.verify_submission import (
+    VerifySubmissionUseCase,
+    VerifySubmissionInputDto,
+    EvaluasiChecklistItemDto as UsecaseEvaluasiChecklistItemDto,
+    LinkParentSubmissionUseCase,
+    LinkParentSubmissionInputDto
+)
 
 # Penanganan Background Task Pengurai CAD
 from src.infrastructure.queue.tasks import execute_cad_parsing_background
@@ -80,10 +87,13 @@ from src.infrastructure.http.schemas.submissions import (
     SubmitRequest,
     CalibrateRequest,
     EvaluasiChecklistItemDto,
-    VerifyRequest
+    VerifyRequest,
+    LinkParentRequest  # Impor Baru untuk validasi pengaitan manual silsilah
 )
 
-# ─── SECTION 2: HTTP ROUTE HANDLERS ───────────────────────────────────────
+
+
+# ─── SECTION 3: HTTP ROUTE HANDLERS ───────────────────────────────────────
 
 @router.post("/upload", status_code=status.HTTP_201_CREATED)
 async def upload_file(request: Request, file: UploadFile = File(...)):
@@ -298,7 +308,7 @@ def submit_permohonan(
             tpu_bukti_dokumen=req.tpu.buktiDokumenUrl if req.tpu else None,
             self_declared_compensations=[comp.model_dump() for comp in req.compensations] if req.compensations else None,
 
-            # ─── UPDATE FASE 5 (REVISI): SILSILAH PEMOHON INPUT DTO (MAPPER DARI HTTP SCHEMAS) ───
+            # ─── SILSILAH PEMOHON INPUT DTO (MAPPER DARI HTTP SCHEMAS) ───
             baseline_source=req.baseline_source,
             parent_id_permohonan=req.parent_id_permohonan,
             replaced_sk_number=req.legacy_metadata.replaced_sk_number if req.legacy_metadata else None,
@@ -390,11 +400,11 @@ async def verify_submission(
         raise HTTPException(status_code=404, detail="Permohonan tidak ditemukan.")
 
     # Proteksi keamanan API (Segregation of Duties): Hanya Kadis yang boleh menyetujui di meja Kadis
-    if permohonan_model.status == "Menunggu Persetujuan":
+    if permohonan_model.status in ["Menunggu Persetujuan", "Proses TTE"]:
         if current_user.role != "KADIS":
             logger.warning(
                 f"[SECURITY_ALERT] Non-KADIS user '{current_user.username}' (Role: {current_user.role}) "
-                f"attempted to trigger final TTE signature on submission: {id_permohonan}"
+                f"attempted to trigger final TTE signature on submission: {id_permohonan} with status: {permohonan_model.status}"
             )
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -948,6 +958,106 @@ async def get_submission_geojson(
         raise HTTPException(
             status_code=500,
             detail=f"Gagal memproses visualisasi GeoJSON dari database: {str(e)}"
+        )
+
+
+# ─── ADDED FASE 5 (REVISI): SPATIAL OVERLAPS DETECTOR ENDPOINT ────────────
+
+@router.get("/{id_permohonan}/spatial-overlaps", status_code=status.HTTP_200_OK)
+def get_spatial_overlaps(
+    id_permohonan: str,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user)
+):
+    """
+    Menemukan berkas permohonan / SK lain yang memiliki tumpang tindih spasial (geometris) 
+    dengan permohonan saat ini menggunakan kalkulasi ST_Intersection PostGIS. (Admin Only)
+    """
+    if current_user.role != "ADMIN":
+         raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Akses Ditolak: Hanya Admin yang diizinkan untuk melihat analisis tumpang tindih spasial."
+        )
+
+    # 1. Pastikan permohonan rujukan ada di database
+    permohonan_repo = PermohonanRepository(db)
+    permohonan = permohonan_repo.find_by_id(id_permohonan)
+    if not permohonan:
+        raise HTTPException(status_code=404, detail="Permohonan tidak ditemukan.")
+    
+    # 2. Gunakan repository sebagai Information Expert untuk menemukan tumpang tindih spasial
+    try:
+        overlaps = permohonan_repo.find_spatial_overlaps(id_permohonan)
+        return overlaps
+    except Exception as e:
+        logger.error(f"[SPATIAL_OVERLAP_ERROR] Gagal menghitung irisan spasial: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Terjadi kegagalan kueri spasial database: {str(e)}"
+        )
+
+
+# ─── ADDED FASE 5 (REVISI): SILSILAH MANUAL LINK PARENT BY ADMIN ENDPOINT ──
+
+@router.post("/{id_permohonan}/link-parent", status_code=status.HTTP_200_OK)
+async def link_parent_permohonan(
+    id_permohonan: str,
+    req: LinkParentRequest,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user)
+):
+    """
+    Mengaitkan secara paksa silsilah permohonan saat ini dengan permohonan / SK rujukan sebelumnya.
+    Dilengkapi pengecekan silsilah melingkar (circular ancestry) dan pencatatan audit log. (Admin Only)
+    """
+    if current_user.role != "ADMIN":
+         raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Akses Ditolak: Hanya Admin yang diizinkan untuk mengaitkan silsilah permohonan."
+        )
+
+    try:
+        permohonan_repo = PermohonanRepository(db)
+        audit_trail_repo = AuditTrailRepository(db)
+
+        use_case = LinkParentSubmissionUseCase(
+            permohonan_repo=permohonan_repo,
+            audit_trail_repo=audit_trail_repo
+        )
+
+        dto = LinkParentSubmissionInputDto(
+            id_permohonan=id_permohonan,
+            actor_name=cast(str, current_user.full_name),
+            role=cast(str, current_user.role),
+            baseline_source=req.baseline_source,
+            parent_id_permohonan=req.parent_id_permohonan,
+            replaced_sk_number=req.replaced_sk_number,
+            replaced_sk_date=req.replaced_sk_date,
+            replaced_sk_doc_url=req.replaced_sk_doc_url,
+            notes=req.notes or ""
+        )
+
+        result = await use_case.execute(dto)
+
+        return {
+            "status": "SUCCESS",
+            "message": "Silsilah permohonan berhasil dikaitkan.",
+            "data": {
+                "id_permohonan": result.id_permohonan,
+                "baseline_source": result.baseline_source,
+                "parent_id_permohonan": result.parent_id_permohonan,
+                "replaced_sk_number": result.replaced_sk_number
+            }
+        }
+    except PermissionError as pe:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(pe))
+    except ValueError as ve:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(ve))
+    except Exception as e:
+        logger.error(f"[LINK_PARENT_ERROR] Gagal menyimpan relasi silsilah: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Gagal melakukan pengaitan silsilah: {str(e)}"
         )
 
 
