@@ -1,4 +1,3 @@
-# --- FILE: src/infrastructure/security/auth.py ---
 """
 ============================================================================
 SIPAS SECURITY — Authentication Helper [auth.py] (REVISED v6)
@@ -15,7 +14,7 @@ import jwt
 import bcrypt
 from enum import Enum
 from datetime import datetime, timedelta, timezone
-from typing import Optional, Dict, Any, List, Union # Perbaikan: Inklusi tipe Union untuk polimorfisme
+from typing import Optional, Dict, Any, List, Union
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
@@ -28,7 +27,7 @@ from src.infrastructure.database.models import UserModel
 
 class UserRole(str, Enum):
     PEMOHON = "PEMOHON"          # User luar (Pengembang / Masyarakat)
-    ADMIN = "ADMIN"              # Verifikator Formal Administrasi
+    ADMIN = "ADMIN"              # Verifikator Formal Administrasi & Pengelola Akun
     TIM_TEKNIS = "TIM_TEKNIS"    # Verifikator Spasial & Pembuat Telaah Staf
     KABID_PUPR = "KABID_PUPR"    # Reviewer Draf SK & Endorser Telaah Staf
     KADIS = "KADIS"              # Otoritas Final Penandatangan TTE SK Resmi
@@ -40,6 +39,8 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 120  # Durasi sesi 2 jam demi kenyamanan operasion
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token")
 
+# ─── SECTION 2: ROLE-BASED ACCESS CONTROL (RBAC) DEPENDENCY ───────────────
+
 def requires_roles(allowed_roles: List[Union[UserRole, str]]):
     """
     FastAPI dependency to enforce strict Role-Based Access Control (RBAC) via JWT claims.
@@ -47,7 +48,7 @@ def requires_roles(allowed_roles: List[Union[UserRole, str]]):
     KEBIJAKAN SOD (SEGREGATION OF DUTIES):
         Fungsi ini melakukan pemeriksaan peran secara MURNI berdasarkan daftar `allowed_roles`
         yang diberikan pada setiap endpoint. TIDAK ADA hardcoded global override yang
-        mengizinkan ADMIN atau SUPER_ADMIN untuk melewati pemeriksaan peran secara implsir.
+        mengizinkan ADMIN atau SUPER_ADMIN untuk melewati pemeriksaan peran secara implisit.
         Setiap akses ke endpoint harus melewati validasi peran yang ketat sesuai dengan
         prinsip Segregation of Duties (SoD) dan Zero Trust Architecture.
     """

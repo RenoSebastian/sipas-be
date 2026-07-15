@@ -8,7 +8,7 @@ Peran: Menyediakan REST endpoints otentikasi, pendaftaran user baru,
 ============================================================================
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, Field
 import os
@@ -181,8 +181,40 @@ class UserUpdateAdmin(BaseModel):
 # ─── ENDPOINTS ────────────────────────────────────────────────────────────
 
 @router.post("/register-otp", status_code=status.HTTP_202_ACCEPTED)
-async def initiate_registration_otp(req: InitiateRegisterRequest, db: Session = Depends(get_db)):
+async def initiate_registration_otp(req: InitiateRegisterRequest, request: Request, db: Session = Depends(get_db)):
     """Menginisiasi registrasi user baru dengan mengirimkan kode OTP asinkron ke WhatsApp."""
+    
+    # ─── REVISI FASE 2: ROLE GUARD VALIDATION (OTP REGISTER) ───
+    # Pendaftaran mandiri publik (via OTP) dipaksa hanya boleh untuk peran PEMOHON.
+    # Peran dinas administratif hanya boleh diinisiasi jika peminta memiliki hak akses ADMIN yang sah.
+    if req.role != UserRole.PEMOHON.value:
+        auth_header = request.headers.get("Authorization")
+        is_admin = False
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header.split(" ")[1]
+            from src.infrastructure.security.auth import decode_access_token
+            payload = decode_access_token(token)
+            if payload and payload.get("role") == UserRole.ADMIN.value:
+                is_admin = True
+        
+        if not is_admin:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Akses Ditolak: Hanya Administrator (ADMIN) yang diizinkan mendaftarkan peran dinas internal."
+            )
+
+    # ─── REVISI FASE 3: BATASAN KEAKTIFAN TUNGGAL PEJABAT (KADIS / KABID_PUPR) ───
+    if req.role in [UserRole.KADIS.value, UserRole.KABID_PUPR.value]:
+        existing_active = db.query(UserModel).filter(
+            UserModel.role == req.role,
+            UserModel.is_active == True
+        ).first()
+        if existing_active:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Gagal: Pengguna aktif dengan peran {req.role} sudah terdaftar ({existing_active.full_name})."
+            )
+
     otp_repo = SqlOtpSessionRepository(db)
     user_repo = SqlUserRepository(db)
     wa_gateway = WhatsAppLocalAdapter()
@@ -248,8 +280,39 @@ async def verify_registration_otp(req: VerifyOtpRequest, db: Session = Depends(g
 
 
 @router.post("/register", status_code=status.HTTP_201_CREATED)
-def register_user(req: UserCreate, db: Session = Depends(get_db)):
-    """Mendaftar user baru langsung tanpa OTP (Mekanisme Bypass Lama)."""
+def register_user(req: UserCreate, request: Request, db: Session = Depends(get_db)):
+    """Mendaftar user baru langsung tanpa OTP (Hanya Diizinkan untuk Admin atau Registrasi PEMOHON)."""
+    
+    # ─── REVISI FASE 2: ROLE GUARD VALIDATION (DIRECT REGISTER) ───
+    # Membatasi pendaftaran peran dinas langsung agar tidak dapat ditembus oleh publik.
+    if req.role != UserRole.PEMOHON.value:
+        auth_header = request.headers.get("Authorization")
+        is_admin = False
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header.split(" ")[1]
+            from src.infrastructure.security.auth import decode_access_token
+            payload = decode_access_token(token)
+            if payload and payload.get("role") == UserRole.ADMIN.value:
+                is_admin = True
+        
+        if not is_admin:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Akses Ditolak: Hanya Administrator (ADMIN) yang diizinkan untuk mendaftarkan peran dinas internal."
+            )
+
+    # ─── REVISI FASE 3: BATASAN KEAKTIFAN TUNGGAL PEJABAT (KADIS / KABID_PUPR) ───
+    if req.role in [UserRole.KADIS.value, UserRole.KABID_PUPR.value]:
+        existing_active = db.query(UserModel).filter(
+            UserModel.role == req.role,
+            UserModel.is_active == True
+        ).first()
+        if existing_active:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Gagal: Pengguna aktif dengan peran {req.role} sudah terdaftar ({existing_active.full_name})."
+            )
+
     existing_user = db.query(UserModel).filter(UserModel.username == req.username).first()
     if existing_user:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Username sudah terdaftar.")
@@ -380,7 +443,25 @@ def update_user_status(username: str, req: UserStatusUpdate, db: Session = Depen
     user = db.query(UserModel).filter(UserModel.username == username).first()
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User tidak ditemukan.")
-    user.is_active = (req.status == "Aktif")
+    
+    # ─── REVISI FASE 3: VERIFIKASI KEAKTIFAN SEBELUM AKTIVASI STATUS ───
+    target_active_state = (req.status == "Aktif")
+    if target_active_state and user.role in [UserRole.KADIS.value, UserRole.KABID_PUPR.value]:
+        existing_active = db.query(UserModel).filter(
+            UserModel.role == user.role,
+            UserModel.is_active == True,
+            UserModel.username != username
+        ).first()
+        if existing_active:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Gagal mengaktifkan akun. Peran {user.role} yang aktif saat ini "
+                    f"sudah dipegang oleh '{existing_active.full_name}'."
+                )
+            )
+
+    user.is_active = target_active_state
     db.commit()
     return {
         "status": "SUCCESS", 
@@ -400,6 +481,24 @@ def update_user_details(username: str, req: UserUpdateAdmin, db: Session = Depen
         if existing_email:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email sudah terdaftar.")
             
+    # ─── REVISI FASE 3: VERIFIKASI BATASAN KEAKTIFAN TUNGGAL SAAT UPDATE PERAN ───
+    # Jika peran dimutasi ke peran sensitif (KADIS / KABID_PUPR) dan pengguna tersebut aktif,
+    # pastikan tidak menabrak pejabat aktif lainnya di dalam sistem.
+    if req.role in [UserRole.KADIS.value, UserRole.KABID_PUPR.value] and user.is_active:
+        existing_active = db.query(UserModel).filter(
+            UserModel.role == req.role,
+            UserModel.is_active == True,
+            UserModel.username != username
+        ).first()
+        if existing_active:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Gagal memperbarui peran. Jabatan {req.role} yang aktif saat ini "
+                    f"sedang dipegang oleh '{existing_active.full_name}'."
+                )
+            )
+
     user.email = req.email
     user.full_name = req.full_name
     user.role = req.role
