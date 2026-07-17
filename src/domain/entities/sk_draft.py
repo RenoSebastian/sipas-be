@@ -20,7 +20,9 @@ from typing import List, Optional, Dict, Any
 class SkVerdict(str, Enum):
     """Status kesimpulan akhir keselarasan hukum SK."""
     DAPAT_DISETUJUI = "DAPAT_DISETUJUI"
-    BATAL_DEMI_HUKUM = "BATAL_DEMI_HUKUM"
+    DISETUJUI_BERSYARAT = "DISETUJUI_BERSYARAT"
+    PERLU_REVISI = "PERLU_REVISI"
+    DITOLAK = "DITOLAK"
 
 
 @dataclass(frozen=True)

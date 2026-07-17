@@ -1,12 +1,12 @@
 """
 ============================================================================
-SIPAS HTTP SCHEMAS — Submissions [submissions.py] (REVISED v5.2 - TYPE SAFE)
+SIPAS HTTP SCHEMAS — Submissions [submissions.py] (REVISED v5.3 - TYPE SAFE)
 ============================================================================
 Peran: Skema validasi data request HTTP menggunakan Pydantic untuk fungsionalitas
        core permohonan. Menjamin tipe data yang masuk sesuai dengan standar
-       dinas, serta mendukung validasi pengajuan draf parsial (is_draft),
-       silsilah permohonan revisi secara deklaratif, serta mekanisme pengaitan
-       induk permohonan oleh Admin.
+       dinas, mendukung validasi pengajuan draf parsial (is_draft), silsilah
+       permohonan revisi, pengaitan induk permohonan, serta input verifikasi
+       teknis berbasis dimensi fisik absolut (m² / meter).
 ============================================================================
 """
 
@@ -206,21 +206,23 @@ class EvaluasiChecklistItemDto(BaseModel):
 class VerifyRequest(BaseModel):
     nip: Optional[str] = Field(default=None, examples=["197503112000031001"])
     passphrase: Optional[SecretStr] = Field(default=None, min_length=6, json_schema_extra={"writeOnly": True}, examples=["P@ssw0rdPejabat!"])
-    action_type: str = Field(pattern="^(APPROVE|REJECT|REVERT_TO_TECHNICAL|REVERT_TO_ADMINISTRATIVE|OVERRIDE_VERDICT|SAVE_TECHNICAL_MATRIX)$")
+    action_type: str = Field(pattern="^(APPROVE|REJECT|REVERT_TO_TECHNICAL|REVERT_TO_ADMINISTRATIVE|OVERRIDE_VERDICT|SAVE_TECHNICAL_MATRIX|REVERT_TO_PEMOHON)$")
     notes: str = Field(...)
     is_spatially_compliant: bool = Field(default=True)
     signature_base64: Optional[str] = Field(default=None, description="Visual signature coretan tangan")
 
     kkpr_verdict: Optional[str] = Field(default=None, pattern="^(Sesuai|Sesuai Bersyarat|Perlu Perbaikan / Revisi|Tidak Sesuai / Ditolak|SESUAI|SESUAI_BERSYARAT|PERLU_PERBAIKAN|TIDAK_SESUAI)$")
-    verified_kdb: Optional[float] = None
-    verified_klb: Optional[float] = None
-    verified_kdh: Optional[float] = None
-    verified_gsb: Optional[float] = None
-    verified_rth_area: Optional[float] = None
+    
+    # ─── REVISED: RAW PHYSICAL DIMENSIONS UNTUK AUTOMATED CALCULATION ENGINE ───
+    verified_land_area: Optional[float] = Field(default=None, description="Luas lahan terverifikasi fisik riil (m²)", examples=[9500.0])
+    verified_building_area: Optional[float] = Field(default=None, description="Luas dasar tapak bangunan terverifikasi riil (m²)", examples=[5700.0])
+    verified_total_floor_area: Optional[float] = Field(default=None, description="Luas akumulasi seluruh lantai terverifikasi riil (m²)", examples=[17100.0])
+    verified_rth_area: Optional[float] = Field(default=None, description="Luas wilayah Ruang Terbuka Hijau terverifikasi riil (m²)", examples=[1425.0])
+    verified_gsb: Optional[float] = Field(default=None, description="Garis Sempadan Bangunan terverifikasi riil (meter)", examples=[5.0])
+    
     checklist_items: Optional[List[EvaluasiChecklistItemDto]] = None
 
 
-# ─── ADDED FASE 5 (REVISI): VALIDASI KONTRAK INPUT LINK PARENT OLEH ADMIN ──
 class LinkParentRequest(BaseModel):
     """
     Skema validasi permintaan pengaitan manual silsilah permohonan (parent-child) oleh Admin.

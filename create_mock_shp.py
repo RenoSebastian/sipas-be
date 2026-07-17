@@ -5,7 +5,7 @@ import zipfile
 import math
 import random
 import json
-import geopandas as gpd
+import shapefile
 from shapely.geometry import Polygon
 from shapely.ops import transform
 
@@ -82,7 +82,7 @@ def generate_random_irregular_boundary(center_x=110, center_y=55, base_radius=14
         unified = max(unified.geoms, key=lambda p: p.area)
     elif unified.geom_type != 'Polygon':
         unified = Polygon(points)
-        
+    
     random.setstate(state)
     return unified.simplify(1.0, preserve_topology=True)
 
@@ -106,68 +106,129 @@ def project_to_wgs84(geom, base_lon, base_lat, rotation_deg=0):
     return transform(transform_coords, geom)
 
 
+def split_polygon_vertically(poly):
+    """Membagi poligon Shapely menjadi 2 bagian secara vertikal di tengah-tengah bounding box."""
+    from shapely.geometry import box
+    minx, miny, maxx, maxy = poly.bounds
+    center_x = (minx + maxx) / 2
+    left_box = box(minx, miny, center_x, maxy)
+    right_box = box(center_x, miny, maxx, maxy)
+    
+    left_poly = poly.intersection(left_box)
+    right_poly = poly.intersection(right_box)
+    
+    if left_poly.geom_type == 'MultiPolygon':
+        left_poly = max(left_poly.geoms, key=lambda p: p.area)
+    if right_poly.geom_type == 'MultiPolygon':
+        right_poly = max(right_poly.geoms, key=lambda p: p.area)
+        
+    return left_poly, right_poly
+
+
+def save_shp_zip(zip_path, local_poly, base_lon, base_lat, rotation_deg, sub_id, name):
+    """Fungsi helper untuk menyimpan satu poligon ke bentuk ESRI Shapefile yang terkompresi ZIP."""
+    temp_dir = f"temp_shp_{sub_id}"
+    os.makedirs(temp_dir, exist_ok=True)
+    try:
+        wgs84_poly = project_to_wgs84(local_poly, base_lon, base_lat, rotation_deg)
+        shp_path = os.path.join(temp_dir, "siteplan")
+        
+        w = shapefile.Writer(shp_path)
+        w.field("id", "C", 50)
+        w.field("name", "C", 255)
+        w.field("area_m2", "N", decimal=2)
+        
+        coords = [list(pt) for pt in wgs84_poly.exterior.coords]
+        w.poly([coords])
+        w.record(sub_id, name, local_poly.area)
+        w.close()
+        
+        prj_content = 'GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]]'
+        with open(shp_path + ".prj", "w") as prjf:
+            prjf.write(prj_content)
+            
+        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            for ext in [".shp", ".shx", ".dbf", ".prj"]:
+                file_name = f"siteplan{ext}"
+                file_path = os.path.join(temp_dir, file_name)
+                zipf.write(file_path, arcname=file_name)
+        print(f"[MOCK_SHP] Berhasil menulis shapefile zip ke: {zip_path}")
+    finally:
+        if os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir)
+
+
 def main():
     print("[MOCK_SHP] Memulai pembuatan berkas SHP terkompresi (.zip) batas luar organik untuk Kabupaten Bogor...")
+    
+    # ─── SEEDER ASLI (BACKWARD COMPATIBILITY) ───
     temp_dir = "sample_shapefile_dir"
     os.makedirs(temp_dir, exist_ok=True)
-    
     try:
-        # 1. Bangun batas luar lahan organik di level lokal meter (Presisi Sesuai CAD)
         poly_local_1 = generate_random_irregular_boundary(center_x=110, center_y=55, base_radius=140, seed=101)
         poly_local_2 = generate_random_irregular_boundary(center_x=100, center_y=50, base_radius=120, seed=102)
         
-        # 2. Definisikan koordinat jangkar penambat spasial bumi nyata (Cibinong, Bogor) [sipas-be.txt]
         base_lon_1, base_lat_1 = 106.802744, -6.471861  # Cibinong (sub-1)
         base_lon_2, base_lat_2 = 106.900000, -6.420000  # Gunung Putri (sub-5)
         
         rotation_deg_1 = 12.0
         rotation_deg_2 = 8.0
         
-        print(f"[MOCK_SHP] Polygon 1: Center={base_lon_1:.6f},{base_lat_1:.6f}, Rot={rotation_deg_1:.1f}°, Area={poly_local_1.area:.1f} m²")
-        print(f"[MOCK_SHP] Polygon 2: Center={base_lon_2:.6f},{base_lat_2:.6f}, Rot={rotation_deg_2:.1f}°, Area={poly_local_2.area:.1f} m²")
-
-        # 3. Transformasikan batas luar ke koordinat WGS84 nyata bumi (BPN Standard)
         wgs84_poly_1 = project_to_wgs84(poly_local_1, base_lon_1, base_lat_1, rotation_deg_1)
         wgs84_poly_2 = project_to_wgs84(poly_local_2, base_lon_2, base_lat_2, rotation_deg_2)
         
-        polygons = [wgs84_poly_1, wgs84_poly_2]
+        shp_path = os.path.join(temp_dir, "sample_siteplan")
+        w = shapefile.Writer(shp_path)
+        w.field("id", "C", 50)
+        w.field("name", "C", 255)
+        w.field("area_m2", "N", decimal=2)
         
-        # Buat GeoDataFrame spasial terpadu
-        gdf = gpd.GeoDataFrame(
-            {
-                "id": ["sub-1", "sub-5"],
-                "name": ["Grand Bogor Residence", "Gunung Putri Commercial Hub"],
-                "area_m2": [poly_local_1.area, poly_local_2.area]
-            },
-            geometry=polygons,
-            crs="EPSG:4326"
-        )
+        w.poly([[list(pt) for pt in wgs84_poly_1.exterior.coords]])
+        w.record("sub-1", "Grand Bogor Residence", poly_local_1.area)
         
-        # Ekspor GeoDataFrame ke berkas fisik Shapefile
-        shp_base_name = os.path.join(temp_dir, "sample_siteplan")
-        gdf.to_file(shp_base_name + ".shp", driver="ESRI Shapefile")
-        print("[MOCK_SHP] Berkas spasial (.shp, .shx, .dbf, .prj) sukses digenerasi.")
+        w.poly([[list(pt) for pt in wgs84_poly_2.exterior.coords]])
+        w.record("sub-5", "Gunung Putri Commercial Hub", poly_local_2.area)
         
-        # Kompres seluruh komponen ke dalam satu arsip ZIP siap unggah
+        w.close()
+        
+        prj_content = 'GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]]'
+        with open(shp_path + ".prj", "w") as prjf:
+            prjf.write(prj_content)
+            
         zip_path = "../sample_shapefile.zip"
-        print(f"[MOCK_SHP] Mengompresi seluruh berkas ke: {zip_path}...")
-        
         with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-            for file_name in os.listdir(temp_dir):
+            for ext in [".shp", ".shx", ".dbf", ".prj"]:
+                file_name = f"sample_siteplan{ext}"
                 file_path = os.path.join(temp_dir, file_name)
                 zipf.write(file_path, arcname=file_name)
-                
-        print(f"[MOCK_SHP] Sukses! Arsip Shapefile BPN organik buatan berhasil diamankan di: {zip_path}")
-        
-    except Exception as e:
-        print(f"[MOCK_SHP_ERROR] Gagal memproduksi berkas Shapefile BPN: {str(e)}")
-        sys.exit(1)
-        
+        print(f"[MOCK_SHP] Sukses membuat berkas fallback: {zip_path}")
     finally:
-        # Pembersihan folder sementara
         if os.path.exists(temp_dir):
             shutil.rmtree(temp_dir)
-            print("[MOCK_SHP] Berhasil membersihkan direktori kerja sementara.")
+
+    # ─── FITUR SPLIT/MERGE SIMULATION (3 OUTPUT DENGAN KOORDINAT SAMA) ───
+    try:
+        # Gunakan poly_local_1 (seed 101) sebagai poligon besar
+        large_poly = poly_local_1
+        
+        # Potong menjadi dua bagian secara spasial (vertikal)
+        small_poly_1, small_poly_2 = split_polygon_vertically(large_poly)
+        
+        print("\n[MOCK_SHP] Membuat 3 berkas Shapefile baru untuk simulasi Split / Merge (di koordinat Cibinong):")
+        print(f" - Large Siteplan Area: {large_poly.area:.2f} m²")
+        print(f" - Small Siteplan 1 Area: {small_poly_1.area:.2f} m²")
+        print(f" - Small Siteplan 2 Area: {small_poly_2.area:.2f} m² (Total anak = {small_poly_1.area + small_poly_2.area:.2f} m²)")
+        
+        # Simpan ketiga file ke folder root
+        save_shp_zip("../mock_large_siteplan.zip", large_poly, base_lon_1, base_lat_1, rotation_deg_1, "sub-large", "Large Parent Siteplan")
+        save_shp_zip("../mock_small_siteplan_1.zip", small_poly_1, base_lon_1, base_lat_1, rotation_deg_1, "sub-small-1", "Small Child Siteplan 1")
+        save_shp_zip("../mock_small_siteplan_2.zip", small_poly_2, base_lon_1, base_lat_1, rotation_deg_1, "sub-small-2", "Small Child Siteplan 2")
+        
+        print("[MOCK_SHP] Sukses memproduksi seluruh berkas simulasi Split/Merge Shapefile BPN.")
+        
+    except Exception as e:
+        print(f"[MOCK_SHP_ERROR] Gagal memproduksi berkas simulasi Split/Merge: {str(e)}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

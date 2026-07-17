@@ -1,10 +1,11 @@
 """
 ============================================================================
-SIPAS DOMAIN ENTITY — Permohonan [permohonan.py] (REVISED v5.1 - TYPE SAFE)
+SIPAS DOMAIN ENTITY — Permohonan [permohonan.py] (REVISED v5.3 - TYPE SAFE)
 ============================================================================
 Peran: Entitas domain murni (Pure Python) yang merepresentasikan berkas
        pengajuan pengesahan site plan. Menegakkan aturan transisi status (SLA),
-       matriks perbandingan tiga sisi, pengamanan veto Kabid, perpindahan
+       matriks perbandingan tiga sisi berbasis dimensi fisik absolut (m²),
+       perhitungan galat input spasial, pengamanan veto Kabid, perpindahan
        hak otorisasi TTE akhir ke Kepala Dinas (Kadis) secara legal, serta
        riwayat silsilah dokumen pengesahan terdahulu (Revisi/Perubahan).
 ============================================================================
@@ -27,7 +28,6 @@ class SubmissionStatus(str, Enum):
     DISETUJUI = 'Disetujui'                        # SK Berhasil Ditandatangani Kadis (Final)
     DITOLAK = 'Ditolak'                            # Berkas dikembalikan ke Pemohon untuk Revisi
     TIDAK_BERLAKU = 'Tidak Berlaku'                # SK Lama yang dinonaktifkan karena revisi baru
-
 
 
 class DocumentCategory(str, Enum):
@@ -82,10 +82,40 @@ class PermohonanTpu:
         self.diverifikasi_pada = diverifikasi_pada
 
 
+class SilsilahPermohonan:
+    """Entitas domain murni untuk merepresentasikan hubungan silsilah pengesahan (Split/Merge)."""
+    def __init__(
+        self,
+        id_silsilah: Optional[int],
+        child_id: str,
+        baseline_source: str,  # DIGITAL | LEGACY
+        parent_id: Optional[str] = None,
+        legacy_sk_number: Optional[str] = None,
+        legacy_sk_date: Optional[date] = None,
+        legacy_sk_doc_url: Optional[str] = None,
+        parent_sk_number: Optional[str] = None,
+        parent_housing_name: Optional[str] = None,
+        parent_developer_name: Optional[str] = None
+    ):
+        self.id_silsilah = id_silsilah
+        self.child_id = child_id
+        self.baseline_source = baseline_source
+        self.parent_id = parent_id
+        self.legacy_sk_number = legacy_sk_number
+        self.legacy_sk_date = legacy_sk_date
+        self.legacy_sk_doc_url = legacy_sk_doc_url
+
+        # Read-only attributes mapped for UI rendering and searchability
+        self.parent_sk_number = parent_sk_number
+        self.parent_housing_name = parent_housing_name
+        self.parent_developer_name = parent_developer_name
+
+
 class Permohonan:
     """
     Entitas Bisnis Utama e-Siteplan.
-    Mengatur siklus hidup administrasi, validasi data, serta pembekuan SLA.
+    Mengatur siklus hidup administrasi, validasi data, komputasi galat spasial,
+    pemeriksaan standar kepatuhan Perda secara terpadu, serta pembekuan SLA.
     """
     def __init__(
         self,
@@ -186,7 +216,7 @@ class Permohonan:
         kabid_signature: Optional[str] = None,       # Paraf verifikasi teknis Kabid
         kadis_signature: Optional[str] = None,       # Visual TTE Final Kepala Dinas
 
-        # ─── REVISI: METRIK INTENSITAS TATA RUANG KOMPARASI ──────────────────────
+        # ─── REVISI: METRIK INTENSITAS TATA RUANG KOMPARASI (PEMOHON) ────────────
         applicant_land_area: Optional[float] = None,
         applicant_building_area: Optional[float] = None,
         applicant_kdb: Optional[float] = None,
@@ -195,30 +225,35 @@ class Permohonan:
         applicant_gsb: Optional[float] = None,
         applicant_rth_area: Optional[float] = None,
 
+        # BATAS MAKSIMAL / MINIMAL SESUAI ATURAN PERDA RDTR
         bylaw_max_kdb: Optional[float] = None,
         bylaw_max_klb: Optional[float] = None,
         bylaw_min_kdh: Optional[float] = None,
         bylaw_min_gsb: Optional[float] = None,
         bylaw_min_rth_area: Optional[float] = None,
 
+        # HISTORICAL / MANUAL METRICS (FALLBACK VALUE)
         verified_kdb: Optional[float] = None,
         verified_klb: Optional[float] = None,
         verified_kdh: Optional[float] = None,
         verified_gsb: Optional[float] = None,
         verified_rth_area: Optional[float] = None,
 
+        # ─── BARU: RAW DIMENSION METRICS TERVERIFIKASI TIM TEKNIS (m² / meter) ───
+        verified_land_area: Optional[float] = None,         # Luas Lahan Hasil Plotting Riil (m²)
+        verified_building_area: Optional[float] = None,     # Luas Tapak/Dasar Bangunan Terverifikasi (m²)
+        verified_total_floor_area: Optional[float] = None,  # Luas Akumulasi Seluruh Lantai Terverifikasi (m²)
+        
+        # KEPUTUSAN VERIFIKASI
         kkpr_verdict: Optional[KKPRVerdict] = None,
         kkpr_verified_at: Optional[datetime] = None,
         kkpr_verifier_name: Optional[str] = None,
 
-        # ─── REFERENSI NOMOR SK TER-GENERATE DI ENTITAS PERMOHONAN ───────────────
+        # REFERENSI NOMOR SK TER-GENERATE DI ENTITAS PERMOHONAN
         sk_number: Optional[str] = None,
 
-        # ─── UPDATE FASE 5 (REVISI): SILSILAH PERMOHONAN SELF-REFERENTIAL ────────
-        parent_id_permohonan: Optional[str] = None,
-        replaced_sk_number: Optional[str] = None,
-        replaced_sk_date: Optional[date] = None,
-        replaced_sk_doc_url: Optional[str] = None,
+        # SILSILAH PERMOHONAN RELATIONSHIP (MANY-TO-MANY LEDGER)
+        parents_lineage: Optional[List["SilsilahPermohonan"]] = None,
 
         tpu_detail: Optional["PermohonanTpu"] = None,
         baseline_source: Optional[str] = None,
@@ -321,7 +356,7 @@ class Permohonan:
         self.kabid_signature = kabid_signature
         self.kadis_signature = kadis_signature
 
-        # Atribut Metrik Intensitas Tata Ruang Komparasi
+        # Atribut Metrik Intensitas Tata Ruang Komparasi (Proposed)
         self.applicant_land_area = applicant_land_area or resolved_land_area
         self.applicant_building_area = applicant_building_area
         self.applicant_kdb = applicant_kdb
@@ -330,17 +365,24 @@ class Permohonan:
         self.applicant_gsb = applicant_gsb
         self.applicant_rth_area = applicant_rth_area
 
+        # Atribut Aturan Perda
         self.bylaw_max_kdb = bylaw_max_kdb
         self.bylaw_max_klb = bylaw_max_klb
         self.bylaw_min_kdh = bylaw_min_kdh
         self.bylaw_min_gsb = bylaw_min_gsb
         self.bylaw_min_rth_area = bylaw_min_rth_area
 
+        # Atribut Verifikasi Manual (Fallback)
         self.verified_kdb = verified_kdb
         self.verified_klb = verified_klb
         self.verified_kdh = verified_kdh
         self.verified_gsb = verified_gsb
         self.verified_rth_area = verified_rth_area
+
+        # Atribut Verifikasi Spasial Riil (m²)
+        self.verified_land_area = verified_land_area
+        self.verified_building_area = verified_building_area
+        self.verified_total_floor_area = verified_total_floor_area
 
         self.kkpr_verdict = kkpr_verdict
         self.kkpr_verified_at = kkpr_verified_at
@@ -348,11 +390,8 @@ class Permohonan:
 
         self.sk_number = sk_number
 
-        # ─── UPDATE FASE 5 (REVISI): SILSILAH PERMOHONAN SELF-REFERENTIAL ────────
-        self.parent_id_permohonan = parent_id_permohonan
-        self.replaced_sk_number = replaced_sk_number
-        self.replaced_sk_date = replaced_sk_date
-        self.replaced_sk_doc_url = replaced_sk_doc_url
+        # SILSILAH PERMOHONAN RELATIONSHIP
+        self.parents_lineage = parents_lineage or []
 
         self.tpu_detail = tpu_detail
         self.baseline_source = baseline_source
@@ -383,7 +422,6 @@ class Permohonan:
         """
         Menghitung sisa hari pengerjaan SLA secara dinamis untuk tahap saat ini.
         Membekukan penghitungan waktu (Clock Pause) jika berkas membutuhkan revisi.
-        Mendukung nilai negatif (terlambat) untuk menandakan SLA terlampaui.
         """
         if self.status in [SubmissionStatus.DRAFT, SubmissionStatus.DITOLAK]:
             total_allocated = self.base_sla + self.buffer_sla
@@ -439,6 +477,7 @@ class Permohonan:
             
             SubmissionStatus.PROSES_TTE: [
                 SubmissionStatus.DISETUJUI,
+                SubmissionStatus.DITOLAK,
                 SubmissionStatus.MENUNGGU_PERSETUJUAN
             ],
             
@@ -472,16 +511,201 @@ class Permohonan:
 
         self.status = new_status
 
-    def attach_signature(self, hash: str, url: str) -> None:
+    def attach_signature(self, hash: str, url: str, is_approved: bool = True) -> None:
         """Membubuhkan TTE Dinas Resmi milik Kepala Dinas pada draf SK Pengesahan final."""
-        self.transition_status(SubmissionStatus.DISETUJUI)
+        target_status = SubmissionStatus.DISETUJUI if is_approved else SubmissionStatus.DITOLAK
+        self.transition_status(target_status)
         self.signature_hash = hash
         self.signed_pdf_url = url
 
+    # ─── SECTION: AUTOCALCULATED METRICS & ERROR DETECTORS (INFORMATION EXPERT) ───
+
     def compute_applicant_kdb_percentage(self) -> Optional[float]:
+        """Menghitung persentase KDB usulan pemohon berdasarkan input luas fisik."""
         if self.applicant_land_area and self.applicant_building_area:
             return (self.applicant_building_area / self.applicant_land_area) * 100.0
         return self.applicant_kdb
+
+    @property
+    def proposed_kdb_percentage(self) -> Optional[float]:
+        """Properti pemohon untuk persentase KDB usulan."""
+        return self.compute_applicant_kdb_percentage()
+
+    @property
+    def proposed_klb_ratio(self) -> Optional[float]:
+        """Menghitung rasio KLB usulan pemohon."""
+        if self.applicant_land_area and self.tech_total_floor_area:
+            return self.tech_total_floor_area / self.applicant_land_area
+        return self.applicant_klb
+
+    @property
+    def proposed_kdh_percentage(self) -> Optional[float]:
+        """Menghitung persentase KDH usulan pemohon."""
+        if self.applicant_land_area and self.applicant_rth_area:
+            return (self.applicant_rth_area / self.applicant_land_area) * 100.0
+        return self.applicant_kdh
+
+    @property
+    def verified_kdb_percentage(self) -> Optional[float]:
+        """
+        Menghitung otomatis persentase KDB hasil verifikasi fisik dinas.
+        Fungsi ini melakukan perhitungan dinamis dari raw data luasan verified jika tersedia,
+        dan secara aman jatuh ke fallback manual (verified_kdb) jika field kosong.
+        """
+        if self.verified_building_area is not None and self.verified_land_area:
+            return (self.verified_building_area / self.verified_land_area) * 100.0
+        return self.verified_kdb
+
+    @property
+    def verified_klb_ratio(self) -> Optional[float]:
+        """
+        Menghitung otomatis rasio KLB hasil verifikasi fisik dinas.
+        Secara aman jatuh ke fallback manual (verified_klb) jika field kosong.
+        """
+        if self.verified_total_floor_area is not None and self.verified_land_area:
+            return self.verified_total_floor_area / self.verified_land_area
+        return self.verified_klb
+
+    @property
+    def verified_kdh_percentage(self) -> Optional[float]:
+        """
+        Menghitung otomatis persentase KDH hasil verifikasi fisik dinas.
+        Secara aman jatuh ke fallback manual (verified_kdh) jika field kosong.
+        """
+        if self.verified_rth_area is not None and self.verified_land_area:
+            return (self.verified_rth_area / self.verified_land_area) * 100.0
+        return self.verified_kdh
+
+    # ─── SUB-SECTION: QUANTITATIVE ERROR / GALAT SPASIAL (m² & %) ───
+
+    @property
+    def land_area_error_sqm(self) -> Optional[float]:
+        """Menghitung selisih absolut luas lahan terverifikasi dengan deklarasi pemohon (Verified - Proposed)."""
+        if self.verified_land_area is not None and self.applicant_land_area is not None:
+            return self.verified_land_area - self.applicant_land_area
+        return None
+
+    @property
+    def land_area_error_percent(self) -> Optional[float]:
+        """Menghitung selisih relatif luas lahan dalam bentuk persentase (%) terhadap usulan pemohon."""
+        error = self.land_area_error_sqm
+        if error is not None and self.applicant_land_area:
+            return (error / self.applicant_land_area) * 100.0
+        return None
+
+    @property
+    def building_area_error_sqm(self) -> Optional[float]:
+        """Menghitung selisih absolut luas dasar tapak bangunan (Verified - Proposed)."""
+        if self.verified_building_area is not None and self.applicant_building_area is not None:
+            return self.verified_building_area - self.applicant_building_area
+        return None
+
+    @property
+    def building_area_error_percent(self) -> Optional[float]:
+        """Menghitung selisih relatif luas dasar bangunan dalam bentuk persentase (%)."""
+        error = self.building_area_error_sqm
+        if error is not None and self.applicant_building_area:
+            return (error / self.applicant_building_area) * 100.0
+        return None
+
+    @property
+    def total_floor_area_error_sqm(self) -> Optional[float]:
+        """Menghitung selisih absolut luas total lantai bangunan (Verified - Proposed)."""
+        proposed_total_floor_area = self.tech_total_floor_area
+        if self.verified_total_floor_area is not None and proposed_total_floor_area is not None:
+            return self.verified_total_floor_area - proposed_total_floor_area
+        return None
+
+    @property
+    def total_floor_area_error_percent(self) -> Optional[float]:
+        """Menghitung selisih relatif luas total lantai bangunan dalam bentuk persentase (%)."""
+        error = self.total_floor_area_error_sqm
+        proposed_total_floor_area = self.tech_total_floor_area
+        if error is not None and proposed_total_floor_area:
+            return (error / proposed_total_floor_area) * 100.0
+        return None
+
+    @property
+    def rth_area_error_sqm(self) -> Optional[float]:
+        """Menghitung selisih absolut luas RTH (Verified - Proposed)."""
+        if self.verified_rth_area is not None and self.applicant_rth_area is not None:
+            return self.verified_rth_area - self.applicant_rth_area
+        return None
+
+    @property
+    def rth_area_error_percent(self) -> Optional[float]:
+        """Menghitung selisih relatif luas RTH dalam bentuk persentase (%)."""
+        error = self.rth_area_error_sqm
+        if error is not None and self.applicant_rth_area:
+            return (error / self.applicant_rth_area) * 100.0
+        return None
+
+    # ─── SUB-SECTION: AUTOMATED BYLAWS AUDIT (COMPLIANCE FLAGS) ───
+
+    @property
+    def is_kdb_compliant(self) -> Optional[bool]:
+        """Menilai kepatuhan teknis KDB terhadap aturan batas atas Perda RDTR."""
+        kdb = self.verified_kdb_percentage
+        if kdb is not None and self.bylaw_max_kdb is not None:
+            return kdb <= self.bylaw_max_kdb
+        return None
+
+    @property
+    def is_klb_compliant(self) -> Optional[bool]:
+        """Menilai kepatuhan teknis KLB terhadap aturan batas atas Perda RDTR."""
+        klb = self.verified_klb_ratio
+        if klb is not None and self.bylaw_max_klb is not None:
+            return klb <= self.bylaw_max_klb
+        return None
+
+    @property
+    def is_kdh_compliant(self) -> Optional[bool]:
+        """Menilai kepatuhan teknis KDH terhadap aturan batas bawah Perda RDTR."""
+        kdh = self.verified_kdh_percentage
+        if kdh is not None and self.bylaw_min_kdh is not None:
+            return kdh >= self.bylaw_min_kdh
+        return None
+
+    @property
+    def is_gsb_compliant(self) -> Optional[bool]:
+        """Menilai kepatuhan teknis GSB terhadap aturan batas bawah Perda RDTR."""
+        gsb = self.verified_gsb
+        if gsb is not None and self.bylaw_min_gsb is not None:
+            return gsb >= self.bylaw_min_gsb
+        return None
+
+    @property
+    def is_rth_area_compliant(self) -> Optional[bool]:
+        """Menilai kepatuhan teknis luas wilayah RTH terhadap aturan batas bawah Perda RDTR."""
+        rth = self.verified_rth_area
+        if rth is not None and self.bylaw_min_rth_area is not None:
+            return rth >= self.bylaw_min_rth_area
+        return None
+
+    # ─── BARU: PROPERTIES UNTUK READ-ONLY METADATA RUJUKAN SILSILAH SK LAMA (ANTI PYLANCE UNBOUND) ───
+    @property
+    def replaced_sk_number(self) -> Optional[str]:
+        """Menyisir silsilah permohonan (parents_lineage) untuk mendapatkan nomor SK lama rujukan."""
+        for silsilah in self.parents_lineage:
+            if silsilah.baseline_source == "DIGITAL":
+                return silsilah.parent_sk_number or silsilah.legacy_sk_number
+            elif silsilah.baseline_source == "LEGACY":
+                return silsilah.legacy_sk_number
+        return None
+
+    @property
+    def replaced_sk_date(self) -> Optional[date]:
+        """Menyisir silsilah permohonan (parents_lineage) untuk mendapatkan tanggal terbit SK rujukan."""
+        for silsilah in self.parents_lineage:
+            return silsilah.legacy_sk_date
+        return None
+
+    @property
+    def replaced_sk_doc_url(self) -> Optional[str]:
+        """Menyisir silsilah permohonan (parents_lineage) untuk mendapatkan URL dokumen SK rujukan."""
+        for silsilah in self.parents_lineage:
+            return silsilah.legacy_sk_doc_url
+        return None
 
 
 class IllegalStateTransitionError(Exception):

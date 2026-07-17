@@ -1,11 +1,11 @@
 """
 ============================================================================
-SIPAS INFRASTRUCTURE ADAPTER — Permohonan Repository [permohonan_repository.py] (REVISED v10)
+SIPAS INFRASTRUCTURE ADAPTER — Permohonan Repository [permohonan_repository.py] (REVISED v10.1)
 ============================================================================
 Peran: Mengimplementasikan ExtendedPermohonanRepositoryPort untuk berinteraksi dengan
        database transaksional PostgreSQL & PostGIS secara aman.
        Mendukung pemetaan silsilah permohonan self-referential,
-       pemetaan metrik tiga sisi (Proposed vs Bylaw vs Verified),
+       pemetaan metrik tiga sisi berbasis luasan fisik absolut terverifikasi (m²),
        menyimpan checklist verifikasi evaluasi manual beserta audit verifikator
        (verified_by_id, verified_at) secara idempotent, mengamankan visual
        TTE Kepala Dinas (kadis_signature), menyinkronkan Nomor SK baru,
@@ -79,12 +79,28 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
                 bukti_dokumen_url=str(model.tpu_detail.bukti_dokumen_url) if model.tpu_detail.bukti_dokumen_url else None
             )
 
-        # Penegakan aturan bisnis: Kosongkan data silsilah jika permohonan bertipe baru (BARU)
+        parents_lineage = []
         is_baru = str(model.submission_type).upper() == "BARU"
-        parent_id_permohonan = None if is_baru else (str(model.parent_id_permohonan) if model.parent_id_permohonan else None)
-        replaced_sk_number = None if is_baru else (str(model.replaced_sk_number) if model.replaced_sk_number else None)
-        replaced_sk_date = None if is_baru else model.replaced_sk_date
-        replaced_sk_doc_url = None if is_baru else (str(model.replaced_sk_doc_url) if model.replaced_sk_doc_url else None)
+        if not is_baru and model.parents_lineage:
+            from src.domain.entities.permohonan import SilsilahPermohonan
+            for p_model in model.parents_lineage:
+                parent_sk = p_model.parent.sk_number if p_model.parent else None
+                parent_hn = p_model.parent.housing_name if p_model.parent else None
+                parent_dn = p_model.parent.developer_name if p_model.parent else None
+                parents_lineage.append(
+                    SilsilahPermohonan(
+                        id_silsilah=p_model.id_silsilah,
+                        child_id=p_model.child_id,
+                        baseline_source=p_model.baseline_source,
+                        parent_id=p_model.parent_id,
+                        legacy_sk_number=p_model.legacy_sk_number,
+                        legacy_sk_date=p_model.legacy_sk_date,
+                        legacy_sk_doc_url=p_model.legacy_sk_doc_url,
+                        parent_sk_number=parent_sk,
+                        parent_housing_name=parent_hn,
+                        parent_developer_name=parent_dn
+                    )
+                )
 
         return Permohonan(
             id_permohonan=str(model.id_permohonan),
@@ -203,6 +219,11 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
             verified_gsb=float(model.verified_gsb) if model.verified_gsb is not None else None,
             verified_rth_area=float(model.verified_rth_area) if model.verified_rth_area is not None else None,
 
+            # ─── REVISED v10.1: SINKRONISASI RAW VERIFIED METRICS (m²) DARI DB KE DOMAIN ───
+            verified_land_area=float(model.verified_land_area) if model.verified_land_area is not None else None,
+            verified_building_area=float(model.verified_building_area) if model.verified_building_area is not None else None,
+            verified_total_floor_area=float(model.verified_total_floor_area) if model.verified_total_floor_area is not None else None,
+
             kkpr_verdict=KKPRVerdict(model.kkpr_verdict) if model.kkpr_verdict else None,
             kkpr_verified_at=model.kkpr_verified_at if model.kkpr_verified_at else None,
             kkpr_verifier_name=str(model.kkpr_verifier_name) if model.kkpr_verifier_name else None,
@@ -211,12 +232,8 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
             sk_number=str(model.sk_number) if model.sk_number else None,
             tpu_detail=tpu_entity,
 
-            # ─── UPDATE FASE 5 (REVISI): SILSILAH PERMOHONAN SELF-REFERENTIAL KPD DOMAIN ───
-            parent_id_permohonan=parent_id_permohonan,
-            replaced_sk_number=replaced_sk_number,
-            replaced_sk_date=replaced_sk_date,
-            replaced_sk_doc_url=replaced_sk_doc_url,
-            baseline_source=str(model.baseline_source) if model.baseline_source else None,
+            # SILSILAH PERMOHONAN RELATIONSHIP (MANY-TO-MANY LEDGER)
+            parents_lineage=parents_lineage,
             admin_lock_id=model.admin_lock_id,
             admin_lock_name=model.admin_lock.full_name if model.admin_lock else None,
             teknisi_lock_id=model.teknisi_lock_id,
@@ -261,12 +278,22 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
             except Exception:
                 pass
 
-        # Penegakan aturan bisnis: Kosongkan data silsilah jika permohonan bertipe baru (BARU)
+        parents_lineage_models = []
         is_baru = str(entity.submission_type).upper() == "BARU"
-        parent_id_permohonan = None if is_baru else entity.parent_id_permohonan
-        replaced_sk_number = None if is_baru else entity.replaced_sk_number
-        replaced_sk_date = None if is_baru else entity.replaced_sk_date
-        replaced_sk_doc_url = None if is_baru else entity.replaced_sk_doc_url
+        if not is_baru and entity.parents_lineage:
+            from src.infrastructure.database.models import SilsilahPermohonanModel
+            for p in entity.parents_lineage:
+                parents_lineage_models.append(
+                    SilsilahPermohonanModel(
+                        id_silsilah=p.id_silsilah,
+                        child_id=entity.id_permohonan,
+                        baseline_source=p.baseline_source,
+                        parent_id=p.parent_id,
+                        legacy_sk_number=p.legacy_sk_number,
+                        legacy_sk_date=p.legacy_sk_date,
+                        legacy_sk_doc_url=p.legacy_sk_doc_url
+                    )
+                )
 
         return PermohonanModel(
             id_permohonan=entity.id_permohonan,
@@ -385,6 +412,11 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
             verified_gsb=entity.verified_gsb,
             verified_rth_area=entity.verified_rth_area,
 
+            # REVISED v10.1: SINKRONISASI RAW VERIFIED METRICS (m²) DARI DOMAIN KE DB
+            verified_land_area=entity.verified_land_area,
+            verified_building_area=entity.verified_building_area,
+            verified_total_floor_area=entity.verified_total_floor_area,
+
             kkpr_verdict=entity.kkpr_verdict,
             kkpr_verified_at=entity.kkpr_verified_at,
             kkpr_verifier_name=entity.kkpr_verifier_name,
@@ -393,12 +425,8 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
             sk_number=entity.sk_number,
             tpu_detail=tpu_model,
 
-            # ─── UPDATE FASE 5 (REVISI): SILSILAH PERMOHONAN SELF-REFERENTIAL DI DATABASE ───
-            parent_id_permohonan=parent_id_permohonan,
-            replaced_sk_number=replaced_sk_number,
-            replaced_sk_date=replaced_sk_date,
-            replaced_sk_doc_url=replaced_sk_doc_url,
-            baseline_source=entity.baseline_source,
+            # ─── SILSILAH PERMOHONAN RELATIONSHIP ──────────────
+            parents_lineage=parents_lineage_models,
             admin_lock_id=entity.admin_lock_id,
             teknisi_lock_id=entity.teknisi_lock_id
         )
@@ -532,6 +560,11 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
             existing_model.verified_gsb = permohonan.verified_gsb
             existing_model.verified_rth_area = permohonan.verified_rth_area
 
+            # REVISED v10.1: SINKRONISASI RAW VERIFIED METRICS (m²) DENGAN DB SAAT UPDATE
+            existing_model.verified_land_area = permohonan.verified_land_area
+            existing_model.verified_building_area = permohonan.verified_building_area
+            existing_model.verified_total_floor_area = permohonan.verified_total_floor_area
+
             existing_model.kkpr_verdict = permohonan.kkpr_verdict
             existing_model.kkpr_verified_at = permohonan.kkpr_verified_at
             existing_model.kkpr_verifier_name = permohonan.kkpr_verifier_name
@@ -539,12 +572,21 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
             # UPDATE FASE 3: UPDATE NOMOR SK FISIK PADA DATABASE
             existing_model.sk_number = permohonan.sk_number
 
-            # ─── UPDATE FASE 5 (REVISI): SILSILAH PERMOHONAN SELF-REFERENTIAL DI DATABASE ───
-            existing_model.parent_id_permohonan = None if is_baru else permohonan.parent_id_permohonan
-            existing_model.replaced_sk_number = None if is_baru else permohonan.replaced_sk_number
-            existing_model.replaced_sk_date = None if is_baru else permohonan.replaced_sk_date
-            existing_model.replaced_sk_doc_url = None if is_baru else permohonan.replaced_sk_doc_url
-            existing_model.baseline_source = permohonan.baseline_source 
+            # Sync silsilah permohonan
+            existing_model.parents_lineage.clear()
+            if not is_baru and permohonan.parents_lineage:
+                from src.infrastructure.database.models import SilsilahPermohonanModel
+                for p in permohonan.parents_lineage:
+                    existing_model.parents_lineage.append(
+                        SilsilahPermohonanModel(
+                            child_id=permohonan.id_permohonan,
+                            baseline_source=p.baseline_source,
+                            parent_id=p.parent_id,
+                            legacy_sk_number=p.legacy_sk_number,
+                            legacy_sk_date=p.legacy_sk_date,
+                            legacy_sk_doc_url=p.legacy_sk_doc_url
+                        )
+                    )
             existing_model.admin_lock_id = permohonan.admin_lock_id
             existing_model.teknisi_lock_id = permohonan.teknisi_lock_id
 
@@ -810,7 +852,7 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
             EvaluasiChecklistItemModel.id_permohonan == id_permohonan
         ).all()
 
-    # ─── DECOUPLED FIND USER BY ID (Fase 7 Realization) ───────────────────
+    # ─── DECOUPLED FIND USER BY ID ───────────────────
     def find_user_by_id(self, user_id: int) -> Optional[UserModel]:
         """
         Mengenkapsulasi query pencarian user agar dependensi database (SQLAlchemy)
@@ -899,10 +941,10 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
         """
         return await asyncio.to_thread(self.get_siteplan_geojson, id_permohonan)
 
-    # ─── ADDED FASE 5 (REVISI): DETEKSI SPASIAL OVERLAPS DI DATABASE ─────────
+    # ─── DETEKSI SPASIAL OVERLAPS DI DATABASE ─────────
     def find_spatial_overlaps(self, id_permohonan: str) -> List[Dict[str, Any]]:
         """
-        Menemukan data permohonan lain yang tumpang tindih secara geometris spasial
+        Menemukan data permohonan lain yang tumpang tindih secara geografis spasial
         dengan target permohonan menggunakan kueri transaksional ST_Intersection PostGIS.
         Mengabaikan tumpang tindih spasial di bawah toleransi 5.0% (sliver border).
         """
@@ -950,29 +992,34 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
             raise RuntimeError(f"Gagal memproses analisis tumpang tindih spasial PostGIS: {str(e)}")
 
 
-    # ─── ADDED FASE 5 (REVISI): DETEKSI REKURSIVE SILSILAH MELINGKAR ─────────
+    # ─── DETEKSI REKURSIVE SILSILAH MELINGKAR ─────────
     def check_ancestry_loop(self, child_id: str, target_parent_id: str) -> bool:
         """
         Memeriksa apakah terdapat silsilah hubungan melingkar (circular ancestry dependency)
-        di level database sebelum perubahan parent disimpan secara hukum.
-        (Protected Variations - Menjaga keandalan relasi self-referential di DB)
+        menggunakan penelusuran BFS di level database melintasi junction table silsilah_permohonan.
         """
         if child_id == target_parent_id:
             return True
 
+        from src.infrastructure.database.models import SilsilahPermohonanModel
         visited = {child_id}
-        curr_id = target_parent_id
+        queue = [target_parent_id]
 
-        while curr_id:
+        while queue:
+            curr_id = queue.pop(0)
             if curr_id in visited:
                 return True
             visited.add(curr_id)
 
-            parent_record = self.db.query(PermohonanModel).filter(PermohonanModel.id_permohonan == curr_id).first()
-            if parent_record and parent_record.parent_id_permohonan:
-                curr_id = parent_record.parent_id_permohonan
-            else:
-                break
+            # Tarik parent-parent dari curr_id melalui silsilah_permohonan
+            parent_records = self.db.query(SilsilahPermohonanModel).filter(
+                SilsilahPermohonanModel.child_id == curr_id,
+                SilsilahPermohonanModel.baseline_source == "DIGITAL"
+            ).all()
+
+            for pr in parent_records:
+                if pr.parent_id:
+                    queue.append(pr.parent_id)
 
         return False
 

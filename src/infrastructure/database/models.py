@@ -1,12 +1,13 @@
 """
 ============================================================================
-SIPAS INFRASTRUCTURE ADAPTER — Database Models [models.py] (REVISED v5.2)
+SIPAS INFRASTRUCTURE ADAPTER — Database Models [models.py] (REVISED v5.3)
 ============================================================================
 Peran: Mendefinisikan skema tabel fisik database PostgreSQL & PostGIS
        menggunakan deklarasi tipe data statis SQLAlchemy 2.0 (Mapped).
        Diekspansi penuh untuk menampung seluruh detail formulir 10-tahap,
-       metrik komparasi tiga sisi, biner JSONB dokumen resmi, skema silsilah 
-       permohonan, serta tabel penampung sesi registrasi OTP sementara.
+       metrik komparasi tiga sisi berbasis dimensi fisik absolut terverifikasi,
+       biner JSONB dokumen resmi, skema silsilah permohonan, serta tabel 
+       penampung sesi registrasi OTP sementara.
 ============================================================================
 """
 
@@ -223,41 +224,33 @@ class PermohonanModel(Base):
     bylaw_min_gsb: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     bylaw_min_rth_area: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
-    # D. Hasil Hitung Manual Verifikator (Verified)
+    # D. Hasil Hitung Manual Verifikator (Verified Fallbacks / Ratios)
     verified_kdb: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     verified_klb: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     verified_kdh: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     verified_gsb: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     verified_rth_area: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
-    # E. Hasil Kesimpulan KKPR Akhir
+    # E. BARU: RAW DIMENSION METRICS TERVERIFIKASI TIM TEKNIS (m²)
+    verified_land_area: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    verified_building_area: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    verified_total_floor_area: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+
+    # F. Hasil Kesimpulan KKPR Akhir
     kkpr_verdict: Mapped[Optional[KKPRVerdict]] = mapped_column(SQLEnum(KKPRVerdict), nullable=True)
     kkpr_verified_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     kkpr_verifier_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
-    # F. Referensi Nomor SK Ter-generate (Fase 3 Domain Sync)
+    # G. Referensi Nomor SK Ter-generate
     sk_number: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, unique=True, index=True)
     baseline_source: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
 
-    # ─── UPDATE FASE 5 (REVISI): SILSILAH PERMOHONAN SELF-REFERENTIAL ────────
-    parent_id_permohonan: Mapped[Optional[str]] = mapped_column(
-        String(50), 
-        ForeignKey("permohonan.id_permohonan", ondelete="SET NULL"), 
-        nullable=True
-    )
-    replaced_sk_number: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    replaced_sk_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
-    replaced_sk_doc_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
-
-    # Relasi Self-Referential (Tree Structure)
-    parent_permohonan: Mapped[Optional["PermohonanModel"]] = relationship(
-        "PermohonanModel",
-        remote_side=[id_permohonan],
-        back_populates="child_permohonan"
-    )
-    child_permohonan: Mapped[List["PermohonanModel"]] = relationship(
-        "PermohonanModel",
-        back_populates="parent_permohonan"
+    # ─── SILSILAH PERMOHONAN RELATIONSHIP (MANY-TO-MANY LEDGER) ──────────────
+    parents_lineage: Mapped[List["SilsilahPermohonanModel"]] = relationship(
+        "SilsilahPermohonanModel",
+        foreign_keys="[SilsilahPermohonanModel.child_id]",
+        back_populates="child",
+        cascade="all, delete-orphan"
     )
 
     # Relasi Anak Lainnya
@@ -277,7 +270,7 @@ class PermohonanModel(Base):
         cascade="all, delete-orphan"
     )
     
-    # Satu berkas pengesahan site plan tepat memiliki satu arsip historis Telaah Staf aktif
+    # Relasi Satu-ke-Satu Telaah Staf
     telaah_staf: Mapped[Optional["TelaahStafModel"]] = relationship(
         "TelaahStafModel", 
         back_populates="permohonan", 
@@ -285,7 +278,7 @@ class PermohonanModel(Base):
         cascade="all, delete-orphan"
     )
 
-    # Relasi satu-ke-satu dengan Model SkDraftModel
+    # Relasi Satu-ke-Satu Draf SK
     sk_draft: Mapped[Optional["SkDraftModel"]] = relationship(
         "SkDraftModel",
         back_populates="permohonan",
@@ -298,6 +291,51 @@ class PermohonanModel(Base):
         back_populates="permohonan",
         uselist=False,
         cascade="all, delete-orphan"
+    )
+
+    inspection_logs: Mapped[List["FieldInspectionLogModel"]] = relationship(
+        "FieldInspectionLogModel",
+        back_populates="permohonan",
+        cascade="all, delete-orphan"
+    )
+
+
+class SilsilahPermohonanModel(Base):
+    """
+    Tabel junction (Ledger Silsilah) yang mencatat hubungan silsilah Many-to-Many
+    antar Surat Keputusan (SK) baik dari data digital internal maupun fisik legacy.
+    """
+    __tablename__ = "silsilah_permohonan"
+
+    id_silsilah: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    child_id: Mapped[str] = mapped_column(
+        String(50), 
+        ForeignKey("permohonan.id_permohonan", ondelete="CASCADE"), 
+        nullable=False
+    )
+    baseline_source: Mapped[str] = mapped_column(String(50), nullable=False)  # DIGITAL | LEGACY
+
+    # DIGITAL (Jika SK Lama terbitan digital internal)
+    parent_id: Mapped[Optional[str]] = mapped_column(
+        String(50), 
+        ForeignKey("permohonan.id_permohonan", ondelete="SET NULL"), 
+        nullable=True
+    )
+
+    # LEGACY (Jika SK Lama hanya fisik kertas/scan)
+    legacy_sk_number: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    legacy_sk_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    legacy_sk_doc_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+
+    # Relasi Mapped
+    child: Mapped["PermohonanModel"] = relationship(
+        "PermohonanModel",
+        foreign_keys=[child_id],
+        back_populates="parents_lineage"
+    )
+    parent: Mapped[Optional["PermohonanModel"]] = relationship(
+        "PermohonanModel",
+        foreign_keys=[parent_id]
     )
 
 
@@ -480,6 +518,7 @@ class AuditTrailModel(Base):
     digital_signature_hash: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
+
 class SystemFeedbackModel(Base):
     __tablename__ = "system_feedbacks"
 
@@ -521,9 +560,8 @@ class PermohonanFileModel(Base):
 
     permohonan: Mapped["PermohonanModel"] = relationship("PermohonanModel", back_populates="files")
 
-# ─── EVENT LISTENERS UNTUK FORMATTING TITLE CASE (CAPITALIZE EACH WORD) ───
-from sqlalchemy import event
 
+# ─── EVENT LISTENERS UNTUK FORMATTING TITLE CASE (CAPITALIZE EACH WORD) ───
 def to_title_case(text: Optional[str]) -> Optional[str]:
     if not text:
         return text
@@ -559,3 +597,23 @@ def receive_before_insert_update_tpu(mapper, connection, target):
 @event.listens_for(LahanKompensasiModel, 'before_update')
 def receive_before_insert_update_kompensasi(mapper, connection, target):
     target.alamat_lokasi = to_title_case(target.alamat_lokasi)
+
+
+class FieldInspectionLogModel(Base):
+    __tablename__ = "field_inspection_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id_permohonan: Mapped[str] = mapped_column(ForeignKey("permohonan.id_permohonan", ondelete="CASCADE"), nullable=False, index=True)
+    inspector_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    timestamp: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    latitude: Mapped[float] = mapped_column(Float, nullable=False)
+    longitude: Mapped[float] = mapped_column(Float, nullable=False)
+    distance_from_boundary_meters: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    is_verified: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    photo_url: Mapped[str] = mapped_column(String(500), nullable=False)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    permohonan: Mapped["PermohonanModel"] = relationship(
+        "PermohonanModel",
+        back_populates="inspection_logs"
+    )

@@ -3,7 +3,17 @@
         <td class="dictum-name">Kesatu</td>
         <td class="separator">:</td>
         <td class="content">
-            Memberikan Persetujuan Rencana Tapak (Site Plan) kepada Kuasa/Pemohon <strong>{{ applicant_snapshot.name }}</strong> yang bertindak untuk dan atas nama pemilik <strong>"{{ applicant_snapshot.company_name }}"</strong> atas lahan yang terletak di Desa/Kelurahan {{ project_snapshot.village }}, Kecamatan {{ project_snapshot.district }}, Kabupaten Bogor dengan luas total lahan bersih <strong>{{ project_snapshot.land_area }} m²</strong>.
+            {% if document_metadata.verdict == "DAPAT_DISETUJUI" %}
+                Memberikan Persetujuan Rencana Tapak (Site Plan) kepada Kuasa/Pemohon <strong>{{ applicant_snapshot.name }}</strong> yang bertindak untuk dan atas nama pemilik <strong>"{{ applicant_snapshot.company_name }}"</strong> atas lahan yang terletak di Desa/Kelurahan {{ project_snapshot.village }}, Kecamatan {{ project_snapshot.district }}, Kabupaten Bogor dengan luas total lahan bersih <strong>{{ project_snapshot.land_area }} m²</strong>.
+            {% elif document_metadata.verdict == "DISETUJUI_BERSYARAT" %}
+                Memberikan Persetujuan Bersyarat Rencana Tapak (Site Plan) kepada Kuasa/Pemohon <strong>{{ applicant_snapshot.name }}</strong> yang bertindak untuk dan atas nama pemilik <strong>"{{ applicant_snapshot.company_name }}"</strong> atas lahan yang terletak di Desa/Kelurahan {{ project_snapshot.village }}, Kecamatan {{ project_snapshot.district }}, Kabupaten Bogor dengan luas total lahan bersih <strong>{{ project_snapshot.land_area }} m²</strong>, dengan kewajiban mematuhi Ketentuan Khusus yang tercantum pada Diktum KEDUA.
+            {% elif document_metadata.verdict == "PERLU_REVISI" %}
+                Menangguhkan pengesahan Rencana Tapak (Site Plan) yang diajukan oleh Kuasa/Pemohon <strong>{{ applicant_snapshot.name }}</strong> yang bertindak untuk dan atas nama pemilik <strong>"{{ applicant_snapshot.company_name }}"</strong> atas lahan yang terletak di Desa/Kelurahan {{ project_snapshot.village }}, Kecamatan {{ project_snapshot.district }}, Kabupaten Bogor dengan luas total lahan bersih <strong>{{ project_snapshot.land_area }} m²</strong>, dan mewajibkan pemohon untuk melakukan perbaikan/revisi rencana tapak sesuai rekomendasi teknis.
+            {% elif document_metadata.verdict == "DITOLAK" %}
+                Menolak pengesahan Rencana Tapak (Site Plan) yang diajukan oleh Kuasa/Pemohon <strong>{{ applicant_snapshot.name }}</strong> yang bertindak untuk dan atas nama pemilik <strong>"{{ applicant_snapshot.company_name }}"</strong> atas lahan yang terletak di Desa/Kelurahan {{ project_snapshot.village }}, Kecamatan {{ project_snapshot.district }}, Kabupaten Bogor dengan luas total lahan bersih <strong>{{ project_snapshot.land_area }} m²</strong>, karena tidak memenuhi keselarasan rencana detail tata ruang (RDTR) dan kriteria teknis.
+            {% else %}
+                Memberikan Persetujuan Rencana Tapak (Site Plan) kepada Kuasa/Pemohon <strong>{{ applicant_snapshot.name }}</strong> yang bertindak untuk dan atas nama pemilik <strong>"{{ applicant_snapshot.company_name }}"</strong> atas lahan yang terletak di Desa/Kelurahan {{ project_snapshot.village }}, Kecamatan {{ project_snapshot.district }}, Kabupaten Bogor dengan luas total lahan bersih <strong>{{ project_snapshot.land_area }} m²</strong>.
+            {% endif %}
         </td>
     </tr>
 </table>

@@ -1,14 +1,14 @@
 """
 ============================================================================
-SIPAS USE CASE — Verify & Approve Submission [verify_submission.py] (REVISED v10.1)
+SIPAS USE CASE — Verify & Approve Submission [verify_submission.py] (REVISED v10.2)
 ============================================================================
 Peran: Mengorkestrasikan ulasan penilaian berjenjang (Admin -> Tim Teknis ->
        Kabid -> Kadis) sesuai dengan matriks status birokrasi baru.
+       Menerima input dimensi fisik absolut (m²) terverifikasi untuk memicu 
+       proses perhitungan rasio dan galat spasial otomatis oleh objek Domain.
        Mendukung penguncian draf keputusan SK (SkDraft) saat disetujui Kabid,
        penandatanganan visual TTE Coret Kepala Dinas pada draf keputusan,
        serta perlindungan atomisitas transaksi basis data.
-       Menambahkan penanganan Pure Fabrication untuk pengaitan silsilah manual
-       (LinkParentSubmissionUseCase) dengan proteksi silsilah melingkar.
 ============================================================================
 """
 
@@ -18,8 +18,8 @@ import uuid
 from abc import ABC, abstractmethod
 from typing import Optional, List, Any, cast
 from dataclasses import dataclass
-from datetime import date, datetime  # Impor tanggal eksplisit untuk DTO baru
-from pydantic import SecretStr  # Ditambahkan untuk Koreksi 1 (Pylance compilation fix)
+from datetime import date, datetime 
+from pydantic import SecretStr 
 
 # Impor Entitas Domain sebagai Single Source of Truth
 from src.domain.entities.permohonan import Permohonan, SubmissionStatus, KKPRVerdict
@@ -108,6 +108,11 @@ class ExtendedPermohonanRepositoryPort(PermohonanRepositoryPort):
         pass
 
     @abstractmethod
+    def check_ancestry_loop(self, child_id: str, target_parent_id: str) -> bool:
+        """Memeriksa silsilah melingkar (circular ancestry dependency)."""
+        pass
+
+    @abstractmethod
     def commit(self) -> None:
         pass
 
@@ -125,7 +130,7 @@ class EvaluasiChecklistItemDto:
     status_kelayakan: str          # "Sesuai" | "Sesuai Bersyarat" | "Tidak Sesuai"
     catatan_verifikator: Optional[str] = None
     attachment_url: Optional[str] = None
-    verified_by_id: Optional[int] = None  # Penjejak ID pembuat evaluasi (Fase 1)
+    verified_by_id: Optional[int] = None  # Penjejak ID pembuat evaluasi
     verified_at: Optional[datetime] = None
 
 
@@ -135,23 +140,26 @@ class VerifySubmissionInputDto:
     actor_name: str
     role: str
     nip: Optional[str]              # Wajib dilampirkan jika aktor memproses TTE Kadis
-    passphrase: Optional[str]       # Wajib dilampirkan untuk TTE BSrE Kadis / Verifikasi PIN (str murni agar terbebas dari kopling Pydantic)
+    passphrase: Optional[str]       # Wajib dilampirkan untuk TTE BSrE Kadis
     action_type: str                # 'APPROVE' | 'REJECT' | 'REVERT_TO_TECHNICAL' | 'REVERT_TO_ADMINISTRATIVE' | 'OVERRIDE_VERDICT' | 'SAVE_TECHNICAL_MATRIX'
-    notes: str                      # Catatan justifikasi / alasan revisi
+    notes: str                      # Catatan justifikasi
     is_spatially_compliant: bool = True
     signature_base64: Optional[str] = None
 
     # Parameter Komparasi Teknis Tambahan (Diinput oleh Tim Teknis / Kabid)
     kkpr_verdict: Optional[str] = None  # "Sesuai", "Sesuai Bersyarat", "Perlu Perbaikan / Revisi", "Tidak Sesuai / Ditolak"
-    verified_kdb: Optional[float] = None
-    verified_klb: Optional[float] = None
-    verified_kdh: Optional[float] = None
-    verified_gsb: Optional[float] = None
+    
+    # REVISED v10.2: INPUT DIMENSI FISIK ABSOLUT (m²)
+    verified_land_area: Optional[float] = None
+    verified_building_area: Optional[float] = None
+    verified_total_floor_area: Optional[float] = None
     verified_rth_area: Optional[float] = None
+    verified_gsb: Optional[float] = None
+    
     checklist_items: Optional[List[EvaluasiChecklistItemDto]] = None
 
 
-# ─── ADDED FASE 5 (REVISI): DATA TRANSFER OBJECT UNTUK PURE FABRICATION ──
+# ─── PURE FABRICATION: DATA TRANSFER OBJECT UNTUK SILISILAH ──
 @dataclass(frozen=True)
 class LinkParentSubmissionInputDto:
     id_permohonan: str
@@ -247,7 +255,7 @@ class VerifySubmissionUseCase:
                     unit="%",
                     proposed_val=str(permohonan.tech_kdb or 55.0),
                     bylaw_val=str(permohonan.bylaw_max_kdb or 60.0),
-                    verified_val=str(permohonan.verified_kdb or 55.0),
+                    verified_val=str(permohonan.verified_kdb_percentage or 55.0), # Menggunakan auto-calculated verified percentage
                     status="SESUAI"
                 )
             )
@@ -295,7 +303,7 @@ class VerifySubmissionUseCase:
         if status_awal in allowed_roles:
             if input_dto.role not in allowed_roles[status_awal]:
                 logger.warning(
-                    "[SOD_VIOLATION] Unauthorized role attempt. Actor: '%s' | Role: '%s' | Target Stage: '%s'",
+                    "[SECURITY_ALERT] Unauthorized role attempt. Actor: '%s' | Role: '%s' | Target Stage: '%s'",
                     input_dto.actor_name, input_dto.role, status_awal.value
                 )
                 raise PermissionError(
@@ -360,12 +368,22 @@ class VerifySubmissionUseCase:
 
                 # Skenario 1: Tim Teknis menyimpan draf penilaian matriks spasial & cetak PDF
                 if input_dto.action_type == "SAVE_TECHNICAL_MATRIX" or not input_dto.signature_base64:
-                    # 1. Update metrik fisik hasil ukur dinas ke entitas Permohonan
-                    if input_dto.verified_kdb is not None: permohonan.verified_kdb = input_dto.verified_kdb
-                    if input_dto.verified_klb is not None: permohonan.verified_klb = input_dto.verified_klb
-                    if input_dto.verified_kdh is not None: permohonan.verified_kdh = input_dto.verified_kdh
-                    if input_dto.verified_gsb is not None: permohonan.verified_gsb = input_dto.verified_gsb
-                    if input_dto.verified_rth_area is not None: permohonan.verified_rth_area = input_dto.verified_rth_area
+                    # REVISED v10.2: Menyimpan data fisik mentah terverifikasi ke model Permohonan
+                    if input_dto.verified_land_area is not None: 
+                        permohonan.verified_land_area = input_dto.verified_land_area
+                    if input_dto.verified_building_area is not None: 
+                        permohonan.verified_building_area = input_dto.verified_building_area
+                    if input_dto.verified_total_floor_area is not None: 
+                        permohonan.verified_total_floor_area = input_dto.verified_total_floor_area
+                    if input_dto.verified_rth_area is not None: 
+                        permohonan.verified_rth_area = input_dto.verified_rth_area
+                    if input_dto.verified_gsb is not None: 
+                        permohonan.verified_gsb = input_dto.verified_gsb
+
+                    # Penyelarasan rasio fallback ke kolom historis demi backward-compatibility
+                    permohonan.verified_kdb = permohonan.verified_kdb_percentage
+                    permohonan.verified_klb = permohonan.verified_klb_ratio
+                    permohonan.verified_kdh = permohonan.verified_kdh_percentage
 
                     if input_dto.kkpr_verdict:
                         normalized_verdict = normalize_kkpr_verdict_string(input_dto.kkpr_verdict)
@@ -468,7 +486,7 @@ class VerifySubmissionUseCase:
                     if not admin_items:
                         admin_items.append(AdminChecklistItem(doc_key="legalDoc", doc_label="Sertifikat Tanah BPN", file_name="Sertifikat", status="SESUAI"))
                     if not tech_items:
-                        tech_items.append(TechnicalMatrixItem(code="M3_KDB", label="Koefisien Dasar Bangunan (KDB)", unit="%", proposed_val="55.0", bylaw_val="60.0", verified_val=str(permohonan.verified_kdb or 55.0), status="SESUAI"))
+                        tech_items.append(TechnicalMatrixItem(code="M3_KDB", label="Koefisien Dasar Bangunan (KDB)", unit="%", proposed_val="55.0", bylaw_val="60.0", verified_val=str(permohonan.verified_kdb_percentage or 55.0), status="SESUAI"))
 
                     verdict_map = {
                         KKPRVerdict.SESUAI: TelaahStafVerdict.SESUAI,
@@ -477,7 +495,6 @@ class VerifySubmissionUseCase:
                         KKPRVerdict.TIDAK_SESUAI: TelaahStafVerdict.TIDAK_SESUAI
                     }
 
-                    # ─── REVISI: TYPE NARROWING UNTUK KKPR VERDICT (STATIC COMPILATION FIX) ───
                     current_kkpr_verdict = permohonan.kkpr_verdict
                     if current_kkpr_verdict is None:
                         raise ValueError("Gagal: Rekomendasi KKPR Verdict teknis wajib ditentukan oleh Tim Teknis.")
@@ -518,11 +535,19 @@ class VerifySubmissionUseCase:
                     self.permohonan_repo.save(permohonan, commit=False)
                     self.permohonan_repo.commit()
 
+                    # Merakit detail penandaan galat m² secara fisik untuk dicatat pada notes audit log
+                    audit_notes_list = []
+                    if permohonan.land_area_error_sqm is not None:
+                        audit_notes_list.append(f"Galat Luas Lahan: {permohonan.land_area_error_sqm:+.2f} m² ({permohonan.land_area_error_percent:+.2f}%)")
+                    if permohonan.building_area_error_sqm is not None:
+                        audit_notes_list.append(f"Galat Luas Tapak: {permohonan.building_area_error_sqm:+.2f} m² ({permohonan.building_area_error_percent:+.2f}%)")
+                    audit_notes_str = "; ".join(audit_notes_list) if audit_notes_list else "Tidak ada selisih."
+
                     self.audit_trail_repo.log_action(
                         submission_id=permohonan.id_permohonan, actor_name=input_dto.actor_name,
                         role=input_dto.role, action="SAVE_TECHNICAL_MATRIX",
                         status_before=status_awal.value, status_after=status_awal.value,
-                        notes=f"Draf matriks penilaian disimpan. Dokumen Telaah Staf '{id_telaah}' berhasil diterbitkan."
+                        notes=f"Draf matriks penilaian disimpan. Dokumen Telaah Staf '{id_telaah}' berhasil diterbitkan. [{audit_notes_str}]"
                     )
                     return permohonan
 
@@ -612,27 +637,22 @@ class VerifySubmissionUseCase:
                     )
                     return permohonan
 
-                # Skenario A: Kabid setuju REJECT -> Berkas dikembalikan ke Pemohon
-                elif input_dto.action_type == "REJECT" or (input_dto.action_type == "APPROVE" and telaah_staf.verdict in [TelaahStafVerdict.PERLU_PERBAIKAN, TelaahStafVerdict.TIDAK_SESUAI]):
+                # Skenario B: Kabid setuju (APPROVE) / merekomendasikan penolakan (REJECT) -> Diteruskan ke meja Kadis dengan draf SK
+                elif input_dto.action_type in ["APPROVE", "REJECT"]:
                     telaah_staf.endorse_by_kabid(input_dto.actor_name, input_dto.nip or "19840212")
                     self.telaah_staf_repo.save(telaah_staf, commit=False)
 
-                    permohonan.transition_status(SubmissionStatus.DITOLAK)
-                    self.permohonan_repo.save(permohonan, commit=False)
-                    self.permohonan_repo.commit()
-
-                    self.audit_trail_repo.log_action(
-                        submission_id=permohonan.id_permohonan, actor_name=input_dto.actor_name,
-                        role=input_dto.role, action="KABID_APPROVE_REVISION",
-                        status_before=status_awal.value, status_after=SubmissionStatus.DITOLAK.value,
-                        notes=f"Ulasan Telaah Staf disetujui Kabid. Berkas resmi dikembalikan ke pemohon untuk revisi. Catatan: {input_dto.notes}"
-                    )
-                    return permohonan
-
-                # Skenario B: Kabid setuju APPROVE -> Lanjut ke meja Kadis + Memicu Pembuatan SkDraft
-                elif input_dto.action_type == "APPROVE":
-                    telaah_staf.endorse_by_kabid(input_dto.actor_name, input_dto.nip or "19840212")
-                    self.telaah_staf_repo.save(telaah_staf, commit=False)
+                    # Tentukan status akhir yang diusulkan oleh Kabid
+                    if input_dto.action_type == "REJECT":
+                        sk_verdict = SkVerdict.DITOLAK
+                    else:
+                        verdict_map = {
+                            TelaahStafVerdict.SESUAI: SkVerdict.DAPAT_DISETUJUI,
+                            TelaahStafVerdict.SESUAI_BERSYARAT: SkVerdict.DISETUJUI_BERSYARAT,
+                            TelaahStafVerdict.PERLU_PERBAIKAN: SkVerdict.PERLU_REVISI,
+                            TelaahStafVerdict.TIDAK_SESUAI: SkVerdict.DITOLAK
+                        }
+                        sk_verdict = verdict_map.get(telaah_staf.verdict, SkVerdict.DAPAT_DISETUJUI)
 
                     # 1. Menentukan Nomor Urut SK (Sequence No) dari repositori
                     sequence_no = self.sk_draft_repo.get_next_sequence_no()
@@ -643,9 +663,10 @@ class VerifySubmissionUseCase:
                         menimbang=[
                             "Bahwa untuk memberikan kepastian hukum pembangunan fisik dan penyediaan perumahan "
                             "yang layak, sehat, aman, dan selaras dengan lingkungan, perlu diterbitkan keputusan "
-                            "persetujuan rencana tapak (site plan).",
-                            "Bahwa berdasarkan hasil pemeriksaan berkas dan peninjauan lapangan, pengajuan rencana tapak "
-                            "tersebut telah memenuhi kriteria kelayakan administratif dan teknis."
+                            "persetujuan rencana tapak (site plan)." if sk_verdict in [SkVerdict.DAPAT_DISETUJUI, SkVerdict.DISETUJUI_BERSYARAT] else
+                            "Bahwa berdasarkan hasil telaah administratif dan teknis lapangan, permohonan pengesahan rencana tapak "
+                            "tersebut dinilai belum memenuhi keselarasan tata ruang (RDTR) atau kriteria teknis.",
+                            "Bahwa keputusan ini merupakan hasil pemeriksaan berkas dan peninjauan lapangan yang sah."
                         ],
                         mengingat=[
                             "Undang-Undang Nomor 1 Tahun 2011 tentang Perumahan dan Kawasan Permukiman.",
@@ -691,9 +712,9 @@ class VerifySubmissionUseCase:
                     )
 
                     diktum_intensity = SkDiktumIntensity(
-                        kdb_max=permohonan.verified_kdb if permohonan.verified_kdb is not None else (permohonan.bylaw_max_kdb or 60.0),
-                        klb_max=permohonan.verified_klb if permohonan.verified_klb is not None else (permohonan.bylaw_max_klb or 3.5),
-                        kdh_min=permohonan.verified_kdh if permohonan.verified_kdh is not None else (permohonan.bylaw_min_kdh or 10.0)
+                        kdb_max=permohonan.verified_kdb_percentage if permohonan.verified_kdb_percentage is not None else (permohonan.bylaw_max_kdb or 60.0),
+                        klb_max=permohonan.verified_klb_ratio if permohonan.verified_klb_ratio is not None else (permohonan.bylaw_max_klb or 3.5),
+                        kdh_min=permohonan.verified_kdh_percentage if permohonan.verified_kdh_percentage is not None else (permohonan.bylaw_min_kdh or 10.0)
                     )
 
                     # 4. Instansiasi dan Simpan Domain Entity SkDraft ke Repositori secara Atomic
@@ -705,7 +726,7 @@ class VerifySubmissionUseCase:
                         diktum_hunian=diktum_hunian_list,
                         diktum_psu=diktum_psu,
                         diktum_intensity=diktum_intensity,
-                        verdict=SkVerdict.DAPAT_DISETUJUI,
+                        verdict=sk_verdict,
                         custom_notes=input_dto.notes
                     )
                     self.sk_draft_repo.save(sk_draft, commit=False)
@@ -732,10 +753,10 @@ class VerifySubmissionUseCase:
 
                     self.audit_trail_repo.log_action(
                         submission_id=permohonan.id_permohonan, actor_name=input_dto.actor_name,
-                        role=input_dto.role, action="KABID_ENDORSE_APPROVE",
+                        role=input_dto.role, action="KABID_ENDORSE_APPROVE" if input_dto.action_type == "APPROVE" else "KABID_ENDORSE_REJECT",
                         status_before=status_awal.value, status_after=SubmissionStatus.MENUNGGU_PERSETUJUAN.value,
                         notes=(
-                            f"Telaah Staf disetujui & diparaf Kabid. Draf SK Nomor '{sk_draft.sk_number}' "
+                            f"Telaah Staf ditelaah & diparaf Kabid (Rekomendasi: {sk_verdict.value}). Draf SK Nomor '{sk_draft.sk_number}' "
                             f"berhasil digenerasi dan diteruskan ke Kepala Dinas."
                         )
                     )
@@ -799,10 +820,18 @@ class VerifySubmissionUseCase:
                     )
 
                     diktum_intensity = SkDiktumIntensity(
-                        kdb_max=permohonan.verified_kdb if permohonan.verified_kdb is not None else 60.0,
-                        klb_max=permohonan.verified_klb if permohonan.verified_klb is not None else 3.5,
-                        kdh_min=permohonan.verified_kdh if permohonan.verified_kdh is not None else 10.0
+                        kdb_max=permohonan.verified_kdb_percentage if permohonan.verified_kdb_percentage is not None else 60.0,
+                        klb_max=permohonan.verified_klb_ratio if permohonan.verified_klb_ratio is not None else 3.5,
+                        kdh_min=permohonan.verified_kdh_percentage if permohonan.verified_kdh_percentage is not None else 10.0
                     )
+
+                    sk_verdict_map = {
+                        TelaahStafVerdict.SESUAI: SkVerdict.DAPAT_DISETUJUI,
+                        TelaahStafVerdict.SESUAI_BERSYARAT: SkVerdict.DISETUJUI_BERSYARAT,
+                        TelaahStafVerdict.PERLU_PERBAIKAN: SkVerdict.PERLU_REVISI,
+                        TelaahStafVerdict.TIDAK_SESUAI: SkVerdict.DITOLAK
+                    }
+                    sk_verdict = sk_verdict_map[override_verdict]
 
                     sk_draft = SkDraft(
                         id_sk=id_sk,
@@ -812,7 +841,7 @@ class VerifySubmissionUseCase:
                         diktum_hunian=diktum_hunian_list,
                         diktum_psu=diktum_psu,
                         diktum_intensity=diktum_intensity,
-                        verdict=SkVerdict.DAPAT_DISETUJUI,
+                        verdict=sk_verdict,
                         custom_notes=f"[VETO OVERRIDE] {input_dto.notes}"
                     )
                     self.sk_draft_repo.save(sk_draft, commit=False)
@@ -845,6 +874,26 @@ class VerifySubmissionUseCase:
                         notes=(
                             f"[VETO HAK KHUSUS] Kabid menolak usulan teknis, merilis SK Nomor '{sk_draft.sk_number}' "
                             f"dengan keputusan akhir '{input_dto.kkpr_verdict}'."
+                        )
+                    )
+                    return permohonan
+
+                # Skenario D: KABID REVISI -> Langsung kembalikan ke Pemohon tanpa SK formal (Surat Pemberitahuan)
+                elif input_dto.action_type == "REVERT_TO_PEMOHON":
+                    if not input_dto.notes:
+                        raise ValueError("Catatan alasan revisi wajib diisi agar pemohon dapat memperbaiki berkas.")
+
+                    permohonan.transition_status(SubmissionStatus.DITOLAK)
+                    self.permohonan_repo.save(permohonan, commit=False)
+                    self.permohonan_repo.commit()
+
+                    self.audit_trail_repo.log_action(
+                        submission_id=permohonan.id_permohonan, actor_name=input_dto.actor_name,
+                        role=input_dto.role, action="KABID_REVISI_KE_PEMOHON",
+                        status_before=status_awal.value, status_after=SubmissionStatus.DITOLAK.value,
+                        notes=(
+                            f"[SURAT PEMBERITAHUAN REVISI] Kabid mengembalikan berkas ke Pemohon tanpa SK formal. "
+                            f"Alasan: {input_dto.notes}"
                         )
                     )
                     return permohonan
@@ -901,7 +950,7 @@ class VerifySubmissionUseCase:
                 kadis_nip_clean: str = input_dto.nip
                 kadis_sig_clean: str = input_dto.signature_base64
 
-                # ─── PENYEMATAN VISUAL TTE KADIS PADA SK_DRAFT (TAHAP 1 & 4) ───
+                # ─── PENYEMATAN VISUAL TTE KADIS PADA SK_DRAFT ───
                 def fetch_and_sign_sk_draft() -> SkDraft:
                     sk_draft_obj = self.sk_draft_repo.find_by_permohonan_id(permohonan.id_permohonan)
                     if not sk_draft_obj:
@@ -964,17 +1013,35 @@ class VerifySubmissionUseCase:
                     if not p: 
                         raise ValueError("Permohonan hilang pasca-TTE.")
 
+                    is_approved = sk_draft.verdict in [SkVerdict.DAPAT_DISETUJUI, SkVerdict.DISETUJUI_BERSYARAT]
                     signed_url = f"/api/v1/submissions/{p.id_permohonan}/download"
-                    p.attach_signature(crypto_hash, signed_url)
+                    p.attach_signature(crypto_hash, signed_url, is_approved=is_approved)
                     p.kadis_signature = kadis_sig_clean           # Coretan TTE Kadis
                     p.sk_number = sk_draft.sk_number               # Rekam Nomor SK ke tabel Permohonan
 
-                    # Nonaktifkan SK lama yang digantikan (jika ada parent)
-                    if p.parent_id_permohonan:
-                        parent_p = self.permohonan_repo.find_by_id(p.parent_id_permohonan)
-                        if parent_p:
-                            parent_p.status = SubmissionStatus.TIDAK_BERLAKU
-                            self.permohonan_repo.save(parent_p, commit=False)
+                    # Nonaktifkan SK lama yang digantikan (semua parent digital)
+                    for parent_lin in p.parents_lineage:
+                        if parent_lin.baseline_source == "DIGITAL" and parent_lin.parent_id:
+                            parent_p = self.permohonan_repo.find_by_id(parent_lin.parent_id)
+                            if parent_p and parent_p.status != SubmissionStatus.TIDAK_BERLAKU:
+                                parent_p.status = SubmissionStatus.TIDAK_BERLAKU
+                                self.permohonan_repo.save(parent_p, commit=False)
+                                
+                                # Log audit trail untuk parent yang dinonaktifkan
+                                self.audit_trail_repo.log_action(
+                                    submission_id=parent_p.id_permohonan,
+                                    actor_name=input_dto.actor_name,
+                                    role=input_dto.role,
+                                    action="SUPERSEDED_BY_NEW_SK",
+                                    status_before=SubmissionStatus.DISETUJUI.value,
+                                    status_after=SubmissionStatus.TIDAK_BERLAKU.value,
+                                    notes=(
+                                        f"SK ini resmi dicabut/dinyatakan tidak berlaku karena telah "
+                                        f"dilebur/dipecah ke dalam SK baru Nomor: {sk_draft.sk_number} "
+                                        f"(ID Permohonan Pengganti: {p.id_permohonan})."
+                                    ),
+                                    commit=False
+                                )
 
                     # Nonaktifkan semua SK lama lainnya yang tumpang tindih secara spasial
                     try:
@@ -989,14 +1056,19 @@ class VerifySubmissionUseCase:
                         logger.error(f"[AUTO_DEACTIVATE_OVERLAPS_ERROR] Gagal menonaktifkan overlap otomatis: {str(e)}")
 
                     self.permohonan_repo.save(p, commit=False)
+                    
+                    final_status_val = SubmissionStatus.DISETUJUI.value if is_approved else SubmissionStatus.DITOLAK.value
+                    action_name = "APPROVE_KADIS_TTE" if is_approved else "REJECT_KADIS_TTE"
+                    notes_text = (
+                        f"SK Site Plan resmi disahkan & diterbitkan oleh Kepala Dinas dengan Nomor: {sk_draft.sk_number}. Kode Hash TTE: {crypto_hash}."
+                        if is_approved else
+                        f"SK Penolakan/Revisi Rencana Tapak resmi disahkan oleh Kepala Dinas dengan Nomor: {sk_draft.sk_number}. Kode Hash TTE: {crypto_hash}."
+                    )
                     self.audit_trail_repo.log_action(
                         submission_id=p.id_permohonan, actor_name=input_dto.actor_name,
-                        role=input_dto.role, action="APPROVE_KADIS_TTE",
-                        status_before=SubmissionStatus.PROSES_TTE.value, status_after=SubmissionStatus.DISETUJUI.value,
-                        notes=(
-                            f"SK Site Plan resmi disahkan & diterbitkan oleh Kepala Dinas "
-                            f"dengan Nomor: {sk_draft.sk_number}. Kode Hash TTE: {crypto_hash}."
-                        ),
+                        role=input_dto.role, action=action_name,
+                        status_before=SubmissionStatus.PROSES_TTE.value, status_after=final_status_val,
+                        notes=notes_text,
                         digital_signature_hash=crypto_hash, commit=False
                     )
                     self.permohonan_repo.commit()
@@ -1009,11 +1081,10 @@ class VerifySubmissionUseCase:
                 raise ValueError(f"Ilegal: Aksi '{input_dto.action_type}' tidak diizinkan pada meja Kepala Dinas.")
 
     def _to_payload(self, entity: Any) -> dict:
-        # Backward compatibility / Helper mapping
         return entity.to_dict() if hasattr(entity, "to_dict") else {}
 
 
-# ─── ADDED FASE 5 (REVISI): PURE FABRICATION - LINK PARENT USE CASE ───────
+# ─── SECTION 6: PURE FABRICATION - LINK PARENT USE CASE ──────────────────────
 
 class LinkParentSubmissionUseCase:
     """
@@ -1030,47 +1101,21 @@ class LinkParentSubmissionUseCase:
         self.audit_trail_repo = audit_trail_repo
 
     def _detect_circular_ancestry(self, child_id: str, target_parent_id: str) -> bool:
-        """
-        Mendeteksi adanya circular dependency di level logika silsilah permohonan.
-        (Protected Variations - Menjamin keandalan struktur pohon/silsilah di DB)
-        """
-        if child_id == target_parent_id:
-            return True
-
-        visited = {child_id}
-        current_parent_id: Optional[str] = target_parent_id # Dianotasi Optional[str] untuk kelancaran Pylance assignment
-
-        while current_parent_id is not None:
-            # Type Narrowing: Penambat asersi bertipe str murni (anti-None)
-            parent_id: str = current_parent_id
-            
-            if parent_id in visited:
-                return True
-            visited.add(parent_id)
-
-            # Memanfaatkan repositori terabstraksi untuk menelusuri rantai silsilah ke atas
-            parent_record = self.permohonan_repo.find_by_id(parent_id)
-            if parent_record and parent_record.parent_id_permohonan:
-                current_parent_id = parent_record.parent_id_permohonan
-            else:
-                break
-
-        return False
+        """Mendeteksi circular dependency di level logika silsilah."""
+        return self.permohonan_repo.check_ancestry_loop(child_id, target_parent_id)
 
     async def execute(self, input_dto: LinkParentSubmissionInputDto) -> Permohonan:
-        """Mengeksekusi pengaitan silsilah secara transaksional aman."""
+        """Mengeksekusi pengaitan silsilah secara transaksional."""
         
-        # 1. Penegakan Otorisasi SoD tingkat Use Case
         if input_dto.role != "ADMIN":
             logger.warning(
                 "[SECURITY_ALERT] Non-ADMIN user '%s' (Role: %s) attempted to link parent lineage for submission: %s",
                 input_dto.actor_name, input_dto.role, input_dto.id_permohonan
             )
             raise PermissionError(
-                f"Akses Ditolak: Peran '{input_dto.role}' tidak memiliki otorisasi untuk mengaitkan silsilah permohonan."
+                f"Akses Ditolak: Peran '{input_dto.role}' tidak memiliki otorisasi."
             )
 
-        # 2. Ambil data permohonan yang akan dikaitkan (child)
         def get_current_permohonan() -> Permohonan:
             p = self.permohonan_repo.find_by_id(input_dto.id_permohonan)
             if not p:
@@ -1079,39 +1124,46 @@ class LinkParentSubmissionUseCase:
 
         permohonan = await asyncio.to_thread(get_current_permohonan)
 
-        # 3. Proses penautan berdasarkan jenis rujukan baseline
+        parent_record = None
+        from src.domain.entities.permohonan import SilsilahPermohonan
+        
         if input_dto.baseline_source == "DIGITAL":
             if not input_dto.parent_id_permohonan:
                 raise ValueError("Gagal: Parameter 'parent_id_permohonan' wajib disertakan untuk rujukan tipe 'DIGITAL'.")
 
-            # Cegah circular dependency (Protected Variations)
             if self._detect_circular_ancestry(input_dto.id_permohonan, input_dto.parent_id_permohonan):
                 logger.error(
                     "[LINEAGE_ERROR] Hubungan silsilah melingkar terdeteksi! Current ID: %s | Target Parent ID: %s",
                     input_dto.id_permohonan, input_dto.parent_id_permohonan
                 )
                 raise ValueError(
-                    "Pemberitahuan Sistem: Hubungan silsilah melingkar (circular reference) terdeteksi. "
-                    "Pengaitan ditolak karena akan merusak silsilah historis basis data."
+                    "Pemberitahuan Sistem: Hubungan silsilah melingkar terdeteksi. Pengaitan ditolak."
                 )
 
-            # Tarik berkas rujukan (parent) dari database
+            for parent_lin in permohonan.parents_lineage:
+                if parent_lin.baseline_source == "DIGITAL" and parent_lin.parent_id == input_dto.parent_id_permohonan:
+                    raise ValueError(f"Pemberitahuan Sistem: SK rujukan ID '{input_dto.parent_id_permohonan}' sudah ditautkan.")
+
             def get_parent_permohonan() -> Permohonan:
-                # Type Narrowing: target_parent_id dijamin str karena sudah meloloskan asersi di atas
                 target_parent_id: str = cast(str, input_dto.parent_id_permohonan)
                 parent_p = self.permohonan_repo.find_by_id(target_parent_id)
                 if not parent_p:
-                    raise ValueError(f"Gagal: Permohonan rujukan (parent) dengan ID '{target_parent_id}' tidak ditemukan.")
+                    raise ValueError(f"Gagal: Permohonan rujukan tidak ditemukan.")
                 return parent_p
 
             parent_record = await asyncio.to_thread(get_parent_permohonan)
 
-            # Tautkan data silsilah
-            permohonan.parent_id_permohonan = parent_record.id_permohonan
-            permohonan.replaced_sk_number = parent_record.sk_number or "-"
-            permohonan.replaced_sk_date = parent_record.submission_date
-            permohonan.replaced_sk_doc_url = parent_record.signed_pdf_url
-            permohonan.baseline_source = "DIGITAL"
+            permohonan.parents_lineage.append(
+                SilsilahPermohonan(
+                    id_silsilah=None,
+                    child_id=permohonan.id_permohonan,
+                    baseline_source="DIGITAL",
+                    parent_id=parent_record.id_permohonan,
+                    legacy_sk_number=parent_record.sk_number or "-",
+                    legacy_sk_date=parent_record.submission_date,
+                    legacy_sk_doc_url=parent_record.signed_pdf_url
+                )
+            )
 
         elif input_dto.baseline_source == "LEGACY":
             if not input_dto.replaced_sk_number:
@@ -1121,20 +1173,26 @@ class LinkParentSubmissionUseCase:
             if not input_dto.replaced_sk_doc_url:
                 raise ValueError("Gagal: Parameter 'replaced_sk_doc_url' wajib disertakan untuk rujukan tipe 'LEGACY'.")
 
-            # Tautkan data rujukan fisik offline
-            permohonan.parent_id_permohonan = None
-            permohonan.replaced_sk_number = input_dto.replaced_sk_number
-            permohonan.replaced_sk_date = input_dto.replaced_sk_date
-            permohonan.replaced_sk_doc_url = input_dto.replaced_sk_doc_url
-            permohonan.baseline_source = "LEGACY"
+            for parent_lin in permohonan.parents_lineage:
+                if parent_lin.baseline_source == "LEGACY" and parent_lin.legacy_sk_number == input_dto.replaced_sk_number:
+                    raise ValueError(f"Pemberitahuan Sistem: SK rujukan nomor '{input_dto.replaced_sk_number}' sudah ditautkan.")
+
+            permohonan.parents_lineage.append(
+                SilsilahPermohonan(
+                    id_silsilah=None,
+                    child_id=permohonan.id_permohonan,
+                    baseline_source="LEGACY",
+                    legacy_sk_number=input_dto.replaced_sk_number,
+                    legacy_sk_date=input_dto.replaced_sk_date,
+                    legacy_sk_doc_url=input_dto.replaced_sk_doc_url
+                )
+            )
 
         else:
             raise ValueError(f"Gagal: Jenis baseline_source '{input_dto.baseline_source}' tidak valid.")
 
-        # Ubah tipe permohonan secara otomatis menjadi REVISI karena sekarang telah dikaitkan dengan SK lama
         permohonan.submission_type = "REVISI"
 
-        # 4. Simpan perubahan ke database & catat log aktivitas secara transaksional aman
         def persist_linkage() -> None:
             self.permohonan_repo.save(permohonan, commit=False)
             self.audit_trail_repo.log_action(
@@ -1146,7 +1204,7 @@ class LinkParentSubmissionUseCase:
                 status_after=permohonan.status.value,
                 notes=(
                     f"Admin mengaitkan silsilah permohonan dengan SK rujukan tipe '{input_dto.baseline_source}'. "
-                    f"Nomor SK Rujukan: {permohonan.replaced_sk_number}. Catatan Admin: {input_dto.notes}"
+                    f"Nomor SK Rujukan: {input_dto.replaced_sk_number or (parent_record.sk_number if 'parent_record' in locals() and parent_record else None) or '-'}. Catatan Admin: {input_dto.notes}"
                 ),
                 commit=False
             )

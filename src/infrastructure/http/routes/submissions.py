@@ -1,16 +1,17 @@
 """
 ============================================================================
-SIPAS HTTP CONTROLLER — Submissions Router [submissions.py] (REVISED v8.4)
+SIPAS HTTP CONTROLLER — Submissions Router [submissions.py] (REVISED v8.5)
 ============================================================================
 Peran: Menyediakan REST endpoints bertingkat untuk mengelola pendaftaran
        10-tahap terpadu (pendaftaran baru maupun revisi), kalibrasi,
        audit spasial, silsilah rujukan, dan verifikasi berjenjang.
        Menegakkan otorisasi SoD API-Level untuk penandatanganan TTE Kadis,
+       menyalin luasan fisik mentah terverifikasi ke dalam Use Case DTO,
        serta menyajikan visualisasi spasial instan dalam bentuk GeoJSON.
 ============================================================================
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, UploadFile, File, Request, Query
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, UploadFile, File, Request, Query, Form
 from pydantic import BaseModel, Field, model_validator, SecretStr
 from sqlalchemy import text  # Ditambahkan untuk menangani kueri spasial raw SQL PostGIS secara aman
 from sqlalchemy.orm import Session
@@ -38,7 +39,8 @@ from src.infrastructure.database.models import (
     EvaluasiChecklistItemModel, 
     TelaahStafModel,
     SkDraftModel,
-    ChecklistStatus
+    ChecklistStatus,
+    FieldInspectionLogModel
 )
 
 # Adapter Eksternal Spasial, Geoserver, dan BSrE
@@ -90,7 +92,6 @@ from src.infrastructure.http.schemas.submissions import (
     VerifyRequest,
     LinkParentRequest  # Impor Baru untuk validasi pengaitan manual silsilah
 )
-
 
 
 # ─── SECTION 3: HTTP ROUTE HANDLERS ───────────────────────────────────────
@@ -308,7 +309,7 @@ def submit_permohonan(
             tpu_bukti_dokumen=req.tpu.buktiDokumenUrl if req.tpu else None,
             self_declared_compensations=[comp.model_dump() for comp in req.compensations] if req.compensations else None,
 
-            # ─── SILSILAH PEMOHON INPUT DTO (MAPPER DARI HTTP SCHEMAS) ───
+            # SILSILAH PEMOHON INPUT DTO (MAPPER DARI HTTP SCHEMAS)
             baseline_source=req.baseline_source,
             parent_id_permohonan=req.parent_id_permohonan,
             replaced_sk_number=req.legacy_metadata.replaced_sk_number if req.legacy_metadata else None,
@@ -448,6 +449,7 @@ async def verify_submission(
                 )
 
         # Kontrak Verifikasi - Identitas aktor DIPAKSA ditarik murni dari JWT (Anti-Spoofing)
+        # REVISED: Menyisipkan input luasan fisik mentah terverifikasi dari Pydantic VerifyRequest (m²)
         dto = VerifySubmissionInputDto(
             id_permohonan=id_permohonan,
             actor_name=cast(str, current_user.full_name),
@@ -459,13 +461,13 @@ async def verify_submission(
             is_spatially_compliant=req.is_spatially_compliant,
             signature_base64=req.signature_base64,
 
-            # Parameter komparasi teknis revisi
+            # Parameter komparasi teknis revisi berbasis luasan fisik absolut (m² & meter)
             kkpr_verdict=req.kkpr_verdict,
-            verified_kdb=req.verified_kdb,
-            verified_klb=req.verified_klb,
-            verified_kdh=req.verified_kdh,
-            verified_gsb=req.verified_gsb,
+            verified_land_area=req.verified_land_area,
+            verified_building_area=req.verified_building_area,
+            verified_total_floor_area=req.verified_total_floor_area,
             verified_rth_area=req.verified_rth_area,
+            verified_gsb=req.verified_gsb,
             checklist_items=usecase_items
         )
 
@@ -679,11 +681,21 @@ def get_all_submissions(
             "verifiedGsb": r.verified_gsb,
             "verifiedRthArea": r.verified_rth_area,
 
-            # ─── UPDATE FASE 5 (REVISI): SILSILAH SERIALIZER KOLEKTIF ──────────
-            "baseline_source": r.baseline_source,
-            "parent_id_permohonan": r.parent_id_permohonan,
-            "replaced_sk_number": r.replaced_sk_number,
-            "replaced_sk_date": r.replaced_sk_date.isoformat() if r.replaced_sk_date else None,
+            # ─── SILSILAH PERMOHONAN RELATIONSHIP (MANY-TO-MANY LEDGER) ──────────────
+            "parents_lineage": [
+                {
+                    "id_silsilah": p.id_silsilah,
+                    "baseline_source": p.baseline_source,
+                    "parent_id": p.parent_id,
+                    "legacy_sk_number": p.legacy_sk_number,
+                    "legacy_sk_date": p.legacy_sk_date.isoformat() if p.legacy_sk_date else None,
+                    "legacy_sk_doc_url": p.legacy_sk_doc_url,
+                    "parent_sk_number": p.parent_sk_number,
+                    "parent_housing_name": p.parent_housing_name,
+                    "parent_developer_name": p.parent_developer_name
+                }
+                for p in r.parents_lineage
+            ],
             "adminLockId": r.admin_lock_id,
             "adminLockName": r.admin_lock_name,
             "teknisiLockId": r.teknisi_lock_id,
@@ -959,11 +971,21 @@ def get_submission_by_id(id_permohonan: str, db: Session = Depends(get_db), curr
             { "date": r.submission_date.isoformat() + " 09:00", "status": "Draft", "action": "Draft", "notes": "Pengajuan dibuat", "actor": r.applicant_name or "Pemohon", "digitalSignatureHash": None }
         ])(),
 
-        # ─── UPDATE FASE 5 (REVISI): SILSILAH SERIALIZER SATUAN ──────────
-        "baseline_source": r.baseline_source,
-        "parent_id_permohonan": r.parent_id_permohonan,
-        "replaced_sk_number": r.replaced_sk_number,
-        "replaced_sk_date": r.replaced_sk_date.isoformat() if r.replaced_sk_date else None,
+        # ─── SILSILAH PERMOHONAN RELATIONSHIP (MANY-TO-MANY LEDGER) ──────────────
+        "parents_lineage": [
+            {
+                "id_silsilah": p.id_silsilah,
+                "baseline_source": p.baseline_source,
+                "parent_id": p.parent_id,
+                "legacy_sk_number": p.legacy_sk_number,
+                "legacy_sk_date": p.legacy_sk_date.isoformat() if p.legacy_sk_date else None,
+                "legacy_sk_doc_url": p.legacy_sk_doc_url,
+                "parent_sk_number": p.parent_sk_number,
+                "parent_housing_name": p.parent_housing_name,
+                "parent_developer_name": p.parent_developer_name
+            }
+            for p in r.parents_lineage
+        ],
         "adminLockId": r.admin_lock_id,
         "adminLockName": r.admin_lock_name,
         "teknisiLockId": r.teknisi_lock_id,
@@ -1081,9 +1103,20 @@ async def link_parent_permohonan(
             "message": "Silsilah permohonan berhasil dikaitkan.",
             "data": {
                 "id_permohonan": result.id_permohonan,
-                "baseline_source": result.baseline_source,
-                "parent_id_permohonan": result.parent_id_permohonan,
-                "replaced_sk_number": result.replaced_sk_number
+                "parents_lineage": [
+                    {
+                        "id_silsilah": p.id_silsilah,
+                        "baseline_source": p.baseline_source,
+                        "parent_id": p.parent_id,
+                        "legacy_sk_number": p.legacy_sk_number,
+                        "legacy_sk_date": p.legacy_sk_date.isoformat() if p.legacy_sk_date else None,
+                        "legacy_sk_doc_url": p.legacy_sk_doc_url,
+                        "parent_sk_number": p.parent_sk_number,
+                        "parent_housing_name": p.parent_housing_name,
+                        "parent_developer_name": p.parent_developer_name
+                    }
+                    for p in result.parents_lineage
+                ]
             }
         }
     except PermissionError as pe:
@@ -1095,6 +1128,68 @@ async def link_parent_permohonan(
         raise HTTPException(
             status_code=500,
             detail=f"Gagal melakukan pengaitan silsilah: {str(e)}"
+        )
+
+
+@router.delete("/{id_permohonan}/unlink-parent/{id_silsilah}", status_code=status.HTTP_200_OK)
+async def unlink_parent_permohonan(
+    id_permohonan: str,
+    id_silsilah: int,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user)
+):
+    """
+    Memutuskan kaitan silsilah rujukan tertentu berdasarkan ID Silsilah. (Admin Only)
+    """
+    if current_user.role != "ADMIN":
+         raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Akses Ditolak: Hanya Admin yang diizinkan untuk memutuskan silsilah permohonan."
+        )
+
+    try:
+        from src.infrastructure.database.models import SilsilahPermohonanModel, PermohonanModel
+        
+        permohonan = db.query(PermohonanModel).filter(PermohonanModel.id_permohonan == id_permohonan).first()
+        if not permohonan:
+            raise HTTPException(status_code=404, detail="Permohonan tidak ditemukan.")
+            
+        silsilah_record = db.query(SilsilahPermohonanModel).filter(
+            SilsilahPermohonanModel.id_silsilah == id_silsilah,
+            SilsilahPermohonanModel.child_id == id_permohonan
+        ).first()
+        
+        if not silsilah_record:
+            raise HTTPException(status_code=404, detail="Hubungan silsilah tidak ditemukan.")
+            
+        db.delete(silsilah_record)
+        
+        from src.infrastructure.database.repositories.audit_trail_repository import AuditTrailRepository
+        audit_repo = AuditTrailRepository(db)
+        
+        ref_sk = silsilah_record.legacy_sk_number or silsilah_record.parent_id or "-"
+        audit_repo.log_action(
+            submission_id=id_permohonan,
+            actor_name=str(current_user.full_name),
+            role=str(current_user.role),
+            action="UNLINK_PARENT_LINEAGE",
+            status_before=str(permohonan.status),
+            status_after=str(permohonan.status),
+            notes=f"Admin memutuskan kaitan silsilah rujukan SK: {ref_sk}.",
+            commit=True
+        )
+        
+        return {
+            "status": "SUCCESS",
+            "message": "Silsilah permohonan berhasil diputuskan."
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[UNLINK_PARENT_ERROR] Gagal memutuskan silsilah: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Gagal memutuskan silsilah: {str(e)}"
         )
 
 
@@ -1362,4 +1457,140 @@ def unclaim_submission(
     return {
         "status": "SUCCESS",
         "message": "Kunci berkas berhasil dilepaskan."
+    }
+
+
+@router.post("/{id_permohonan}/inspection-logs", status_code=status.HTTP_201_CREATED)
+async def create_inspection_log(
+    id_permohonan: str,
+    request: Request,
+    inspector_name: str = Form(...),
+    latitude: float = Form(...),
+    longitude: float = Form(...),
+    notes: Optional[str] = Form(None),
+    photo: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user)
+):
+    """Mencatat hasil survei verifikasi lapangan tim inspeksi (Proof of Work)"""
+    if current_user.role not in ["TIM_TEKNIS", "ADMIN"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Akses Ditolak: Hanya Tim Teknis yang dapat mengisi log inspeksi."
+        )
+
+    # 1. Simpan berkas foto secara lokal
+    MAX_FILE_SIZE = 20 * 1024 * 1024
+    photo.file.seek(0, 2)
+    size = photo.file.tell()
+    photo.file.seek(0)
+    if size > MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ukuran foto melebihi batas maksimal 20MB."
+        )
+
+    upload_dir = "uploads/inspeksi"
+    os.makedirs(upload_dir, exist_ok=True)
+    raw_filename = photo.filename if photo.filename else ""
+    file_ext = os.path.splitext(raw_filename)[1]
+    unique_filename = f"{uuid.uuid4().hex}{file_ext}"
+    file_path = os.path.join(upload_dir, unique_filename)
+
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(photo.file, buffer)
+
+    base_url = str(request.base_url).rstrip("/")
+    photo_url = f"{base_url}/uploads/inspeksi/{unique_filename}"
+
+    # 2. Hitung jarak spasial ke poligon rencana tapak menggunakan PostGIS
+    distance_meters = None
+    try:
+        dist_query = text("""
+            SELECT ST_Distance(
+                ST_MakeValid(geom)::geography, 
+                ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography
+            ) 
+            FROM permohonan 
+            WHERE id_permohonan = :id_permohonan AND geom IS NOT NULL;
+        """)
+        distance_meters = db.execute(dist_query, {
+            "lng": longitude,
+            "lat": latitude,
+            "id_permohonan": id_permohonan
+        }).scalar()
+    except Exception as e:
+        logger.error(f"[INSPECTION_GEODISTANCE_ERROR] Gagal menghitung jarak GPS lapangan: {str(e)}")
+
+    # 3. Tentukan status verifikasi lokasi (Toleransi 100 meter)
+    is_verified = True
+    if distance_meters is not None and distance_meters > 100.0:
+        is_verified = False
+
+    # 4. Simpan ke database
+    log_entry = FieldInspectionLogModel(
+        id_permohonan=id_permohonan,
+        inspector_name=inspector_name,
+        timestamp=datetime.utcnow(),
+        latitude=latitude,
+        longitude=longitude,
+        distance_from_boundary_meters=distance_meters,
+        is_verified=is_verified,
+        photo_url=photo_url,
+        notes=notes
+    )
+    db.add(log_entry)
+    db.commit()
+    db.refresh(log_entry)
+
+    return {
+        "status": "SUCCESS",
+        "message": "Log inspeksi lapangan berhasil disimpan.",
+        "data": {
+            "id": log_entry.id,
+            "inspectorName": log_entry.inspector_name,
+            "timestamp": log_entry.timestamp.isoformat(),
+            "latitude": log_entry.latitude,
+            "longitude": log_entry.longitude,
+            "distanceMeters": log_entry.distance_from_boundary_meters,
+            "isVerified": log_entry.is_verified,
+            "photoUrl": log_entry.photo_url
+        }
+    }
+
+
+@router.get("/{id_permohonan}/inspection-logs", status_code=status.HTTP_200_OK)
+def get_inspection_logs(
+    id_permohonan: str,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user)
+):
+    """Mengambil riwayat log inspeksi lapangan untuk permohonan tertentu"""
+    if current_user.role not in ["TIM_TEKNIS", "KABID_PUPR", "KADIS", "ADMIN"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Akses Ditolak: Anda tidak memiliki wewenang untuk melihat log inspeksi."
+        )
+
+    logs = db.query(FieldInspectionLogModel).filter(
+        FieldInspectionLogModel.id_permohonan == id_permohonan
+    ).order_by(FieldInspectionLogModel.timestamp.desc()).all()
+
+    return {
+        "status": "SUCCESS",
+        "data": [
+            {
+                "id": log.id,
+                "idPermohonan": log.id_permohonan,
+                "inspectorName": log.inspector_name,
+                "timestamp": log.timestamp.isoformat(),
+                "latitude": log.latitude,
+                "longitude": log.longitude,
+                "distanceMeters": log.distance_from_boundary_meters,
+                "isVerified": log.is_verified,
+                "photoUrl": log.photo_url,
+                "notes": log.notes
+            }
+            for log in logs
+        ]
     }

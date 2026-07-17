@@ -423,37 +423,51 @@ class SubmitPermohonanUseCase:
             bylaw_min_rth_area=input_dto.bylaw_min_rth_area,
 
             # ─── SILSILAH DOMAIN MAPPING KPD ENTIAS DOMAIN ───
-            baseline_source=input_dto.baseline_source,
-            parent_id_permohonan=input_dto.parent_id_permohonan,
-            replaced_sk_number=input_dto.replaced_sk_number,
-            replaced_sk_date=input_dto.replaced_sk_date,
-            replaced_sk_doc_url=input_dto.replaced_sk_doc_url
+            parents_lineage=[]
         )
 
         # ─── LOGIKA VERIFIKASI SEJARAH SK SECARA PRESISI (HUKUM DAN SPASIAL) ───
         is_revisi = str(permohonan.submission_type).upper() == "REVISI"
-        if is_revisi and not input_dto.is_draft:
-            if not input_dto.baseline_source:
-                raise ValueError("Proses revisi dibatalkan. Bukti SK Lama mutlak diperlukan.")
+        if is_revisi:
+            if not input_dto.is_draft:
+                if not input_dto.baseline_source:
+                    raise ValueError("Proses revisi dibatalkan. Bukti SK Lama mutlak diperlukan.")
 
+            from src.domain.entities.permohonan import SilsilahPermohonan
             if input_dto.baseline_source == "DIGITAL":
-                if not input_dto.parent_id_permohonan or not parent_record:
+                if not input_dto.is_draft and (not input_dto.parent_id_permohonan or not parent_record):
                     raise ValueError("Proses revisi dibatalkan. Bukti SK Lama rujukan digital tidak ditemukan.")
                 
                 # Validasi: Ikat sejarah spasial dan legal dari data digital internal (Optimasi database fetch)
-                permohonan.parent_id_permohonan = parent_record.id_permohonan
-                permohonan.replaced_sk_number = parent_record.sk_number
-                permohonan.replaced_sk_date = parent_record.submission_date # Fallback pada tanggal submit awal
+                if parent_record:
+                    permohonan.parents_lineage = [
+                        SilsilahPermohonan(
+                            id_silsilah=None,
+                            child_id=permohonan.id_permohonan,
+                            baseline_source="DIGITAL",
+                            parent_id=parent_record.id_permohonan,
+                            legacy_sk_number=parent_record.sk_number,
+                            legacy_sk_date=parent_record.submission_date,
+                            legacy_sk_doc_url=parent_record.signed_pdf_url
+                        )
+                    ]
 
             elif input_dto.baseline_source == "LEGACY":
-                if not input_dto.replaced_sk_number or not input_dto.replaced_sk_date or not input_dto.replaced_sk_doc_url:
+                if not input_dto.is_draft and (not input_dto.replaced_sk_number or not input_dto.replaced_sk_date or not input_dto.replaced_sk_doc_url):
                     raise ValueError("Proses revisi dibatalkan. Bukti SK Lama mutlak diperlukan.")
                 
                 # Validasi: Ikat sejarah spasial dan legal dari data fisik manual
-                permohonan.parent_id_permohonan = None
-                permohonan.replaced_sk_number = input_dto.replaced_sk_number
-                permohonan.replaced_sk_date = input_dto.replaced_sk_date
-                permohonan.replaced_sk_doc_url = input_dto.replaced_sk_doc_url
+                if input_dto.replaced_sk_number:
+                    permohonan.parents_lineage = [
+                        SilsilahPermohonan(
+                            id_silsilah=None,
+                            child_id=permohonan.id_permohonan,
+                            baseline_source="LEGACY",
+                            legacy_sk_number=input_dto.replaced_sk_number,
+                            legacy_sk_date=input_dto.replaced_sk_date,
+                            legacy_sk_doc_url=input_dto.replaced_sk_doc_url
+                        )
+                    ]
 
         tpu_detail = None
         if input_dto.tpu_method:

@@ -1984,6 +1984,21 @@ files = [
 certifi = "*"
 
 [[package]]
+name = "pyshp"
+version = "3.1.4"
+description = "Pure Python read/write support for ESRI Shapefile format"
+optional = false
+python-versions = ">=3.9"
+groups = ["main"]
+files = [
+    {file = "pyshp-3.1.4-py3-none-any.whl", hash = "sha256:5bdd39c8fe02a47fe8de9c3355c5efaa312ff5c7fc6b8156592df738246f6167"},
+    {file = "pyshp-3.1.4.tar.gz", hash = "sha256:0663762be72c67684c890decd888fb8e849e01a85ee6ef0346214b7329270453"},
+]
+
+[package.extras]
+stubs = ["pyshp-stubs"]
+
+[[package]]
 name = "pytesseract"
 version = "0.3.13"
 description = "Python-tesseract is a python wrapper for Google's Tesseract-OCR"
@@ -2509,4 +2524,4 @@ test = ["pytest"]
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.12"
-content-hash = "e0e736a2fbbfba273c4c5e4bad438073abc47ee1cad04d2e9b38d3a1c98873e9"
+content-hash = "4f494ebd44411d7376905c024c2eb12f2246e23248b55c08bb5c50c9a9102f00"

@@ -270,7 +270,7 @@
             <tr>
                 <td>KDB (Koefisien Dasar Bangunan)</td>
                 <td style="text-align: center;">
-                    {% if sandingan_3sisi.kdb.proposed_m2 is not none %}
+                    {% if sandingan_3sisi.kdb.proposed_m2 is not none and sandingan_3sisi.kdb.proposed_m2 != "-" %}
                         {{ sandingan_3sisi.kdb.proposed_m2 }} m²
                         <br><span style="font-size: 8pt; color: #555;">({{ sandingan_3sisi.kdb.proposed_pct }}%)</span>
                     {% else %}
@@ -279,28 +279,38 @@
                 </td>
                 <td style="text-align: center;">Maks {{ sandingan_3sisi.kdb.bylaw }}%</td>
                 <td style="text-align: center;">
-                    {{ sandingan_3sisi.kdb.verified if sandingan_3sisi.kdb.verified is not none else "-" }}%
+                    {% if sandingan_3sisi.kdb.verified_m2 is not none and sandingan_3sisi.kdb.verified_m2 != "-" %}
+                        {{ sandingan_3sisi.kdb.verified_m2 }} m²
+                        <br><span style="font-size: 8pt; font-weight: bold; color: #111;">({{ sandingan_3sisi.kdb.verified_pct }})</span>
+                    {% else %}
+                        -
+                    {% endif %}
                 </td>
             </tr>
             <tr>
                 <td>KLB (Koefisien Lantai Bangunan)</td>
                 <td style="text-align: center;">
-                    {% if sandingan_3sisi.klb.proposed_m2 is not none %}
+                    {% if sandingan_3sisi.klb.proposed_m2 is not none and sandingan_3sisi.klb.proposed_m2 != "-" %}
                         {{ sandingan_3sisi.klb.proposed_m2 }} m²
-                        <br><span style="font-size: 8pt; color: #555;">({{ sandingan_3sisi.klb.proposed_pct }}x)</span>
+                        <br><span style="font-size: 8pt; color: #555;">({{ sandingan_3sisi.klb.proposed_ratio }}x)</span>
                     {% else %}
                         -
                     {% endif %}
                 </td>
                 <td style="text-align: center;">Maks {{ sandingan_3sisi.klb.bylaw }}</td>
                 <td style="text-align: center;">
-                    {{ sandingan_3sisi.klb.verified if sandingan_3sisi.klb.verified is not none else "-" }}x
+                    {% if sandingan_3sisi.klb.verified_m2 is not none and sandingan_3sisi.klb.verified_m2 != "-" %}
+                        {{ sandingan_3sisi.klb.verified_m2 }} m²
+                        <br><span style="font-size: 8pt; font-weight: bold; color: #111;">({{ sandingan_3sisi.klb.verified_ratio }}x)</span>
+                    {% else %}
+                        -
+                    {% endif %}
                 </td>
             </tr>
             <tr>
                 <td>KDH (Koefisien Dasar Hijau)</td>
                 <td style="text-align: center;">
-                    {% if sandingan_3sisi.kdh.proposed_m2 is not none %}
+                    {% if sandingan_3sisi.kdh.proposed_m2 is not none and sandingan_3sisi.kdh.proposed_m2 != "-" %}
                         {{ sandingan_3sisi.kdh.proposed_m2 }} m²
                         <br><span style="font-size: 8pt; color: #555;">({{ sandingan_3sisi.kdh.proposed_pct }}%)</span>
                     {% else %}
@@ -309,13 +319,18 @@
                 </td>
                 <td style="text-align: center;">Min {{ sandingan_3sisi.kdh.bylaw }}%</td>
                 <td style="text-align: center;">
-                    {{ sandingan_3sisi.kdh.verified if sandingan_3sisi.kdh.verified is not none else "-" }}%
+                    {% if sandingan_3sisi.kdh.verified_m2 is not none and sandingan_3sisi.kdh.verified_m2 != "-" %}
+                        {{ sandingan_3sisi.kdh.verified_m2 }} m²
+                        <br><span style="font-size: 8pt; font-weight: bold; color: #111;">({{ sandingan_3sisi.kdh.verified_pct }})</span>
+                    {% else %}
+                        -
+                    {% endif %}
                 </td>
             </tr>
             <tr>
                 <td>GSB (Garis Sempadan Bangunan)</td>
                 <td style="text-align: center;">
-                    {% if sandingan_3sisi.gsb.proposed is not none %}
+                    {% if sandingan_3sisi.gsb.proposed is not none and sandingan_3sisi.gsb.proposed != "-" %}
                         {{ sandingan_3sisi.gsb.proposed }} m
                     {% else %}
                         -
@@ -323,21 +338,29 @@
                 </td>
                 <td style="text-align: center;">Min {{ sandingan_3sisi.gsb.bylaw }} m</td>
                 <td style="text-align: center;">
-                    {{ sandingan_3sisi.gsb.verified if sandingan_3sisi.gsb.verified is not none else "-" }} m
+                    {% if sandingan_3sisi.gsb.verified is not none and sandingan_3sisi.gsb.verified != "-" %}
+                        {{ sandingan_3sisi.gsb.verified }}
+                    {% else %}
+                        -
+                    {% endif %}
                 </td>
             </tr>
             <tr>
                 <td>RTH (Ruang Terbuka Hijau)</td>
                 <td style="text-align: center;">
-                    {% if sandingan_3sisi.rth.proposed is not none %}
+                    {% if sandingan_3sisi.rth.proposed is not none and sandingan_3sisi.rth.proposed != "-" %}
                         {{ sandingan_3sisi.rth.proposed }} m²
                     {% else %}
                         -
                     {% endif %}
                 </td>
-                <td style="text-align: center;">Min {{ sandingan_3sisi.rth.bylaw }} m²</td>
+                <td style="text-align: center;">Min {{ sandingan_3sisi.rth.bylaw }} m² ({{ sandingan_3sisi.kdh.bylaw }}%)</td>
                 <td style="text-align: center;">
-                    {{ sandingan_3sisi.rth.verified if sandingan_3sisi.rth.verified is not none else "-" }} m²
+                    {% if sandingan_3sisi.rth.verified is not none and sandingan_3sisi.rth.verified != "-" %}
+                        {{ sandingan_3sisi.rth.verified }}
+                    {% else %}
+                        -
+                    {% endif %}
                 </td>
             </tr>
         </tbody>

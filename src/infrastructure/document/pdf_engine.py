@@ -1,12 +1,13 @@
 """
 ============================================================================
-SIPAS INFRASTRUCTURE ADAPTER — Enterprise PDF Engine [pdf_engine.py] (REVISED v10.2)
+SIPAS INFRASTRUCTURE ADAPTER — Enterprise PDF Engine [pdf_engine.py] (REVISED v10.4)
 ============================================================================
 Peran: Engine pencetakan dokumen yang bertugas menyatukan template HTML Jinja2 
        dengan data JSONB menjadi berkas PDF fisik.
        Mewarisi DocumentGeneratorPort untuk menegakkan Dependency Inversion,
        mengamankan pengikatan variabel WeasyPrint (Anti-Unbound Pylance),
-       serta memproses penyusunan silsilah SK lama untuk diktum pencabutan.
+       serta memproses penyusunan silsilah SK lama untuk diktum pencabutan
+       dengan menyajikan perbandingan luas fisik (m²) & galat hitung sistem.
 ============================================================================
 """
 
@@ -159,10 +160,12 @@ class HtmlToPdfEngine(DocumentGeneratorPort):
 
         # Fallback PDF Generator (Jika WeasyPrint rusak/tidak terinstal)
         logger.warning("[PDF_ENGINE_FALLBACK] Mengaktifkan penulisan dokumen Fail-Safe secara atomik.")
-        try:
-            temp_html_path = temp_path.with_suffix(".html")
-            final_html_path = output_path.with_suffix(".html")
+        
+        # REVISED: Deklarasikan variabel jalur html sebelum try block untuk mencegah unbound error di except block
+        temp_html_path = temp_path.with_suffix(".html")
+        final_html_path = output_path.with_suffix(".html")
 
+        try:
             self._generate_fallback_pdf(html_content, temp_path)
             
             # Pemindahan secara atomik (atomic replace) ke file tujuan
@@ -291,61 +294,75 @@ class HtmlToPdfEngine(DocumentGeneratorPort):
         
         applicant_land_area = permohonan.applicant_land_area or permohonan.land_area or 0.0
         
-        kdb_proposed_m2 = None
-        if permohonan.applicant_building_area is not None:
-            kdb_proposed_m2 = permohonan.applicant_building_area
-        elif permohonan.applicant_kdb is not None and applicant_land_area > 0:
+        kdb_proposed_m2 = permohonan.applicant_building_area
+        if kdb_proposed_m2 is None and permohonan.applicant_kdb is not None and applicant_land_area > 0:
             kdb_proposed_m2 = (permohonan.applicant_kdb / 100.0) * applicant_land_area
 
-        klb_proposed_m2 = None
-        if permohonan.tech_total_floor_area is not None:
-            klb_proposed_m2 = permohonan.tech_total_floor_area
-        elif permohonan.applicant_klb is not None and applicant_land_area > 0:
+        klb_proposed_m2 = permohonan.tech_total_floor_area
+        if klb_proposed_m2 is None and permohonan.applicant_klb is not None and applicant_land_area > 0:
             klb_proposed_m2 = permohonan.applicant_klb * applicant_land_area
 
-        kdh_proposed_m2 = None
-        if permohonan.spatial_green_area is not None and permohonan.spatial_green_area > 0:
-            kdh_proposed_m2 = permohonan.spatial_green_area
-        elif permohonan.applicant_kdh is not None and applicant_land_area > 0:
+        kdh_proposed_m2 = permohonan.applicant_rth_area or permohonan.spatial_green_area
+        if kdh_proposed_m2 is None and permohonan.applicant_kdh is not None and applicant_land_area > 0:
             kdh_proposed_m2 = (permohonan.applicant_kdh / 100.0) * applicant_land_area
 
+        # Luas Lahan Terverifikasi jika ada, jika tidak gunakan Luas Lahan Usulan
+        current_land_area = permohonan.verified_land_area if permohonan.verified_land_area is not None else permohonan.land_area
+        min_kdh_pct = permohonan.bylaw_min_kdh if permohonan.bylaw_min_kdh is not None else 10.0
+        dynamic_min_rth = (min_kdh_pct / 100.0) * current_land_area if current_land_area else 0.0
+
+        # REVISED v10.3: MEMETAKAN NILAI FISIK ABSOLUT (m²) DAN PERSENTASE HASIL HITUNG SISTEM SECARA DETIL
         sandingan_context = {
+            "land": {
+                "proposed_m2": f"{applicant_land_area:,.1f}" if applicant_land_area > 0 else "-",
+                "verified_m2": f"{permohonan.verified_land_area:,.1f}" if permohonan.verified_land_area is not None else "-",
+                "error_sqm": f"{permohonan.land_area_error_sqm:+,.1f}" if permohonan.land_area_error_sqm is not None else "-",
+                "error_pct": f"{permohonan.land_area_error_percent:+,.1f}%" if permohonan.land_area_error_percent is not None else "-"
+            },
             "kdb": {
-                "proposed_m2": f"{kdb_proposed_m2:,.1f}" if kdb_proposed_m2 is not None else None,
-                "proposed_pct": f"{permohonan.applicant_kdb:.1f}" if permohonan.applicant_kdb is not None else None,
+                "proposed_m2": f"{kdb_proposed_m2:,.1f}" if kdb_proposed_m2 is not None else "-",
+                "proposed_pct": f"{permohonan.proposed_kdb_percentage:.1f}" if permohonan.proposed_kdb_percentage is not None else "-",
                 "bylaw": f"{permohonan.bylaw_max_kdb:.1f}" if permohonan.bylaw_max_kdb is not None else "-",
-                "verified": f"{permohonan.verified_kdb:.1f}%" if permohonan.verified_kdb is not None else None
+                "verified_m2": f"{permohonan.verified_building_area:,.1f}" if permohonan.verified_building_area is not None else "-",
+                "verified_pct": f"{permohonan.verified_kdb_percentage:.1f}%" if permohonan.verified_kdb_percentage is not None else "-",
+                "error_sqm": f"{permohonan.building_area_error_sqm:+,.1f}" if permohonan.building_area_error_sqm is not None else "-",
+                "error_pct": f"{permohonan.building_area_error_percent:+,.1f}%" if permohonan.building_area_error_percent is not None else "-"
             },
             "klb": {
-                "proposed_m2": f"{klb_proposed_m2:,.1f}" if klb_proposed_m2 is not None else None,
-                "proposed_pct": f"{permohonan.applicant_klb:.2f}" if permohonan.applicant_klb is not None else None,
+                "proposed_m2": f"{klb_proposed_m2:,.1f}" if klb_proposed_m2 is not None else "-",
+                "proposed_ratio": f"{permohonan.proposed_klb_ratio:.2f}" if permohonan.proposed_klb_ratio is not None else "-",
                 "bylaw": f"{permohonan.bylaw_max_klb:.1f}" if permohonan.bylaw_max_klb is not None else "-",
-                "verified": f"{permohonan.verified_klb:.1f}" if permohonan.verified_klb is not None else None
+                "verified_m2": f"{permohonan.verified_total_floor_area:,.1f}" if permohonan.verified_total_floor_area is not None else "-",
+                "verified_ratio": f"{permohonan.verified_klb_ratio:.2f}" if permohonan.verified_klb_ratio is not None else "-",
+                "error_sqm": f"{permohonan.total_floor_area_error_sqm:+,.1f}" if permohonan.total_floor_area_error_sqm is not None else "-",
+                "error_pct": f"{permohonan.total_floor_area_error_percent:+,.1f}%" if permohonan.total_floor_area_error_percent is not None else "-"
             },
             "kdh": {
-                "proposed_m2": f"{kdh_proposed_m2:,.1f}" if kdh_proposed_m2 is not None else None,
-                "proposed_pct": f"{permohonan.applicant_kdh:.1f}" if permohonan.applicant_kdh is not None else None,
+                "proposed_m2": f"{kdh_proposed_m2:,.1f}" if kdh_proposed_m2 is not None else "-",
+                "proposed_pct": f"{permohonan.proposed_kdh_percentage:.1f}" if permohonan.proposed_kdh_percentage is not None else "-",
                 "bylaw": f"{permohonan.bylaw_min_kdh:.1f}" if permohonan.bylaw_min_kdh is not None else "-",
-                "verified": f"{permohonan.verified_kdh:.1f}%" if permohonan.verified_kdh is not None else None
+                "verified_m2": f"{permohonan.verified_rth_area:,.1f}" if permohonan.verified_rth_area is not None else "-",
+                "verified_pct": f"{permohonan.verified_kdh_percentage:.1f}%" if permohonan.verified_kdh_percentage is not None else "-",
+                "error_sqm": f"{permohonan.rth_area_error_sqm:+,.1f}" if permohonan.rth_area_error_sqm is not None else "-",
+                "error_pct": f"{permohonan.rth_area_error_percent:+,.1f}%" if permohonan.rth_area_error_percent is not None else "-"
             },
             "gsb": {
-                "proposed": f"{permohonan.applicant_gsb:.1f}" if permohonan.applicant_gsb is not None else None,
+                "proposed": f"{permohonan.applicant_gsb:.1f}" if permohonan.applicant_gsb is not None else "-",
                 "bylaw": f"{permohonan.bylaw_min_gsb:.1f}" if permohonan.bylaw_min_gsb is not None else "-",
-                "verified": f"{permohonan.verified_gsb:.1f} m" if permohonan.verified_gsb is not None else None
+                "verified": f"{permohonan.verified_gsb:.1f} m" if permohonan.verified_gsb is not None else "-"
             },
             "rth": {
-                "proposed": f"{permohonan.applicant_rth_area:,.1f}" if permohonan.applicant_rth_area is not None else None,
-                "bylaw": f"{permohonan.bylaw_min_rth_area:,.1f}" if permohonan.bylaw_min_rth_area is not None else "-",
-                "verified": f"{permohonan.verified_rth_area:,.1f} m²" if permohonan.verified_rth_area is not None else None
+                "proposed": f"{permohonan.applicant_rth_area:,.1f}" if permohonan.applicant_rth_area is not None else "-",
+                "bylaw": f"{dynamic_min_rth:,.1f}" if dynamic_min_rth is not None else "-",
+                "verified": f"{permohonan.verified_rth_area:,.1f} m²" if permohonan.verified_rth_area is not None else "-"
             }
         }
 
         # System Log (Generated User, Tanggal & Waktu)
         wib_tz = timezone(timedelta(hours=7))
         now = datetime.now(wib_tz)
-        gen_user = generated_by or (telaah_staf.verifier.name if getattr(telaah_staf, "verifier", None) else None) or getattr(telaah_staf, "admin_verifier_name", None) or "Sistem"
         system_log = {
-            "generated_by": gen_user,
+            "generated_by": generated_by or "Sistem",
             "generated_date": now.strftime("%d-%m-%Y"),
             "generated_time": now.strftime("%H:%M:%S WIB"),
             "generated_at": now.strftime("%d-%m-%Y %H:%M:%S WIB")
@@ -422,7 +439,7 @@ class HtmlToPdfEngine(DocumentGeneratorPort):
         output_path = output_dir / f"Telaah_Staf_{permohonan.id_permohonan}.pdf"
         return self.compile_to_pdf(html_content, str(output_path))
 
-    # ─── RENDER PDF DRAF SK & SK FINAL SECARA PRESISI (TAHAP 5) ───────────
+    # ─── SECTION: RENDER PDF DRAF SK & SK FINAL SECARA PRESISI ─────────────────
 
     def _build_sk_context(self, permohonan: Permohonan, sk_draft: SkDraft, is_draft: bool, generated_by: Optional[str] = None) -> Dict[str, Any]:
         """Menyusun payload konteks data untuk dirender ke dalam Surat Keputusan HTML."""
@@ -484,7 +501,7 @@ class HtmlToPdfEngine(DocumentGeneratorPort):
             }
 
         # 5. Merakit Konsiderans (dan Penyeragaman silsilah SK Lama)
-        considerations_payload = {
+        considerations_payload: Dict[str, Any] = {
             "menimbang": [],
             "mengingat": [],
             "memperhatikan": [],

@@ -1,11 +1,12 @@
 """
 ============================================================================
-SIPAS INFRASTRUCTURE TEMPLATES — Backup Inline HTML [backup_templates.py] (REVISED v10.1)
+SIPAS INFRASTRUCTURE TEMPLATES — Backup Inline HTML [backup_templates.py] (REVISED v10.2)
 ============================================================================
 Peran: Menyimpan string HTML Jinja2 inline default sebagai cadangan (fallback)
        jika file template fisik tidak ditemukan pada sistem file server.
-       Mendukung penomoran diktum hukum dinamis (Diktum Pencabutan SK Lama)
-       pada draf Surat Keputusan (SK) jika permohonan bertipe Revisi.
+       Mendukung penomoran diktum hukum dinamis pada draf Surat Keputusan (SK)
+       serta menyajikan visualisasi perbandingan luas fisik (m²) & galat selisih
+       secara detil pada lembar Telaah Staf.
 ============================================================================
 """
 
@@ -46,7 +47,7 @@ DEFAULT_TELAAH_STAF_TEMPLATE = """
         }
         .kop-table td { padding: 0; vertical-align: middle; }
         .kop-logo-cell { width: 72px; text-align: center; padding-right: 12px; }
-        .kop-logo-cell img { width: 64px; height: 64px; object-fit: contain; display: block; }
+        .kop-logo-cell img { width: 64px; height: 64px; object-fit: contain; display: block; margin: 0 auto; }
         .kop-logo-placeholder {
             width: 64px; height: 64px;
             background: #e8e8e8;
@@ -268,90 +269,90 @@ DEFAULT_TELAAH_STAF_TEMPLATE = """
         Berdasarkan hasil pemetaan batas koordinat bidang tanah menggunakan kalibrasi parameter Helmert 2D terhitung, Tim Teknis Dinas PUPR melakukan analisis spasial tumpang tindih (overlay) terhadap dokumen rencana tapak (site plan) CAD yang disandingkan dengan Rencana Detail Tata Ruang (RDTR) Kabupaten Bogor dengan rincian evaluasi sebagai berikut:
     </p>
 
-    <!-- Judul ini tidak akan pernah terpisah dari tabel di bawahnya karena class "table-subtitle" kini dilengkapi break-after: avoid -->
-    <div class="table-subtitle">Tabel II-A. Sandingan Metrik Tapak (3-Sisi)</div>
+    <!-- REVISED v10.2: MERENDER PERBANDINGAN DIMENSI FISIK RIIL (m²) & PERSENTASE DALAM 5 KOLOM TERPADU -->
+    <div class="table-subtitle">Tabel II-A. Sandingan Metrik Tapak Terpadu (m² &amp; Persentase)</div>
     <table class="data-table">
         <thead>
             <tr>
-                <th style="width: 28%;">Parameter</th>
-                <th style="width: 24%; text-align: center;">Proposed (Usulan)</th>
-                <th style="width: 24%; text-align: center;">Bylaws (Aturan)</th>
-                <th style="width: 24%; text-align: center;">Verified (Dinas)</th>
+                <th style="width: 24%;">Parameter</th>
+                <th style="width: 21%; text-align: center;">Proposed (Usulan)</th>
+                <th style="width: 16%; text-align: center;">Bylaws (Aturan)</th>
+                <th style="width: 21%; text-align: center;">Verified (Dinas)</th>
+                <th style="width: 18%; text-align: center;">Selisih (Galat)</th>
             </tr>
         </thead>
         <tbody>
             <tr>
-                <td>KDB (Koefisien Dasar Bangunan)</td>
+                <td><strong>Luas Lahan Terdaftar</strong></td>
+                <td style="text-align: center;">{{ sandingan_3sisi.land.proposed_m2 }} m²</td>
+                <td style="text-align: center;">-</td>
+                <td style="text-align: center; font-weight: bold;">{{ sandingan_3sisi.land.verified_m2 }} m²</td>
+                <td style="text-align: center; color: #842029; font-weight: bold;">
+                    {{ sandingan_3sisi.land.error_sqm }} m²
+                    <br><span style="font-size: 8pt; font-weight: normal;">({{ sandingan_3sisi.land.error_pct }})</span>
+                </td>
+            </tr>
+            <tr>
+                <td><strong>KDB (Koefisien Dasar Bangunan)</strong></td>
                 <td style="text-align: center;">
-                    {% if sandingan_3sisi.kdb.proposed_m2 is not none %}
-                        {{ sandingan_3sisi.kdb.proposed_m2 }} m²
-                        <br><span style="font-size: 8pt; color: #555;">({{ sandingan_3sisi.kdb.proposed_pct }}%)</span>
-                    {% else %}
-                        -
-                    {% endif %}
+                    {{ sandingan_3sisi.kdb.proposed_m2 }} m²
+                    <br><span style="font-size: 8pt; color: #555;">({{ sandingan_3sisi.kdb.proposed_pct }}%)</span>
                 </td>
                 <td style="text-align: center;">Maks {{ sandingan_3sisi.kdb.bylaw }}%</td>
-                <td style="text-align: center;">
-                    {{ sandingan_3sisi.kdb.verified if sandingan_3sisi.kdb.verified is not none else "-" }}%
+                <td style="text-align: center; font-weight: bold;">
+                    {{ sandingan_3sisi.kdb.verified_m2 }} m²
+                    <br><span style="font-size: 8pt; color: #111;">({{ sandingan_3sisi.kdb.verified_pct }})</span>
+                </td>
+                <td style="text-align: center; color: #842029; font-weight: bold;">
+                    {{ sandingan_3sisi.kdb.error_sqm }} m²
+                    <br><span style="font-size: 8pt; font-weight: normal;">({{ sandingan_3sisi.kdb.error_pct }})</span>
                 </td>
             </tr>
             <tr>
-                <td>KLB (Koefisien Lantai Bangunan)</td>
+                <td><strong>KLB (Koefisien Lantai Bangunan)</strong></td>
                 <td style="text-align: center;">
-                    {% if sandingan_3sisi.klb.proposed_m2 is not none %}
-                        {{ sandingan_3sisi.klb.proposed_m2 }} m²
-                        <br><span style="font-size: 8pt; color: #555;">({{ sandingan_3sisi.klb.proposed_pct }}x)</span>
-                    {% else %}
-                        -
-                    {% endif %}
+                    {{ sandingan_3sisi.klb.proposed_m2 }} m²
+                    <br><span style="font-size: 8pt; color: #555;">({{ sandingan_3sisi.klb.proposed_ratio }}x)</span>
                 </td>
                 <td style="text-align: center;">Maks {{ sandingan_3sisi.klb.bylaw }}</td>
-                <td style="text-align: center;">
-                    {{ sandingan_3sisi.klb.verified if sandingan_3sisi.klb.verified is not none else "-" }}x
+                <td style="text-align: center; font-weight: bold;">
+                    {{ sandingan_3sisi.klb.verified_m2 }} m²
+                    <br><span style="font-size: 8pt; color: #111;">({{ sandingan_3sisi.klb.verified_ratio }}x)</span>
+                </td>
+                <td style="text-align: center; color: #842029; font-weight: bold;">
+                    {{ sandingan_3sisi.klb.error_sqm }} m²
+                    <br><span style="font-size: 8pt; font-weight: normal;">({{ sandingan_3sisi.klb.error_pct }})</span>
                 </td>
             </tr>
             <tr>
-                <td>KDH (Koefisien Dasar Hijau)</td>
+                <td><strong>KDH (Koefisien Dasar Hijau)</strong></td>
                 <td style="text-align: center;">
-                    {% if sandingan_3sisi.kdh.proposed_m2 is not none %}
-                        {{ sandingan_3sisi.kdh.proposed_m2 }} m²
-                        <br><span style="font-size: 8pt; color: #555;">({{ sandingan_3sisi.kdh.proposed_pct }}%)</span>
-                    {% else %}
-                        -
-                    {% endif %}
+                    {{ sandingan_3sisi.kdh.proposed_m2 }} m²
+                    <br><span style="font-size: 8pt; color: #555;">({{ sandingan_3sisi.kdh.proposed_pct }}%)</span>
                 </td>
                 <td style="text-align: center;">Min {{ sandingan_3sisi.kdh.bylaw }}%</td>
-                <td style="text-align: center;">
-                    {{ sandingan_3sisi.kdh.verified if sandingan_3sisi.kdh.verified is not none else "-" }}%
+                <td style="text-align: center; font-weight: bold;">
+                    {{ sandingan_3sisi.kdh.verified_m2 }} m²
+                    <br><span style="font-size: 8pt; color: #111;">({{ sandingan_3sisi.kdh.verified_pct }})</span>
+                </td>
+                <td style="text-align: center; color: #14532d; font-weight: bold;">
+                    {{ sandingan_3sisi.kdh.error_sqm }} m²
+                    <br><span style="font-size: 8pt; font-weight: normal;">({{ sandingan_3sisi.kdh.error_pct }})</span>
                 </td>
             </tr>
             <tr>
-                <td>GSB (Garis Sempadan Bangunan)</td>
-                <td style="text-align: center;">
-                    {% if sandingan_3sisi.gsb.proposed is not none %}
-                        {{ sandingan_3sisi.gsb.proposed }} m
-                    {% else %}
-                        -
-                    {% endif %}
-                </td>
+                <td><strong>GSB (Garis Sempadan Bangunan)</strong></td>
+                <td style="text-align: center;">{{ sandingan_3sisi.gsb.proposed }}</td>
                 <td style="text-align: center;">Min {{ sandingan_3sisi.gsb.bylaw }} m</td>
-                <td style="text-align: center;">
-                    {{ sandingan_3sisi.gsb.verified if sandingan_3sisi.gsb.verified is not none else "-" }} m
-                </td>
+                <td style="text-align: center; font-weight: bold;">{{ sandingan_3sisi.gsb.verified }}</td>
+                <td style="text-align: center;">-</td>
             </tr>
             <tr>
-                <td>RTH (Ruang Terbuka Hijau)</td>
-                <td style="text-align: center;">
-                    {% if sandingan_3sisi.rth.proposed is not none %}
-                        {{ sandingan_3sisi.rth.proposed }} m²
-                    {% else %}
-                        -
-                    {% endif %}
-                </td>
-                <td style="text-align: center;">Min {{ sandingan_3sisi.rth.bylaw }} m²</td>
-                <td style="text-align: center;">
-                    {{ sandingan_3sisi.rth.verified if sandingan_3sisi.rth.verified is not none else "-" }} m²
-                </td>
+                <td><strong>RTH (Ruang Terbuka Hijau)</strong></td>
+                <td style="text-align: center;">{{ sandingan_3sisi.rth.proposed }}</td>
+                <td style="text-align: center;">Min {{ sandingan_3sisi.rth.bylaw }}</td>
+                <td style="text-align: center; font-weight: bold;">{{ sandingan_3sisi.rth.verified }}</td>
+                <td style="text-align: center;">-</td>
             </tr>
         </tbody>
     </table>
@@ -726,7 +727,7 @@ DEFAULT_SK_TEMPLATE = """
             <td class="dictum-name">Keempat</td>
             <td class="separator">:</td>
             <td class="content">
-                Apabila keterangan dan rincian spesifikasi teknis pada Diktum KEDUA tidak dipenuhi, tidak ditaati, atau disalahgunakan di luar peruntukan yang disahkan, maka Surat Keputusan Persetujuan Rencana Tapak (Site Plan) ini dinyatakan <strong>BATAL DEMI HUKUM</strong>.
+                Apabila keterangan dan rincian specifications teknis pada Diktum KEDUA tidak dipenuhi, tidak ditaati, atau disalahgunakan di luar peruntukan yang disahkan, maka Surat Keputusan Persetujuan Rencana Tapak (Site Plan) ini dinyatakan <strong>BATAL DEMI HUKUM</strong>.
             </td>
         </tr>
         <tr>

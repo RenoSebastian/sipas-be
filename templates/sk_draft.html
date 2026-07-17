@@ -177,7 +177,20 @@
         <h3>Keputusan Kepala Dinas Penanaman Modal Dan Pelayanan Terpadu Satu Pintu</h3>
         <h3>Kabupaten Bogor</h3>
         <div class="nomor">NOMOR: {{ document_metadata.sk_number }}</div>
-        <div class="tentang">TENTANG<br>Persetujuan Rencana Tapak (Site Plan)<br>"{{ project_snapshot.activity_name }}"</div>
+        <div class="tentang">TENTANG<br>
+            {% if document_metadata.verdict == "DAPAT_DISETUJUI" %}
+                Persetujuan Rencana Tapak (Site Plan)
+            {% elif document_metadata.verdict == "DISETUJUI_BERSYARAT" %}
+                Persetujuan Bersyarat Rencana Tapak (Site Plan)
+            {% elif document_metadata.verdict == "PERLU_REVISI" %}
+                Penangguhan Dan Revisi Rencana Tapak (Site Plan)
+            {% elif document_metadata.verdict == "DITOLAK" %}
+                Penolakan Rencana Tapak (Site Plan)
+            {% else %}
+                Persetujuan Rencana Tapak (Site Plan)
+            {% endif %}
+            <br>"{{ project_snapshot.activity_name }}"
+        </div>
     </div>
 
     <!-- KONSIDERANS -->
@@ -187,70 +200,121 @@
 
     <!-- DIKTUM UTAMA (KESATU) -->
     {% include 'sk/diktum_utama.html' %}
-
-    <!-- DIKTUM KEDUA (SPESIFIKASI TEKNIS) -->
+    <!-- DIKTUM KEDUA (SPESIFIKASI TEKNIS / ALASAN PENOLAKAN) -->
     <table class="dictum-table">
         <tr>
             <td class="dictum-name">Kedua</td>
             <td class="separator">:</td>
             <td class="content">
-                Pemberian Persetujuan Rencana Tapak pada Diktum KESATU ditetapkan dengan spesifikasi teknis dan rincian pemanfaatan ruang sebagai berikut:
-                
-                {% if submission_category == 'PERUMAHAN' %}
-                    {% include 'sk/categories/perumahan.html' %}
-                {% elif submission_category == 'INDUSTRI' %}
-                    {% include 'sk/categories/industri.html' %}
-                {% elif submission_category == 'FASUM' %}
-                    {% include 'sk/categories/fasum.html' %}
-                {% else %}
-                    {% include 'sk/categories/komersil.html' %}
+                {% if document_metadata.verdict == "DAPAT_DISETUJUI" %}
+                    Pemberian Persetujuan Rencana Tapak pada Diktum KESATU ditetapkan dengan spesifikasi teknis dan rincian pemanfaatan ruang sebagai berikut:
+                    
+                    {% if submission_category == 'PERUMAHAN' %}
+                        {% include 'sk/categories/perumahan.html' %}
+                    {% elif submission_category == 'INDUSTRI' %}
+                        {% include 'sk/categories/industri.html' %}
+                    {% elif submission_category == 'FASUM' %}
+                        {% include 'sk/categories/fasum.html' %}
+                    {% else %}
+                        {% include 'sk/categories/komersil.html' %}
+                    {% endif %}
+                {% elif document_metadata.verdict == "DISETUJUI_BERSYARAT" %}
+                    Pemberian Persetujuan Bersyarat Rencana Tapak pada Diktum KESATU ditetapkan dengan spesifikasi teknis dan Ketentuan Khusus pemanfaatan ruang sebagai berikut:
+                    
+                    {% if submission_category == 'PERUMAHAN' %}
+                        {% include 'sk/categories/perumahan.html' %}
+                    {% elif submission_category == 'INDUSTRI' %}
+                        {% include 'sk/categories/industri.html' %}
+                    {% elif submission_category == 'FASUM' %}
+                        {% include 'sk/categories/fasum.html' %}
+                    {% else %}
+                        {% include 'sk/categories/komersil.html' %}
+                    {% endif %}
+                    
+                    <div style="margin-top: 10px; padding: 10px; border: 1px solid #d1d5db; background-color: #f9fafb; font-size: 9pt; line-height: 1.4;">
+                        <strong>KETENTUAN KHUSUS / SYARAT TEKNIS TAMBAHAN:</strong><br>
+                        1. Pemohon wajib merealisasikan penyediaan fasilitas sosial/fasilitas umum sesuai rencana tapak dalam waktu selambat-lambatnya 12 bulan.<br>
+                        2. Pemanfaatan ruang tidak boleh melanggar batas intensitas koefisien bangunan yang ditetapkan.<br>
+                        {% if document_metadata.notes_by_kabid %}
+                        3. Catatan Tambahan: {{ document_metadata.notes_by_kabid }}
+                        {% endif %}
+                    </div>
+                {% elif document_metadata.verdict == "PERLU_REVISI" %}
+                    Rekomendasi teknis dan perbaikan rencana tapak yang wajib diselesaikan dan diunggah kembali oleh pemohon meliputi hal-hal berikut:
+                    <div style="margin-top: 10px; padding: 12px; border: 1px solid #dc3545; background-color: #fff8f8; font-size: 9.5pt; color: #a94442; line-height: 1.4;">
+                        <strong>CATATAN REVISI / PERBAIKAN TIM TEKNIS & KABID:</strong><br>
+                        {% if document_metadata.notes_by_kabid %}
+                            {{ document_metadata.notes_by_kabid }}
+                        {% else %}
+                            Pemohon wajib menyesuaikan kembali gambar site plan agar sesuai dengan batas koefisien dasar hijau (KDH) minimal 10% dan sempadan bangunan (GSB) yang ditentukan dalam Perda RDTR.
+                        {% endif %}
+                    </div>
+                {% elif document_metadata.verdict == "DITOLAK" %}
+                    Alasan penolakan pengesahan rencana tapak sebagaimana dimaksud pada Diktum KESATU didasarkan pada ketidakpatuhan kriteria teknis berikut:
+                    <div style="margin-top: 10px; padding: 12px; border: 1px solid #dc3545; background-color: #fff8f8; font-size: 9.5pt; color: #a94442; line-height: 1.4;">
+                        <strong>JUSTIFIKASI PENOLAKAN RESMI:</strong><br>
+                        {% if document_metadata.notes_by_kabid %}
+                            {{ document_metadata.notes_by_kabid }}
+                        {% else %}
+                            Dokumen rencana tapak yang diajukan terbukti melanggar ketentuan intensitas pemanfaatan ruang rencana detail tata ruang (RDTR) Kabupaten Bogor dan/atau batas kepemilikan lahan yang sah.
+                        {% endif %}
+                    </div>
                 {% endif %}
             </td>
         </tr>
 
         <!-- DIKTUM HUKUM DINAMIS (KETIGA, KEEMPAT, KELIMA DST) -->
-        {% if considerations.replaced_sk_number %}
-        <tr>
-            <td class="dictum-name">Ketiga</td>
-            <td class="separator">:</td>
-            <td class="content">
-                Mencabut dan menyatakan tidak berlaku lagi Surat Keputusan Kepala Dinas Penanaman Modal dan Pelayanan Terpadu Satu Pintu Kabupaten Bogor 
-                Nomor: <strong>{{ considerations.replaced_sk_number }}</strong> tanggal <strong>{{ considerations.replaced_sk_date }}</strong> 
-                terhitung sejak ditetapkannya Keputusan ini.
-            </td>
-        </tr>
-        <tr>
-            <td class="dictum-name">Keempat</td>
-            <td class="separator">:</td>
-            <td class="content">
-                Apabila keterangan dan rincian spesifikasi teknis pada Diktum KEDUA tidak dipenuhi, tidak ditaati, atau disalahgunakan di luar peruntukan yang disahkan, maka Surat Keputusan Persetujuan Rencana Tapak (Site Plan) ini dinyatakan <strong>BATAL DEMI HUKUM</strong>.
-            </td>
-        </tr>
-        <tr>
-            <td class="dictum-name">Kelima</td>
-            <td class="separator">:</td>
-            <td class="content">
-                Keputusan ini mulai berlaku pada tanggal ditetapkan dengan ketentuan bahwa segala sesuatunya akan ditinjau kembali dan diperbaiki sebagaimana mestinya apabila di kemudian hari terdapat kekeliruan.
-            </td>
-        </tr>
+        {% if document_metadata.verdict in ["DAPAT_DISETUJUI", "DISETUJUI_BERSYARAT"] %}
+            {% if considerations.replaced_sk_number %}
+            <tr>
+                <td class="dictum-name">Ketiga</td>
+                <td class="separator">:</td>
+                <td class="content">
+                    Mencabut dan menyatakan tidak berlaku lagi Surat Keputusan Kepala Dinas Penanaman Modal dan Pelayanan Terpadu Satu Pintu Kabupaten Bogor 
+                    Nomor: <strong>{{ considerations.replaced_sk_number }}</strong> tanggal <strong>{{ considerations.replaced_sk_date }}</strong> 
+                    terhitung sejak ditetapkannya Keputusan ini.
+                </td>
+            </tr>
+            <tr>
+                <td class="dictum-name">Keempat</td>
+                <td class="separator">:</td>
+                <td class="content">
+                    Apabila keterangan dan rincian spesifikasi teknis pada Diktum KEDUA tidak dipenuhi, tidak ditaati, atau disalahgunakan di luar peruntukan yang disahkan, maka Surat Keputusan Persetujuan Rencana Tapak (Site Plan) ini dinyatakan <strong>BATAL DEMI HUKUM</strong>.
+                </td>
+            </tr>
+            <tr>
+                <td class="dictum-name">Kelima</td>
+                <td class="separator">:</td>
+                <td class="content">
+                    Keputusan ini mulai berlaku pada tanggal ditetapkan dengan ketentuan bahwa segala sesuatunya akan ditinjau kembali dan diperbaiki sebagaimana mestinya apabila di kemudian hari terdapat kekeliruan.
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td class="dictum-name">Ketiga</td>
+                <td class="separator">:</td>
+                <td class="content">
+                    Apabila keterangan dan rincian spesifikasi teknis pada Diktum KEDUA tidak dipenuhi, tidak ditaati, atau disalahgunakan di luar peruntukan yang disahkan, maka Surat Keputusan Persetujuan Rencana Tapak (Site Plan) ini dinyatakan <strong>BATAL DEMI HUKUM</strong>.
+                </td>
+            </tr>
+            <tr>
+                <td class="dictum-name">Keempat</td>
+                <td class="separator">:</td>
+                <td class="content">
+                    Keputusan ini mulai berlaku pada tanggal ditetapkan dengan ketentuan bahwa segala sesuatunya akan ditinjau kembali dan diperbaiki sebagaimana mestinya apabila di kemudian hari terdapat kekeliruan.
+                </td>
+            </tr>
+            {% endif %}
         {% else %}
-        <tr>
-            <td class="dictum-name">Ketiga</td>
-            <td class="separator">:</td>
-            <td class="content">
-                Apabila keterangan dan rincian spesifikasi teknis pada Diktum KEDUA tidak dipenuhi, tidak ditaati, atau disalahgunakan di luar peruntukan yang disahkan, maka Surat Keputusan Persetujuan Rencana Tapak (Site Plan) ini dinyatakan <strong>BATAL DEMI HUKUM</strong>.
-            </td>
-        </tr>
-        <tr>
-            <td class="dictum-name">Keempat</td>
-            <td class="separator">:</td>
-            <td class="content">
-                Keputusan ini mulai berlaku pada tanggal ditetapkan dengan ketentuan bahwa segala sesuatunya akan ditinjau kembali dan diperbaiki sebagaimana mestinya apabila di kemudian hari terdapat kekeliruan.
-            </td>
-        </tr>
+            <tr>
+                <td class="dictum-name">Ketiga</td>
+                <td class="separator">:</td>
+                <td class="content">
+                    Keputusan ini mulai berlaku pada tanggal ditetapkan untuk menjadi pedoman bagi pemohon dalam melakukan penyesuaian dokumen fisik spasial sebelum mengajukan kembali permohonan baru.
+                </td>
+            </tr>
         {% endif %}
     </table>
-
     <!-- TANDA TANGAN (SIGNER) -->
     {% include 'sk/signer_block.html' %}
 
