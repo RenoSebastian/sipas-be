@@ -19,9 +19,12 @@ Peran: Mengimplementasikan ExtendedPermohonanRepositoryPort untuk berinteraksi d
 
 import json
 import asyncio
+import logging
 from datetime import date, datetime
 from typing import Any, Optional, List, Tuple, Dict
 from sqlalchemy import text
+
+logger = logging.getLogger(__name__)
 from sqlalchemy.orm import Session
 from geoalchemy2.shape import from_shape
 
