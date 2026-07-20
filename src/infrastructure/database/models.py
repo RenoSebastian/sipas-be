@@ -546,6 +546,18 @@ class SitePlanGeometryModel(Base):
     )
 
 
+class SpatialReferenceLayerModel(Base):
+    __tablename__ = "spatial_reference_layers"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    layer_key: Mapped[str] = mapped_column(String(50), nullable=False, index=True) # e.g., 'sungai', 'sawah', 'pemukiman'
+    layer_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    geom: Mapped[Any] = mapped_column(
+        Geometry(geometry_type='GEOMETRY', srid=4326, spatial_index=True),
+        nullable=False
+    )
+
+
 class PermohonanFileModel(Base):
     __tablename__ = "permohonan_files"
 
@@ -611,6 +623,7 @@ class FieldInspectionLogModel(Base):
     distance_from_boundary_meters: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     is_verified: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     photo_url: Mapped[str] = mapped_column(String(500), nullable=False)
+    drone_video_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     permohonan: Mapped["PermohonanModel"] = relationship(

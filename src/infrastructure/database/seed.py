@@ -16,12 +16,13 @@ import sys
 import os
 import math
 import random
+import json
 from datetime import date, datetime, timezone
 
 # Sisipkan direktori root proyek ke dalam sys.path agar aman dijalankan dari terminal mana pun
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../")))
 
-from shapely.geometry import Polygon, LineString, Point
+from shapely.geometry import Polygon, LineString, Point, shape
 from geoalchemy2.shape import from_shape
 
 from src.infrastructure.database.connection import SessionLocal
@@ -38,6 +39,7 @@ from src.infrastructure.database.models import (
     EvaluasiChecklistItemModel,
     TelaahStafModel,
     SkDraftModel,
+    SpatialReferenceLayerModel,
     ChecklistStatus
 )
 
@@ -45,6 +47,7 @@ def clear_existing_data(db) -> None:
     """Membersihkan database dari data lama agar seeder bersifat Idempotent (Anti-Duplikasi)."""
     print("[SEEDER] Memulai pembersihan tabel database...")
     try:
+        db.query(SpatialReferenceLayerModel).delete() # Bersihkan tabel reference spasial
         db.query(AuditTrailModel).delete()
         db.query(LahanKompensasiModel).delete()
         db.query(SitePlanGeometryModel).delete()
@@ -1016,6 +1019,9 @@ def seed_spatial_data() -> None:
         seed_internal_geometries(db, "sub-4", 106.960000, -6.380000, 8.0, is_type_1=False)
         seed_internal_geometries(db, "sub-5", 106.900000, -6.420000, 10.0, is_type_1=True)
 
+        # Seeding reference layers (GeoJSON files parsed from frontend)
+        seed_reference_layers(db)
+
         db.commit()
         print("[SEEDER] Sukses menyemai seluruh data spasial, user, master RDTR, dokumen Telaah Staf, SkDraft terstruktur, dan riwayat log audit.")
 
@@ -1024,6 +1030,58 @@ def seed_spatial_data() -> None:
         print(f"[SEEDER_FATAL] Kegagalan komit database: {str(e)}")
     finally:
         db.close()
+
+def seed_reference_layers(db) -> None:
+    print("[SEEDER] Menyemai data referensi spasial (GeoJSON)...")
+    fe_public = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../../sipas-fe/public/geojson"))
+    
+    layers = [
+        {"key": "sungai", "name": "Sempadan Sungai 25m", "path": os.path.join(fe_public, "bogor", "SUNGAI_LN_25K.json")},
+        {"key": "relka", "name": "Sempadan Jalur Kereta Api 20m", "path": os.path.join(fe_public, "kab bogor", "RELKA_LN_25K.json")},
+        {"key": "pasir", "name": "Kawasan Konservasi Gumuk Pasir", "path": os.path.join(fe_public, "kab bogor", "PASIR_AR_25K.json")},
+        {"key": "sawah", "name": "Lahan Sawah Dilindungi (LSD)", "path": os.path.join(fe_public, "bogor", "AGRISAWAH_AR_25K.json")},
+        {"key": "kebun", "name": "Kawasan Perkebunan", "path": os.path.join(fe_public, "bogor", "AGRIKEBUN_AR_25K.json")},
+        {"key": "ladang", "name": "Kawasan Ladang / Tegalan", "path": os.path.join(fe_public, "bogor", "AGRILADANG_AR_25K.json")},
+        {"key": "pemukiman", "name": "Zona Peruntukan Pemukiman", "path": os.path.join(fe_public, "bogor", "PEMUKIMAN_AR_25K.json")},
+    ]
+
+    for layer in layers:
+        if not os.path.exists(layer["path"]):
+            print(f" [WARN] File layer tidak ditemukan: {layer['path']}, melewati...")
+            continue
+        
+        print(f" [INFO] Membaca layer: {layer['name']} ({os.path.basename(layer['path'])})...")
+        with open(layer["path"], "r") as f:
+            data = json.load(f)
+            features = data.get("features", [])
+            print(f"   Ditemukan {len(features)} fitur spasial.")
+            
+            mappings = []
+            for feat in features:
+                geom_data = feat.get("geometry")
+                if not geom_data:
+                    continue
+                try:
+                    # Buat objek shapely shape
+                    sh = shape(geom_data)
+                    if not sh.is_valid:
+                        sh = sh.buffer(0) # Perbaiki jika invalid
+                    
+                    mappings.append({
+                        "layer_key": layer["key"],
+                        "layer_name": layer["name"],
+                        "geom": from_shape(sh, srid=4326)
+                    })
+                except Exception as ex:
+                    pass
+            
+            # Bulk insert dalam chunks
+            chunk_size = 2000
+            for i in range(0, len(mappings), chunk_size):
+                chunk = mappings[i:i + chunk_size]
+                db.bulk_insert_mappings(SpatialReferenceLayerModel, chunk)
+                db.commit()
+            print(f"   [OK] Sukses menyemai layer {layer['name']}.")
 
 if __name__ == "__main__":
     seed_spatial_data()

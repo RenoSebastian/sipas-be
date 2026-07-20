@@ -40,7 +40,8 @@ from src.infrastructure.database.models import (
     TelaahStafModel,
     SkDraftModel,
     ChecklistStatus,
-    FieldInspectionLogModel
+    FieldInspectionLogModel,
+    SpatialReferenceLayerModel,
 )
 
 # Adapter Eksternal Spasial, Geoserver, dan BSrE
@@ -1056,6 +1057,340 @@ def get_spatial_overlaps(
         )
 
 
+class SpatialAuditRequest(BaseModel):
+    polygon: List[List[float]]
+    category: str = "PERUMAHAN"
+
+@router.post("/spatial-audit", status_code=status.HTTP_200_OK)
+def run_spatial_audit(
+    req: SpatialAuditRequest,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user)
+):
+    """
+    Menjalankan audit spasial multi-layer menggunakan PostGIS.
+    Menerima koordinat poligon pemohon dan kategori pembangunan, lalu mendeteksi
+    tumpang tindih terhadap layer sempadan sungai, sempadan rel kereta, sawah dilindungi (LSD),
+    pemukiman, perkebunan, tegalan, dan gumuk cagar alam.
+    """
+    from shapely.geometry import Polygon as ShapelyPolygon, shape
+    from shapely.ops import unary_union
+    import json
+    from geoalchemy2.shape import to_shape, from_shape
+    
+    # 1. Validasi koordinat input
+    coords = req.polygon
+    if not coords or len(coords) < 3:
+        raise HTTPException(
+            status_code=400,
+            detail="Geometri tanah tidak valid untuk kalkulasi spasial. Minimal dibutuhkan 3 koordinat."
+        )
+        
+    # Pastikan koordinat pertama dan terakhir sama (poligon tertutup)
+    if coords[0] != coords[-1]:
+        coords = list(coords)
+        coords.append(coords[0])
+        
+    try:
+        # Shapely mengharapkan [longitude, latitude]
+        # Peringatan Leaflet kadang membalik koordinat [lat, lng], maka sesuaikan jika perlu
+        normalized_coords = []
+        for pt in coords:
+            if len(pt) < 2:
+                continue
+            a, b = pt[0], pt[1]
+            if a < 20 and b > 90:  # Leaflet [lat, lng] -> [lng, lat]
+                normalized_coords.append([b, a])
+            else:
+                normalized_coords.append([a, b])
+                
+        applicant_shape = ShapelyPolygon(normalized_coords)
+        if not applicant_shape.is_valid:
+            applicant_shape = applicant_shape.buffer(0)
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Format poligon tidak valid: {str(e)}"
+        )
+        
+    applicant_wkt = applicant_shape.wkt
+    try:
+        area_query = db.execute(
+            text("SELECT ST_Area(ST_GeomFromText(:geom, 4326)::geography)"),
+            {"geom": applicant_wkt}
+        ).scalar()
+        applicant_area_sqm = float(area_query) if area_query else 0.0
+    except Exception as e:
+        logger.error(f"[SPATIAL_AUDIT_ERROR] Gagal menghitung luas total: {str(e)}")
+        applicant_area_sqm = 0.0
+        
+    # 3. Kueri tumpang tindih dengan database spatial_reference_layers
+    zoning_matrix = {
+        "relka": {
+            "_default": {
+                "severity": "danger",
+                "reason": "Kawasan sempadan rel kereta api 20m adalah zona bahaya keselamatan umum. Tidak ada pembangunan apapun yang diizinkan.",
+                "dasar_hukum": "UU No. 23/2007 tentang Perkeretaapian"
+            }
+        },
+        "sungai": {
+            "_default": {
+                "severity": "danger",
+                "reason": "Kawasan sempadan sungai 25m adalah zona mutlak lindung. Tidak ada pembangunan apapun yang diizinkan.",
+                "dasar_hukum": "PP No. 38/2011 tentang Sungai"
+            }
+        },
+        "pasir": {
+            "_default": {
+                "severity": "danger",
+                "reason": "Kawasan konservasi gumuk pasir adalah cagar alam yang dilindungi mutlak.",
+                "dasar_hukum": "UU No. 5/1990 tentang Konservasi Sumber Daya Alam"
+            }
+        },
+        "sawah": {
+            "PERUMAHAN": {
+                "severity": "danger",
+                "reason": "Perumahan di atas Lahan Sawah Dilindungi (LSD) dilarang keras — mengancam ketahanan pangan nasional.",
+                "dasar_hukum": "UU No. 41/2009 tentang Perlindungan Lahan Pertanian Pangan Berkelanjutan"
+            },
+            "INDUSTRI": {
+                "severity": "danger",
+                "reason": "Industri di atas sawah berdampak destruktif ganda: hilangnya lahan pangan + pencemaran tanah & air irigasi.",
+                "dasar_hukum": "UU No. 41/2009 & UU No. 32/2009 tentang PPLH"
+            },
+            "KOMERSIAL": {
+                "severity": "danger",
+                "reason": "Pembangunan komersial di atas sawah dilindungi (LSD) tidak sesuai peruntukan RTRW.",
+                "dasar_hukum": "UU No. 41/2009"
+            },
+            "FASILITAS": {
+                "severity": "warning",
+                "reason": "Fasos/Fasum di atas sawah memerlukan kajian KLHS dan rekomendasi BPN khusus.",
+                "dasar_hukum": "UU No. 41/2009, dapat dikecualikan dengan mekanisme khusus"
+            },
+            "_default": {
+                "severity": "danger",
+                "reason": "Rencana pembangunan menabrak Lahan Sawah Dilindungi (LSD).",
+                "dasar_hukum": "UU No. 41/2009"
+            }
+        },
+        "kebun": {
+            "PERUMAHAN": {
+                "severity": "warning",
+                "reason": "Perumahan di zona perkebunan memerlukan izin alih fungsi lahan dari Kementerian Pertanian.",
+                "dasar_hukum": "UU No. 39/2014 tentang Perkebunan"
+            },
+            "INDUSTRI": {
+                "severity": "danger",
+                "reason": "Industri di zona perkebunan berisiko tinggi — pencemaran pestisida dan alih fungsi lahan masif.",
+                "dasar_hukum": "UU No. 39/2014 & Permentan No. 98/2013"
+            },
+            "KOMERSIAL": {
+                "severity": "warning",
+                "reason": "Pembangunan komersial di area perkebunan memerlukan perubahan RDTR dan izin alih fungsi.",
+                "dasar_hukum": "UU No. 39/2014"
+            },
+            "FASILITAS": {
+                "severity": "info",
+                "reason": "Fasos/Fasum terbatas (posyandu, mushola) dapat dipertimbangkan di tepi kawasan perkebunan.",
+                "dasar_hukum": "Disesuaikan dengan ketentuan RDTR setempat"
+            },
+            "_default": {
+                "severity": "warning",
+                "reason": "Lahan berada di kawasan perkebunan. Diperlukan izin alih fungsi.",
+                "dasar_hukum": "UU No. 39/2014"
+            }
+        },
+        "ladang": {
+            "PERUMAHAN": {
+                "severity": "warning",
+                "reason": "Perumahan di ladang/tegalan masih dapat dikaji jika RDTR mengizinkan konversi lahan kering.",
+                "dasar_hukum": "Perda RDTR Kab. Bogor"
+            },
+            "INDUSTRI": {
+                "severity": "warning",
+                "reason": "Industri di area ladang harus melewati AMDAL penuh dan izin lingkungan dari DPMPTSP.",
+                "dasar_hukum": "UU No. 32/2009 tentang PPLH"
+            },
+            "KOMERSIAL": {
+                "severity": "info",
+                "reason": "Komersial ringan di lahan ladang/tegalan relatif dapat diproses jika sesuai peruntukan RDTR.",
+                "dasar_hukum": "Perda RDTR Kab. Bogor"
+            },
+            "FASILITAS": {
+                "severity": "info",
+                "reason": "Fasos/Fasum di lahan ladang umumnya dapat diakomodasi, perlu verifikasi RDTR.",
+                "dasar_hukum": "Perda RDTR Kab. Bogor"
+            },
+            "_default": {
+                "severity": "warning",
+                "reason": "Rencana tapak menabrak lahan ladang/tegalan pertanian kering.",
+                "dasar_hukum": "Perda RDTR Kab. Bogor"
+            }
+        },
+        "pemukiman": {
+            "PERUMAHAN": {
+                "severity": "info",
+                "reason": "Pembangunan perumahan SESUAI dengan peruntukan zona pemukiman dalam RDTR. Zona kompatibel.",
+                "dasar_hukum": "UU No. 1/2011 tentang Perumahan dan Kawasan Permukiman"
+            },
+            "INDUSTRI": {
+                "severity": "danger",
+                "reason": "Industri di zona pemukiman menciptakan konflik tata ruang kritis: kebisingan, polusi, dan risiko K3 bagi warga.",
+                "dasar_hukum": "UU No. 26/2007 tentang Penataan Ruang & UU No. 32/2009 tentang PPLH"
+            },
+            "KOMERSIAL": {
+                "severity": "warning",
+                "reason": "Komersial besar di zona pemukiman perlu kajian dampak lalu lintas (Andalalin) dan izin perubahan fungsi.",
+                "dasar_hukum": "Perda Kab. Bogor tentang RTRW/RDTR"
+            },
+            "FASILITAS": {
+                "severity": "info",
+                "reason": "Fasos/Fasum (sekolah, masjid, RS, taman) di zona pemukiman SESUAI dan sangat dianjurkan.",
+                "dasar_hukum": "SNI 03-1733-2004 tentang Tata cara perencanaan lingkungan perumahan"
+            },
+            "_default": {
+                "severity": "warning",
+                "reason": "Perlu kajian kesesuaian peruntukan zona pemukiman untuk kategori ini.",
+                "dasar_hukum": "Perda RDTR Kab. Bogor"
+            }
+        }
+    }
+    
+    details = []
+    clash_geometries = []
+    total_danger_warning_area = 0.0
+    
+    layers_config = [
+        {"key": "sungai", "name": "Sempadan Sungai 25m", "buffer": 25.0},
+        {"key": "relka", "name": "Sempadan Jalur Kereta Api 20m", "buffer": 20.0},
+        {"key": "pasir", "name": "Kawasan Konservasi Gumuk Pasir", "buffer": 0.0},
+        {"key": "sawah", "name": "Lahan Sawah Dilindungi (LSD)", "buffer": 0.0},
+        {"key": "kebun", "name": "Kawasan Perkebunan", "buffer": 0.0},
+        {"key": "ladang", "name": "Kawasan Ladang / Tegalan", "buffer": 0.0},
+        {"key": "pemukiman", "name": "Zona Peruntukan Pemukiman", "buffer": 0.0},
+    ]
+    
+    for lc in layers_config:
+        key = lc["key"]
+        name = lc["name"]
+        buf = lc["buffer"]
+        
+        try:
+            if buf > 0:
+                query = text("""
+                    SELECT 
+                        ST_AsGeoJSON(ST_Intersection(ST_GeomFromText(:applicant_geom, 4326), ST_Buffer(geom::geography, :buf)::geometry)) as intersection_json,
+                        ST_Area(ST_Intersection(ST_GeomFromText(:applicant_geom, 4326), ST_Buffer(geom::geography, :buf)::geometry)::geography) as intersection_area
+                    FROM spatial_reference_layers
+                    WHERE layer_key = :layer_key
+                      AND ST_Intersects(ST_GeomFromText(:applicant_geom, 4326), ST_Buffer(geom::geography, :buf)::geometry)
+                """)
+            else:
+                query = text("""
+                    SELECT 
+                        ST_AsGeoJSON(ST_Intersection(ST_GeomFromText(:applicant_geom, 4326), geom)) as intersection_json,
+                        ST_Area(ST_Intersection(ST_GeomFromText(:applicant_geom, 4326), geom)::geography) as intersection_area
+                    FROM spatial_reference_layers
+                    WHERE layer_key = :layer_key
+                      AND ST_Intersects(ST_GeomFromText(:applicant_geom, 4326), geom)
+                """)
+                
+            results = db.execute(query, {
+                "applicant_geom": applicant_wkt,
+                "layer_key": key,
+                "buf": buf
+            }).all()
+            
+            clash_area = 0.0
+            for row in results:
+                if row.intersection_area:
+                    clash_area += float(row.intersection_area)
+                    if row.intersection_json:
+                        try:
+                            geom_obj = json.loads(row.intersection_json)
+                            sh_clash = shape(geom_obj)
+                            if sh_clash.is_valid and not sh_clash.is_empty:
+                                clash_geometries.append(sh_clash)
+                        except Exception:
+                            pass
+                            
+            layer_rules = zoning_matrix.get(key, {})
+            rule = layer_rules.get(req.category) or layer_rules.get("_default") or {
+                "severity": "warning",
+                "reason": "Aturan tata ruang daerah.",
+                "dasar_hukum": "Peraturan Daerah Tata Ruang"
+            }
+            
+            if clash_area > 0.0:
+                clash_area_rounded = int(round(clash_area))
+                percent = (clash_area / applicant_area_sqm) * 100 if applicant_area_sqm > 0 else 0.0
+                percent_str = f"{percent:.1f}" if percent > 0 else "?"
+                
+                details.append({
+                    "layerId": f"layer-{key if key != 'sungai' else 'river'}",
+                    "layerName": name,
+                    "clashAreaSqm": clash_area_rounded,
+                    "description": f"{rule['reason']} ({percent_str}% dari lahan — {clash_area_rounded:,} m²)",
+                    "severity": rule["severity"],
+                    "zoningNote": rule["dasar_hukum"]
+                })
+                
+                if rule["severity"] in ["danger", "warning"]:
+                    total_danger_warning_area += clash_area
+            else:
+                details.append({
+                    "layerId": f"layer-{key if key != 'sungai' else 'river'}",
+                    "layerName": name,
+                    "clashAreaSqm": 0,
+                    "description": f"Bersih — tidak ada tumpang tindih dengan {name}.",
+                    "severity": "info",
+                    "zoningNote": rule["dasar_hukum"]
+                })
+        except Exception as e:
+            logger.error(f"[SPATIAL_LAYER_ERROR] Gagal memproses layer {name}: {str(e)}", exc_info=True)
+            
+    zoning_score = 100
+    if details:
+        penalty = 0.0
+        for d in details:
+            if d["clashAreaSqm"] > 0:
+                ratio = d["clashAreaSqm"] / applicant_area_sqm if applicant_area_sqm > 0 else 0.0
+                if d["severity"] == "danger":
+                    penalty += ratio * 60 + 20
+                elif d["severity"] == "warning":
+                    penalty += ratio * 25 + 5
+        zoning_score = max(0, int(round(100 - min(penalty, 100))))
+        
+    has_danger = any(d["severity"] == "danger" and d["clashAreaSqm"] > 0 for d in details)
+    has_warning = any(d["severity"] == "warning" and d["clashAreaSqm"] > 0 for d in details)
+    
+    verdict = "LAYAK"
+    if has_danger:
+        verdict = "TIDAK_LAYAK"
+    elif has_warning:
+        verdict = "PERLU_REVISI"
+        
+    clash_geom_json = None
+    if clash_geometries:
+        try:
+            merged = unary_union(clash_geometries)
+            if merged and not merged.is_empty:
+                from shapely.geometry import mapping
+                clash_geom_json = mapping(merged)
+        except Exception as e:
+            logger.error(f"[SPATIAL_UNION_ERROR] Gagal menggabungkan geometri: {str(e)}")
+            
+    return {
+        "isClashing": has_danger or has_warning,
+        "clashGeometry": clash_geom_json,
+        "clashAreaSqm": int(round(total_danger_warning_area)),
+        "details": details,
+        "zoningScore": zoning_score,
+        "verdict": verdict
+    }
+
+
 # ─── ADDED FASE 5 (REVISI): SILSILAH MANUAL LINK PARENT BY ADMIN ENDPOINT ──
 
 @router.post("/{id_permohonan}/link-parent", status_code=status.HTTP_200_OK)
@@ -1469,6 +1804,7 @@ async def create_inspection_log(
     longitude: float = Form(...),
     notes: Optional[str] = Form(None),
     photo: UploadFile = File(...),
+    drone_video: Optional[UploadFile] = File(None),
     db: Session = Depends(get_db),
     current_user: UserModel = Depends(get_current_user)
 ):
@@ -1502,6 +1838,21 @@ async def create_inspection_log(
 
     base_url = str(request.base_url).rstrip("/")
     photo_url = f"{base_url}/uploads/inspeksi/{unique_filename}"
+
+    # 1b. Simpan berkas video drone jika diunggah
+    drone_video_url = None
+    if drone_video and drone_video.filename:
+        video_dir = "uploads/inspeksi_video"
+        os.makedirs(video_dir, exist_ok=True)
+        raw_video_filename = drone_video.filename
+        video_ext = os.path.splitext(raw_video_filename)[1]
+        unique_video_filename = f"{uuid.uuid4().hex}{video_ext}"
+        video_file_path = os.path.join(video_dir, unique_video_filename)
+
+        with open(video_file_path, "wb") as video_buffer:
+            shutil.copyfileobj(drone_video.file, video_buffer)
+
+        drone_video_url = f"{base_url}/uploads/inspeksi_video/{unique_video_filename}"
 
     # 2. Hitung jarak spasial ke poligon rencana tapak menggunakan PostGIS
     distance_meters = None
@@ -1537,6 +1888,7 @@ async def create_inspection_log(
         distance_from_boundary_meters=distance_meters,
         is_verified=is_verified,
         photo_url=photo_url,
+        drone_video_url=drone_video_url,
         notes=notes
     )
     db.add(log_entry)
@@ -1554,7 +1906,8 @@ async def create_inspection_log(
             "longitude": log_entry.longitude,
             "distanceMeters": log_entry.distance_from_boundary_meters,
             "isVerified": log_entry.is_verified,
-            "photoUrl": log_entry.photo_url
+            "photoUrl": log_entry.photo_url,
+            "droneVideoUrl": log_entry.drone_video_url
         }
     }
 
@@ -1589,6 +1942,7 @@ def get_inspection_logs(
                 "distanceMeters": log.distance_from_boundary_meters,
                 "isVerified": log.is_verified,
                 "photoUrl": log.photo_url,
+                "droneVideoUrl": log.drone_video_url,
                 "notes": log.notes
             }
             for log in logs

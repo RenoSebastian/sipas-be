@@ -36,7 +36,7 @@ def main():
         sys.exit(1)
 
     # 3. Add custom columns to users & permohonan
-    print("[3/5] Adding custom columns to users and permohonan tables...")
+    print("[3/5] Adding custom columns and creating reference spatial tables...")
     statements_custom = [
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS nip VARCHAR(50);",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS company VARCHAR(255);",
@@ -48,7 +48,10 @@ def main():
         "ALTER TABLE permohonan ADD COLUMN IF NOT EXISTS admin_lock_id INTEGER REFERENCES users(id) ON DELETE SET NULL;",
         "ALTER TABLE permohonan ADD COLUMN IF NOT EXISTS teknisi_lock_id INTEGER REFERENCES users(id) ON DELETE SET NULL;",
         "DROP TABLE IF EXISTS region_references CASCADE;",
-        "DROP TABLE IF EXISTS system_feedbacks CASCADE;"
+        "DROP TABLE IF EXISTS system_feedbacks CASCADE;",
+        "CREATE TABLE IF NOT EXISTS spatial_reference_layers (id SERIAL PRIMARY KEY, layer_key VARCHAR(50) NOT NULL, layer_name VARCHAR(100) NOT NULL, geom geometry(GEOMETRY, 4326) NOT NULL);",
+        "CREATE INDEX IF NOT EXISTS idx_spatial_ref_layer_key ON spatial_reference_layers(layer_key);",
+        "CREATE INDEX IF NOT EXISTS idx_spatial_ref_geom ON spatial_reference_layers USING gist(geom);"
     ]
     try:
         with engine.begin() as conn:
