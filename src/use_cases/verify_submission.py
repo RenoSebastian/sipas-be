@@ -1,6 +1,6 @@
 """
 ============================================================================
-SIPAS USE CASE — Verify & Approve Submission [verify_submission.py] (REVISED v10.2)
+SIPAS USE CASE — Verify & Approve Submission [verify_submission.py] (REVISED v10.3)
 ============================================================================
 Peran: Mengorkestrasikan ulasan penilaian berjenjang (Admin -> Tim Teknis ->
        Kabid -> Kadis) sesuai dengan matriks status birokrasi baru.
@@ -9,6 +9,10 @@ Peran: Mengorkestrasikan ulasan penilaian berjenjang (Admin -> Tim Teknis ->
        Mendukung penguncian draf keputusan SK (SkDraft) saat disetujui Kabid,
        penandatanganan visual TTE Coret Kepala Dinas pada draf keputusan,
        serta perlindungan atomisitas transaksi basis data.
+
+Pembaruan v10.3: Penyesuaian logika validasi pra-syarat verifikasi teknis
+                terhadap Ground Inspection (multi-photo) dan Aerial Inspection
+                (single drone video) secara terpisah di tingkat Use Case.
 ============================================================================
 """
 
@@ -556,6 +560,21 @@ class VerifySubmissionUseCase:
                     telaah_staf = self.telaah_staf_repo.find_by_permohonan_id(permohonan.id_permohonan)
                     if not telaah_staf:
                         raise ValueError("Gagal: Draf dokumen Telaah Staf belum dibuat. Harap simpan penilaian matriks terlebih dahulu.")
+
+                    # ─── PEMBARUAN v10.3: LOGIKA VALIDASI PRA-SYARAT VERIFIKASI TEKNIS LEVEL USE CASE ───
+                    # Skenario kategori wajib yang memiliki dampak tata ruang masif
+                    if permohonan.submission_category in ["PERUMAHAN", "INDUSTRI", "NON_PERUMAHAN"]:
+                        if not permohonan.inspection_logs or len(permohonan.inspection_logs) == 0:
+                            raise ValueError(
+                                f"Gagal: Minimal harus terdapat 1 data log kunjungan lapangan darat (Ground Inspection) "
+                                f"sebelum berkas '{permohonan.submission_no}' dapat dikirim ke Kepala Bidang."
+                            )
+                        # Video drone udara wajib mutlak untuk perumahan & industri
+                        if permohonan.submission_category in ["PERUMAHAN", "INDUSTRI"] and not permohonan.aerial_inspection:
+                            raise ValueError(
+                                f"Gagal: Rekaman video udara (Aerial Drone Inspection) wajib diunggah untuk kategori "
+                                f"'{permohonan.submission_category}' sebelum draf Telaah Staf dapat dikirim ke Kepala Bidang."
+                            )
 
                     updated_verifier = VerifierInfo(
                         name=input_dto.actor_name,

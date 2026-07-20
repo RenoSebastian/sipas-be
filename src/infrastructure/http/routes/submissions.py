@@ -1,6 +1,6 @@
 """
 ============================================================================
-SIPAS HTTP CONTROLLER — Submissions Router [submissions.py] (REVISED v8.5)
+SIPAS HTTP CONTROLLER — Submissions Router [submissions.py] (REVISED v8.6)
 ============================================================================
 Peran: Menyediakan REST endpoints bertingkat untuk mengelola pendaftaran
        10-tahap terpadu (pendaftaran baru maupun revisi), kalibrasi,
@@ -8,10 +8,13 @@ Peran: Menyediakan REST endpoints bertingkat untuk mengelola pendaftaran
        Menegakkan otorisasi SoD API-Level untuk penandatanganan TTE Kadis,
        menyalin luasan fisik mentah terverifikasi ke dalam Use Case DTO,
        serta menyajikan visualisasi spasial instan dalam bentuk GeoJSON.
+       
+Pembaruan v8.6: Pemisahan utuh endpoint Sidak Darat (Ground Inspections) 
+               dan Sidak Udara Drone (Aerial Inspection) untuk kepatuhan GRASP.
 ============================================================================
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, UploadFile, File, Request, Query, Form
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, UploadFile, File, Request, Query, Form, Response
 from pydantic import BaseModel, Field, model_validator, SecretStr
 from sqlalchemy import text  # Ditambahkan untuk menangani kueri spasial raw SQL PostGIS secara aman
 from sqlalchemy.orm import Session
@@ -42,6 +45,7 @@ from src.infrastructure.database.models import (
     ChecklistStatus,
     FieldInspectionLogModel,
     SpatialReferenceLayerModel,
+    AerialInspectionLogModel
 )
 
 # Adapter Eksternal Spasial, Geoserver, dan BSrE
@@ -91,7 +95,9 @@ from src.infrastructure.http.schemas.submissions import (
     CalibrateRequest,
     EvaluasiChecklistItemDto,
     VerifyRequest,
-    LinkParentRequest  # Impor Baru untuk validasi pengaitan manual silsilah
+    LinkParentRequest,
+    GroundInspectionResponseDto,
+    AerialInspectionResponseDto
 )
 
 
@@ -310,7 +316,7 @@ def submit_permohonan(
             tpu_bukti_dokumen=req.tpu.buktiDokumenUrl if req.tpu else None,
             self_declared_compensations=[comp.model_dump() for comp in req.compensations] if req.compensations else None,
 
-            # SILSILAH PEMOHON INPUT DTO (MAPPER DARI HTTP SCHEMAS)
+            # SILSILAH PERMOHONAN INPUT DTO (MAPPER DARI HTTP SCHEMAS)
             baseline_source=req.baseline_source,
             parent_id_permohonan=req.parent_id_permohonan,
             replaced_sk_number=req.legacy_metadata.replaced_sk_number if req.legacy_metadata else None,
@@ -1018,6 +1024,48 @@ async def get_submission_geojson(
         raise HTTPException(
             status_code=500,
             detail=f"Gagal memproses visualisasi GeoJSON dari database: {str(e)}"
+        )
+
+
+# ─── NATIVE MAPBOX VECTOR TILES (MVT) XYZ ENDPOINT ───────────────────────
+
+@router.get("/{id_permohonan}/tiles/{z}/{x}/{y}.pbf")
+async def get_submission_mvt_tile(
+    id_permohonan: str,
+    z: int,
+    x: int,
+    y: int,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user)
+):
+    """
+    Mendapatkan data biner Mapbox Vector Tile (.pbf) yang dikompilasi secara asinkron
+    oleh PostGIS untuk mempercepat rendering spasial 3D WebGL di sisi klien.
+    """
+    repo = PermohonanRepository(db)
+    # Validasi keberadaan permohonan terlebih dahulu
+    permohonan = repo.find_by_id(id_permohonan)
+    if not permohonan:
+        raise HTTPException(status_code=404, detail="Permohonan tidak ditemukan.")
+
+    try:
+        tile_data = await repo.get_vector_tile_async(id_permohonan, z, x, y)
+        return Response(
+            content=tile_data,
+            media_type="application/vnd.mapbox-vector-tile",
+            headers={
+                "Cache-Control": "public, max-age=3600",
+                "Content-Encoding": "identity"
+            }
+        )
+    except Exception as e:
+        logger.error(
+            f"[GET_MVT_ERROR] Gagal memuat MVT untuk permohonan {id_permohonan} tile {z}/{x}/{y}: {str(e)}", 
+            exc_info=True
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Gagal memproses visualisasi Vector Tile dari database: {str(e)}"
         )
 
 
@@ -1795,8 +1843,8 @@ def unclaim_submission(
     }
 
 
-@router.post("/{id_permohonan}/inspection-logs", status_code=status.HTTP_201_CREATED)
-async def create_inspection_log(
+@router.post("/{id_permohonan}/ground-inspections", status_code=status.HTTP_201_CREATED)
+async def create_ground_inspection(
     id_permohonan: str,
     request: Request,
     inspector_name: str = Form(...),
@@ -1804,11 +1852,10 @@ async def create_inspection_log(
     longitude: float = Form(...),
     notes: Optional[str] = Form(None),
     photo: UploadFile = File(...),
-    drone_video: Optional[UploadFile] = File(None),
     db: Session = Depends(get_db),
     current_user: UserModel = Depends(get_current_user)
 ):
-    """Mencatat hasil survei verifikasi lapangan tim inspeksi (Proof of Work)"""
+    """Mencatat hasil survei verifikasi lapangan titik fisik darat (Ground Inspection / Proof of Work)"""
     if current_user.role not in ["TIM_TEKNIS", "ADMIN"]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -1838,21 +1885,6 @@ async def create_inspection_log(
 
     base_url = str(request.base_url).rstrip("/")
     photo_url = f"{base_url}/uploads/inspeksi/{unique_filename}"
-
-    # 1b. Simpan berkas video drone jika diunggah
-    drone_video_url = None
-    if drone_video and drone_video.filename:
-        video_dir = "uploads/inspeksi_video"
-        os.makedirs(video_dir, exist_ok=True)
-        raw_video_filename = drone_video.filename
-        video_ext = os.path.splitext(raw_video_filename)[1]
-        unique_video_filename = f"{uuid.uuid4().hex}{video_ext}"
-        video_file_path = os.path.join(video_dir, unique_video_filename)
-
-        with open(video_file_path, "wb") as video_buffer:
-            shutil.copyfileobj(drone_video.file, video_buffer)
-
-        drone_video_url = f"{base_url}/uploads/inspeksi_video/{unique_video_filename}"
 
     # 2. Hitung jarak spasial ke poligon rencana tapak menggunakan PostGIS
     distance_meters = None
@@ -1888,7 +1920,6 @@ async def create_inspection_log(
         distance_from_boundary_meters=distance_meters,
         is_verified=is_verified,
         photo_url=photo_url,
-        drone_video_url=drone_video_url,
         notes=notes
     )
     db.add(log_entry)
@@ -1897,7 +1928,7 @@ async def create_inspection_log(
 
     return {
         "status": "SUCCESS",
-        "message": "Log inspeksi lapangan berhasil disimpan.",
+        "message": "Log inspeksi darat lapangan berhasil disimpan.",
         "data": {
             "id": log_entry.id,
             "inspectorName": log_entry.inspector_name,
@@ -1906,19 +1937,106 @@ async def create_inspection_log(
             "longitude": log_entry.longitude,
             "distanceMeters": log_entry.distance_from_boundary_meters,
             "isVerified": log_entry.is_verified,
-            "photoUrl": log_entry.photo_url,
-            "droneVideoUrl": log_entry.drone_video_url
+            "photoUrl": log_entry.photo_url
         }
     }
 
 
-@router.get("/{id_permohonan}/inspection-logs", status_code=status.HTTP_200_OK)
-def get_inspection_logs(
+@router.post("/{id_permohonan}/aerial-inspection", status_code=status.HTTP_201_CREATED)
+async def create_aerial_inspection(
+    id_permohonan: str,
+    request: Request,
+    pilot_name: str = Form(...),
+    notes: Optional[str] = Form(None),
+    drone_video: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user)
+):
+    """Mencatat hasil rekaman penerbangan drone udara secara makro (Aerial Inspection / Proof of Work)"""
+    if current_user.role not in ["TIM_TEKNIS", "ADMIN"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Akses Ditolak: Hanya Tim Teknis yang dapat memproses unggahan video drone."
+        )
+
+    # 1. Batasi ukuran file video drone (Maksimal 100MB)
+    MAX_FILE_SIZE = 100 * 1024 * 1024
+    drone_video.file.seek(0, 2)
+    size = drone_video.file.tell()
+    drone_video.file.seek(0)
+    if size > MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ukuran berkas video drone melebihi batas maksimal 100MB."
+        )
+
+    # 2. Simpan video secara lokal
+    video_dir = "uploads/inspeksi_video"
+    os.makedirs(video_dir, exist_ok=True)
+    raw_video_filename = drone_video.filename if drone_video.filename else "drone_video.mp4"
+    video_ext = os.path.splitext(raw_video_filename)[1]
+    unique_video_filename = f"{uuid.uuid4().hex}{video_ext}"
+    video_file_path = os.path.join(video_dir, unique_video_filename)
+
+    with open(video_file_path, "wb") as video_buffer:
+        shutil.copyfileobj(drone_video.file, video_buffer)
+
+    base_url = str(request.base_url).rstrip("/")
+    drone_video_url = f"{base_url}/uploads/inspeksi_video/{unique_video_filename}"
+
+    # 3. Penegakan kekangan logika bisnis (idempotent upsert 1-to-1)
+    existing_log = db.query(AerialInspectionLogModel).filter(
+        AerialInspectionLogModel.id_permohonan == id_permohonan
+    ).first()
+
+    if existing_log:
+        # Hapus file fisik lama di disk agar tidak memenuhi storage
+        try:
+            old_path = existing_log.drone_video_url.replace(base_url, "").lstrip("/")
+            if os.path.exists(old_path):
+                os.remove(old_path)
+        except Exception:
+            pass
+
+        existing_log.pilot_name = pilot_name
+        existing_log.timestamp = datetime.utcnow()
+        existing_log.drone_video_url = drone_video_url
+        existing_log.notes = notes
+        db.commit()
+        db.refresh(existing_log)
+        log_entry = existing_log
+    else:
+        log_entry = AerialInspectionLogModel(
+            id_permohonan=id_permohonan,
+            pilot_name=pilot_name,
+            timestamp=datetime.utcnow(),
+            drone_video_url=drone_video_url,
+            notes=notes
+        )
+        db.add(log_entry)
+        db.commit()
+        db.refresh(log_entry)
+
+    return {
+        "status": "SUCCESS",
+        "message": "Dokumentasi video drone berhasil disimpan secara idempotent.",
+        "data": {
+            "id": log_entry.id,
+            "pilotName": log_entry.pilot_name,
+            "timestamp": log_entry.timestamp.isoformat(),
+            "droneVideoUrl": log_entry.drone_video_url,
+            "notes": log_entry.notes
+        }
+    }
+
+
+@router.get("/{id_permohonan}/ground-inspections", status_code=status.HTTP_200_OK)
+def get_ground_inspections(
     id_permohonan: str,
     db: Session = Depends(get_db),
     current_user: UserModel = Depends(get_current_user)
 ):
-    """Mengambil riwayat log inspeksi lapangan untuk permohonan tertentu"""
+    """Mengambil riwayat log inspeksi titik fisik darat (Ground Inspections)."""
     if current_user.role not in ["TIM_TEKNIS", "KABID_PUPR", "KADIS", "ADMIN"]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -1942,9 +2060,45 @@ def get_inspection_logs(
                 "distanceMeters": log.distance_from_boundary_meters,
                 "isVerified": log.is_verified,
                 "photoUrl": log.photo_url,
-                "droneVideoUrl": log.drone_video_url,
                 "notes": log.notes
             }
             for log in logs
         ]
+    }
+
+
+@router.get("/{id_permohonan}/aerial-inspection", status_code=status.HTTP_200_OK)
+def get_aerial_inspection(
+    id_permohonan: str,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user)
+):
+    """Mengambil dokumentasi video udara drone (Aerial Inspection)."""
+    if current_user.role not in ["TIM_TEKNIS", "KABID_PUPR", "KADIS", "ADMIN"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Akses Ditolak: Anda tidak memiliki wewenang untuk melihat log inspeksi."
+        )
+
+    log = db.query(AerialInspectionLogModel).filter(
+        AerialInspectionLogModel.id_permohonan == id_permohonan
+    ).first()
+
+    if not log:
+        return {
+            "status": "SUCCESS",
+            "data": None
+        }
+
+    return {
+        "status": "SUCCESS",
+        "data": {
+            "id": log.id,
+            "idPermohonan": log.id_permohonan,
+            "pilotName": log.pilot_name,
+            "timestamp": log.timestamp.isoformat(),
+            "droneVideoUrl": log.drone_video_url,
+            "flightMetadata": log.flight_metadata,
+            "notes": log.notes
+        }
     }

@@ -1,17 +1,20 @@
 """
 ============================================================================
-SIPAS HTTP SCHEMAS — Submissions [submissions.py] (REVISED v5.3 - TYPE SAFE)
+SIPAS HTTP SCHEMAS — Submissions [submissions.py] (REVISED v5.4 - TYPE SAFE)
 ============================================================================
 Peran: Skema validasi data request HTTP menggunakan Pydantic untuk fungsionalitas
        core permohonan. Menjamin tipe data yang masuk sesuai dengan standar
        dinas, mendukung validasi pengajuan draf parsial (is_draft), silsilah
        permohonan revisi, pengaitan induk permohonan, serta input verifikasi
        teknis berbasis dimensi fisik absolut (m² / meter).
+       
+Pembaruan v5.4: Penambahan DTO khusus untuk Ground Inspection (titik darat)
+               dan Aerial Inspection (drone video) secara terpisah.
 ============================================================================
 """
 
 from pydantic import BaseModel, Field, model_validator, SecretStr
-from datetime import date
+from datetime import date, datetime
 from typing import Tuple, Optional, List, Any
 
 
@@ -275,3 +278,41 @@ class LinkParentRequest(BaseModel):
                 raise ValueError("Pengaitan bertipe 'LEGACY' wajib mengunggah dokumen rujukan pada 'replaced_sk_doc_url'.")
                 
         return self
+
+
+# ─── PEMBARUAN v5.4: DTO BARU UNTUK SINKRONISASI INSPEKSI DARAT & UDARA ──────
+
+class GroundInspectionResponseDto(BaseModel):
+    """Skema DTO untuk representasi data log sidak titik fisik darat (Ground Inspection)."""
+    id: int = Field(..., examples=[1])
+    id_permohonan: str = Field(..., examples=["sub-4"])
+    inspector_name: str = Field(..., examples=["Ir. Budi Santoso"])
+    timestamp: datetime = Field(...)
+    latitude: float = Field(..., examples=[-6.3802])
+    longitude: float = Field(..., examples=[106.9602])
+    distance_from_boundary_meters: Optional[float] = Field(default=None, examples=[4.5])
+    is_verified: bool = Field(default=True)
+    photo_url: str = Field(..., examples=["http://localhost:8000/uploads/inspeksi/photo.jpg"])
+    notes: Optional[str] = Field(default=None, examples=["Pemeriksaan patok beton sesuai dokumen BPN."])
+
+    class Config:
+        from_attributes = True
+
+
+class AerialInspectionResponseDto(BaseModel):
+    """Skema DTO untuk representasi data dokumentasi video udara drone secara makro (Aerial Inspection)."""
+    id: int = Field(..., examples=[1])
+    id_permohonan: str = Field(..., examples=["sub-4"])
+    pilot_name: str = Field(..., examples=["Ir. Budi Santoso"])
+    timestamp: datetime = Field(...)
+    drone_video_url: str = Field(..., examples=["http://localhost:8000/uploads/inspeksi_video/drone.mp4"])
+    flight_metadata: Optional[dict] = Field(default=None, examples=[{
+        "drone_model": "DJI Mavic 3 Pro",
+        "pilot_license": "Sertifikasi-FASI-10923",
+        "flight_altitude_meters": 80.0,
+        "weather_condition": "Clear Sky"
+    }])
+    notes: Optional[str] = Field(default=None, examples=["Flyover makro kawasan perumahan."])
+
+    class Config:
+        from_attributes = True

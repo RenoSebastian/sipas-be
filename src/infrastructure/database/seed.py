@@ -1,6 +1,6 @@
 """
 ============================================================================
-SIPAS DATABASE UTILITY — Spatial Database Seeder [seed.py] (REVISED v7)
+SIPAS DATABASE UTILITY — Spatial Database Seeder [seed.py] (REVISED v8)
 ============================================================================
 Peran: Mengisi database lokal PostgreSQL/PostGIS dengan data spasial awal
        (WGS84 / SRID 4326) di wilayah rona Kabupaten Bogor, menyemai data 
@@ -8,6 +8,8 @@ Peran: Mengisi database lokal PostgreSQL/PostGIS dengan data spasial awal
        mendaftarkan pengguna awal (users) untuk kebutuhan autentikasi, serta
        membuat snapshot historis dokumen Telaah Staf & SkDraft JSONB secara 
        transaksional (Unit of Work).
+       Memisahkan simulasi pengunggahan foto darat dan video drone ke tabel 
+       masing-masing untuk konsistensi fungsionalitas v5.4.
        Bebas dari peringatan Pylance Optional Member Access (Type-Safe).
 ============================================================================
 """
@@ -40,7 +42,9 @@ from src.infrastructure.database.models import (
     TelaahStafModel,
     SkDraftModel,
     SpatialReferenceLayerModel,
-    ChecklistStatus
+    ChecklistStatus,
+    FieldInspectionLogModel,
+    AerialInspectionLogModel
 )
 
 def clear_existing_data(db) -> None:
@@ -55,6 +59,8 @@ def clear_existing_data(db) -> None:
         db.query(EvaluasiChecklistItemModel).delete()
         db.query(TelaahStafModel).delete()  # Bersihkan tabel Telaah Staf
         db.query(SkDraftModel).delete()     # Bersihkan tabel draf SK
+        db.query(AerialInspectionLogModel).delete() # Bersihkan tabel Aerial v5.4
+        db.query(FieldInspectionLogModel).delete()  # Bersihkan tabel Ground/Field v5.4
         db.query(PermohonanModel).delete()
         db.query(MasterRDTRModel).delete()
         db.query(UserModel).delete()        # Bersihkan tabel user
@@ -764,7 +770,7 @@ def seed_spatial_data() -> None:
             document_payload=telaah_4_payload
         ))
 
-        # ─── UPDATE BARU: PENYEMAIAN DATA DRAF SURAT KEPUTUSAN (SkDraftModel) UNTUK SUB-4 (TAHAP 6) ───
+        # ─── PENYEMAIAN DATA DRAF SURAT KEPUTUSAN (SkDraftModel) UNTUK SUB-4 (TAHAP 6) ───
         sk_payload_4 = {
             "id_sk": "sk-sub-4",
             "id_permohonan": "sub-4",
@@ -843,13 +849,57 @@ def seed_spatial_data() -> None:
         for au in audits_sub_4:
             db.add(au)
 
+        # ─── PEMBARUAN v5.4: SEEDING LOG INSPEKSI DARAT (FieldInspectionLogModel) UNTUK SUB-4 ───
+        ground_logs_sub_4 = [
+            FieldInspectionLogModel(
+                id_permohonan="sub-4",
+                inspector_name=tim_teknis.full_name,
+                timestamp=datetime(2026, 6, 12, 10, 0, 0),
+                latitude=-6.3802,
+                longitude=106.9602,
+                distance_from_boundary_meters=4.5,
+                is_verified=True,
+                photo_url="https://images.unsplash.com/photo-1590069261209-f8e9b8642343?auto=format&fit=crop&w=800&q=80",
+                notes="Pemeriksaan patok batas utara bidang tanah. Patok fisik beton ditemukan sesuai dokumen BPN."
+            ),
+            FieldInspectionLogModel(
+                id_permohonan="sub-4",
+                inspector_name=tim_teknis.full_name,
+                timestamp=datetime(2026, 6, 12, 10, 30, 0),
+                latitude=-6.3812,
+                longitude=106.9612,
+                distance_from_boundary_meters=2.1,
+                is_verified=True,
+                photo_url="https://images.unsplash.com/photo-1582407947304-fd86f028f716?auto=format&fit=crop&w=800&q=80",
+                notes="Verifikasi as jalan rencana utama (ROW 10m). Batas fisik jalan bersih dan siap dikonstruksi."
+            )
+        ]
+        for log in ground_logs_sub_4:
+            db.add(log)
+
+        # ─── PEMBARUAN v5.4: SEEDING LOG INSPEKSI UDARA DRONE (AerialInspectionLogModel) UNTUK SUB-4 ───
+        aerial_log_sub_4 = AerialInspectionLogModel(
+            id_permohonan="sub-4",
+            pilot_name=tim_teknis.full_name,
+            timestamp=datetime(2026, 6, 12, 11, 0, 0),
+            drone_video_url="http://localhost:8000/uploads/inspeksi_video/mock_sub4_drone.mp4",
+            flight_metadata={
+                "drone_model": "DJI Mavic 3 Pro",
+                "pilot_license": "Sertifikasi-FASI-10923",
+                "flight_altitude_meters": 80.0,
+                "weather_condition": "Clear Sky / Sunny"
+            },
+            notes="Flyover makro kawasan Cibinong Green Valley. Rona lingkungan sekitar didominasi pemukiman kepadatan sedang."
+        )
+        db.add(aerial_log_sub_4)
+
 
         # KASUS 5: Gunung Putri Commercial Hub (Status: Ditolak / Gagal Verifikasi)
         outer_poly_5 = Polygon([
             (106.9000, -6.4200), (106.9015, -6.4200), (106.9015, -6.4215), (106.9000, -6.4215), (106.9000, -6.4200)
         ])
 
-        permohonan_5 = PermohonanModel(
+        permohonan_5 = PermohhonanModel = PermohonanModel(
             id_permohonan="sub-5",
             user_id=pemohon.id,
             submission_no="SIPAS-2026-005",
@@ -926,14 +976,6 @@ def seed_spatial_data() -> None:
             kkpr_verifier_name="Ir. Budi Santoso"
         )
         db.add(permohonan_5)
-        add_mock_files_for_permohonan(db, "sub-5", {
-            "photoNorth": "https://images.unsplash.com/photo-1590069261209-f8e9b8642343?auto=format&fit=crop&w=400&q=80",
-            "photoSouth": "https://images.unsplash.com/photo-1582407947304-fd86f028f716?auto=format&fit=crop&w=400&q=80",
-            "photoEast": "https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=400&q=80",
-            "photoWest": "https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=400&q=80",
-            "photoAccess": "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=400&q=80"
-        }, category="NON_PERUMAHAN")
-
 
         kompensasi_5 = LahanKompensasiModel(
             id_kompensasi="komp-105", id_permohonan="sub-5", tipe_kompensasi="LAHAN_SAWAH",
@@ -1011,6 +1053,51 @@ def seed_spatial_data() -> None:
         )
         db.add(audit_5)
 
+        # ─── PEMBARUAN v5.4: SEEDING LOG INSPEKSI DARAT (FieldInspectionLogModel) UNTUK SUB-5 ───
+        ground_logs_sub_5 = [
+            FieldInspectionLogModel(
+                id_permohonan="sub-5",
+                inspector_name=tim_teknis.full_name,
+                timestamp=datetime(2026, 6, 11, 14, 0, 0),
+                latitude=-6.4205,
+                longitude=106.9005,
+                distance_from_boundary_meters=145.2,
+                is_verified=False,  # Melanggar (DI LUAR LOKASI)
+                photo_url="https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=800&q=80",
+                notes="Percobaan jepret foto tapak darat. Gagal verifikasi karena posisi GPS petugas berada 145 meter di luar batas bidang tanah."
+            ),
+            FieldInspectionLogModel(
+                id_permohonan="sub-5",
+                inspector_name=tim_teknis.full_name,
+                timestamp=datetime(2026, 6, 11, 14, 20, 0),
+                latitude=-6.4211,
+                longitude=106.9011,
+                distance_from_boundary_meters=8.5,
+                is_verified=True,
+                photo_url="https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=800&q=80",
+                notes="Pemeriksaan patok timur. Lokasi patok berada di dalam kawasan resapan air sungai Cileungsi."
+            )
+        ]
+        for log in ground_logs_sub_5:
+            db.add(log)
+
+        # ─── PEMBARUAN v5.4: SEEDING LOG INSPEKSI UDARA DRONE (AerialInspectionLogModel) UNTUK SUB-5 ───
+        aerial_log_sub_5 = AerialInspectionLogModel(
+            id_permohonan="sub-5",
+            pilot_name=tim_teknis.full_name,
+            timestamp=datetime(2026, 6, 11, 15, 0, 0),
+            drone_video_url="http://localhost:8000/uploads/inspeksi_video/mock_sub5_drone.mp4",
+            flight_metadata={
+                "drone_model": "DJI Phantom 4 RTK",
+                "pilot_license": "Sertifikasi-FASI-10923",
+                "flight_altitude_meters": 100.0,
+                "weather_condition": "Windy / Light Clouds"
+            },
+            notes="Flyover makro kawasan Gunung Putri Commercial Hub. Terlihat jelas batas utara bersinggungan langsung dengan sempadan sungai Cileungsi."
+        )
+        db.add(aerial_log_sub_5)
+
+
         # Seeding organic siteplan geometries for all submissions
         print("[SEEDER] Menyemai poligon detail siteplan organik...")
         seed_internal_geometries(db, "sub-1", 106.802744, -6.471861, 12.0, is_type_1=True)
@@ -1038,7 +1125,7 @@ def seed_reference_layers(db) -> None:
     layers = [
         {"key": "sungai", "name": "Sempadan Sungai 25m", "path": os.path.join(fe_public, "bogor", "SUNGAI_LN_25K.json")},
         {"key": "relka", "name": "Sempadan Jalur Kereta Api 20m", "path": os.path.join(fe_public, "kab bogor", "RELKA_LN_25K.json")},
-        {"key": "pasir", "name": "Kawasan Konservasi Gumuk Pasir", "path": os.path.join(fe_public, "kab bogor", "PASIR_AR_25K.json")},
+        {"key": "pasir", "name": "Kawasan Conservasi Gumuk Pasir", "path": os.path.join(fe_public, "kab bogor", "PASIR_AR_25K.json")},
         {"key": "sawah", "name": "Lahan Sawah Dilindungi (LSD)", "path": os.path.join(fe_public, "bogor", "AGRISAWAH_AR_25K.json")},
         {"key": "kebun", "name": "Kawasan Perkebunan", "path": os.path.join(fe_public, "bogor", "AGRIKEBUN_AR_25K.json")},
         {"key": "ladang", "name": "Kawasan Ladang / Tegalan", "path": os.path.join(fe_public, "bogor", "AGRILADANG_AR_25K.json")},

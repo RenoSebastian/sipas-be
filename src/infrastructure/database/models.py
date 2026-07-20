@@ -1,6 +1,6 @@
 """
 ============================================================================
-SIPAS INFRASTRUCTURE ADAPTER — Database Models [models.py] (REVISED v5.3)
+SIPAS INFRASTRUCTURE ADAPTER — Database Models [models.py] (REVISED v5.4)
 ============================================================================
 Peran: Mendefinisikan skema tabel fisik database PostgreSQL & PostGIS
        menggunakan deklarasi tipe data statis SQLAlchemy 2.0 (Mapped).
@@ -8,6 +8,9 @@ Peran: Mendefinisikan skema tabel fisik database PostgreSQL & PostGIS
        metrik komparasi tiga sisi berbasis dimensi fisik absolut terverifikasi,
        biner JSONB dokumen resmi, skema silsilah permohonan, serta tabel 
        penampung sesi registrasi OTP sementara.
+       
+Pembaruan v5.4: Pemisahan Ground Inspection (titik darat) dan 
+               Aerial Inspection (drone video) untuk kepatuhan GRASP.
 ============================================================================
 """
 
@@ -293,9 +296,18 @@ class PermohonanModel(Base):
         cascade="all, delete-orphan"
     )
 
+    # Relasi Satu-ke-Banyak Inspeksi Darat (Ground Inspections)
     inspection_logs: Mapped[List["FieldInspectionLogModel"]] = relationship(
         "FieldInspectionLogModel",
         back_populates="permohonan",
+        cascade="all, delete-orphan"
+    )
+
+    # Relasi Satu-ke-Satu Inspeksi Udara (Aerial Drone Inspection)
+    aerial_inspection: Mapped[Optional["AerialInspectionLogModel"]] = relationship(
+        "AerialInspectionLogModel",
+        back_populates="permohonan",
+        uselist=False,
         cascade="all, delete-orphan"
     )
 
@@ -612,6 +624,10 @@ def receive_before_insert_update_kompensasi(mapper, connection, target):
 
 
 class FieldInspectionLogModel(Base):
+    """
+    Model penyimpanan log sidak titik fisik darat (Ground Inspection).
+    Fokus pada data koordinat spesifik tempat petugas berdiri mengambil foto tapak.
+    """
     __tablename__ = "field_inspection_logs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -623,10 +639,36 @@ class FieldInspectionLogModel(Base):
     distance_from_boundary_meters: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     is_verified: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     photo_url: Mapped[str] = mapped_column(String(500), nullable=False)
-    drone_video_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     permohonan: Mapped["PermohonanModel"] = relationship(
         "PermohonanModel",
         back_populates="inspection_logs"
+    )
+
+
+class AerialInspectionLogModel(Base):
+    """
+    Model penyimpanan dokumentasi video udara drone secara makro (Aerial Inspection).
+    Terikat dengan relasi unik satu-ke-satu per permohonan untuk menjamin keunikan video.
+    """
+    __tablename__ = "aerial_inspection_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id_permohonan: Mapped[str] = mapped_column(
+        String(50), 
+        ForeignKey("permohonan.id_permohonan", ondelete="CASCADE"), 
+        unique=True, 
+        nullable=False, 
+        index=True
+    )
+    pilot_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    timestamp: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    drone_video_url: Mapped[str] = mapped_column(String(500), nullable=False)
+    flight_metadata: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)  # Menyimpan parameter kustom
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    permohonan: Mapped["PermohonanModel"] = relationship(
+        "PermohonanModel",
+        back_populates="aerial_inspection"
     )

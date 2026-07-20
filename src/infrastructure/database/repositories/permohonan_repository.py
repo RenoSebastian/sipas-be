@@ -1,6 +1,6 @@
 """
 ============================================================================
-SIPAS INFRASTRUCTURE ADAPTER — Permohonan Repository [permohonan_repository.py] (REVISED v10.1)
+SIPAS INFRASTRUCTURE ADAPTER — Permohonan Repository [permohonan_repository.py] (REVISED v10.2)
 ============================================================================
 Peran: Mengimplementasikan ExtendedPermohonanRepositoryPort untuk berinteraksi dengan
        database transaksional PostgreSQL & PostGIS secara aman.
@@ -11,8 +11,9 @@ Peran: Mengimplementasikan ExtendedPermohonanRepositoryPort untuk berinteraksi d
        TTE Kepala Dinas (kadis_signature), menyinkronkan Nomor SK baru,
        menyimpan geometri detail rencana tapak secara transaksional,
        mendeteksi tumpang tindih spasial antar permohonan (PostGIS),
-       memvalidasi silsilah melingkar, serta menyediakan kompilasi cepat
-       GeoJSON FeatureCollection langsung dari database PostGIS.
+       memvalidasi silsilah melingkar, menyediakan kompilasi cepat
+       GeoJSON FeatureCollection langsung dari database PostGIS, serta
+       sinkronisasi data sidak darat dan sidak udara drone secara idempotent.
 ============================================================================
 """
 
@@ -33,7 +34,9 @@ from src.infrastructure.database.models import (
     UserModel, 
     SitePlanGeometryModel,
     LahanKompensasiModel,
-    PermohonanFileModel
+    PermohonanFileModel,
+    FieldInspectionLogModel,
+    AerialInspectionLogModel
 )
 
 
@@ -101,6 +104,40 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
                         parent_developer_name=parent_dn
                     )
                 )
+
+        # PEMBARUAN v5.4: Mapping Ground Inspection Logs ke Domain
+        inspection_logs = []
+        if model.inspection_logs:
+            from src.domain.entities.permohonan import FieldInspectionLog
+            for log in model.inspection_logs:
+                inspection_logs.append(
+                    FieldInspectionLog(
+                        id=log.id,
+                        id_permohonan=log.id_permohonan,
+                        inspector_name=log.inspector_name,
+                        timestamp=log.timestamp,
+                        latitude=log.latitude,
+                        longitude=log.longitude,
+                        photo_url=log.photo_url,
+                        is_verified=log.is_verified,
+                        distance_from_boundary_meters=log.distance_from_boundary_meters,
+                        notes=log.notes
+                    )
+                )
+
+        # PEMBARUAN v5.4: Mapping Aerial Inspection Log ke Domain
+        aerial_entity = None
+        if model.aerial_inspection:
+            from src.domain.entities.permohonan import AerialInspectionLog
+            aerial_entity = AerialInspectionLog(
+                id=model.aerial_inspection.id,
+                id_permohonan=model.aerial_inspection.id_permohonan,
+                pilot_name=model.aerial_inspection.pilot_name,
+                timestamp=model.aerial_inspection.timestamp,
+                drone_video_url=model.aerial_inspection.drone_video_url,
+                flight_metadata=model.aerial_inspection.flight_metadata,
+                notes=model.aerial_inspection.notes
+            )
 
         return Permohonan(
             id_permohonan=str(model.id_permohonan),
@@ -219,7 +256,7 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
             verified_gsb=float(model.verified_gsb) if model.verified_gsb is not None else None,
             verified_rth_area=float(model.verified_rth_area) if model.verified_rth_area is not None else None,
 
-            # ─── REVISED v10.1: SINKRONISASI RAW VERIFIED METRICS (m²) DARI DB KE DOMAIN ───
+            # REVISED v10.1: SINKRONISASI RAW VERIFIED METRICS (m²) DARI DB KE DOMAIN
             verified_land_area=float(model.verified_land_area) if model.verified_land_area is not None else None,
             verified_building_area=float(model.verified_building_area) if model.verified_building_area is not None else None,
             verified_total_floor_area=float(model.verified_total_floor_area) if model.verified_total_floor_area is not None else None,
@@ -237,7 +274,11 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
             admin_lock_id=model.admin_lock_id,
             admin_lock_name=model.admin_lock.full_name if model.admin_lock else None,
             teknisi_lock_id=model.teknisi_lock_id,
-            teknisi_lock_name=model.teknisi_lock.full_name if model.teknisi_lock else None
+            teknisi_lock_name=model.teknisi_lock.full_name if model.teknisi_lock else None,
+
+            # PEMBARUAN v5.4: Relasi Sidak Lapangan & Drone Video
+            inspection_logs=inspection_logs,
+            aerial_inspection=aerial_entity
         )
 
     def _to_model(self, entity: Permohonan) -> PermohonanModel:
@@ -294,6 +335,41 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
                         legacy_sk_doc_url=p.legacy_sk_doc_url
                     )
                 )
+
+        # PEMBARUAN v5.4: Konversi Ground Inspection Logs ke DB Model
+        inspection_log_models = []
+        if entity.inspection_logs:
+            from src.infrastructure.database.models import FieldInspectionLogModel
+            for log in entity.inspection_logs:
+                inspection_log_models.append(
+                    FieldInspectionLogModel(
+                        id=log.id,
+                        id_permohonan=log.id_permohonan,
+                        inspector_name=log.inspector_name,
+                        timestamp=log.timestamp,
+                        latitude=log.latitude,
+                        longitude=log.longitude,
+                        distance_from_boundary_meters=log.distance_from_boundary_meters,
+                        is_verified=log.is_verified,
+                        photo_url=log.photo_url,
+                        notes=log.notes
+                    )
+                )
+
+        # PEMBARUAN v5.4: Konversi Aerial Inspection Log ke DB Model
+        aerial_model = None
+        if entity.aerial_inspection:
+            from src.infrastructure.database.models import AerialInspectionLogModel
+            ae_data = entity.aerial_inspection
+            aerial_model = AerialInspectionLogModel(
+                id=ae_data.id,
+                id_permohonan=ae_data.id_permohonan,
+                pilot_name=ae_data.pilot_name,
+                timestamp=ae_data.timestamp,
+                drone_video_url=ae_data.drone_video_url,
+                flight_metadata=ae_data.flight_metadata,
+                notes=ae_data.notes
+            )
 
         return PermohonanModel(
             id_permohonan=entity.id_permohonan,
@@ -428,7 +504,11 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
             # ─── SILSILAH PERMOHONAN RELATIONSHIP ──────────────
             parents_lineage=parents_lineage_models,
             admin_lock_id=entity.admin_lock_id,
-            teknisi_lock_id=entity.teknisi_lock_id
+            teknisi_lock_id=entity.teknisi_lock_id,
+
+            # PEMBARUAN v5.4: Konversi Relasi ke DB Model saat penyimpanan
+            inspection_logs=inspection_log_models,
+            aerial_inspection=aerial_model
         )
 
     def find_by_id(self, id_permohonan: str) -> Optional[Permohonan]:
@@ -589,6 +669,50 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
                     )
             existing_model.admin_lock_id = permohonan.admin_lock_id
             existing_model.teknisi_lock_id = permohonan.teknisi_lock_id
+
+            # PEMBARUAN v5.4: Sinkronisasi Ground Inspection Logs secara idempotent
+            existing_model.inspection_logs.clear()
+            if permohonan.inspection_logs:
+                from src.infrastructure.database.models import FieldInspectionLogModel
+                for log in permohonan.inspection_logs:
+                    existing_model.inspection_logs.append(
+                        FieldInspectionLogModel(
+                            id=log.id,
+                            id_permohonan=permohonan.id_permohonan,
+                            inspector_name=log.inspector_name,
+                            timestamp=log.timestamp,
+                            latitude=log.latitude,
+                            longitude=log.longitude,
+                            distance_from_boundary_meters=log.distance_from_boundary_meters,
+                            is_verified=log.is_verified,
+                            photo_url=log.photo_url,
+                            notes=log.notes
+                        )
+                    )
+
+            # PEMBARUAN v5.4: Sinkronisasi Aerial Inspection Log secara idempotent
+            if permohonan.aerial_inspection:
+                from src.infrastructure.database.models import AerialInspectionLogModel
+                ae_data = permohonan.aerial_inspection
+                if existing_model.aerial_inspection:
+                    existing_model.aerial_inspection.pilot_name = ae_data.pilot_name
+                    existing_model.aerial_inspection.timestamp = ae_data.timestamp
+                    existing_model.aerial_inspection.drone_video_url = ae_data.drone_video_url
+                    existing_model.aerial_inspection.flight_metadata = ae_data.flight_metadata
+                    existing_model.aerial_inspection.notes = ae_data.notes
+                else:
+                    existing_model.aerial_inspection = AerialInspectionLogModel(
+                        id=ae_data.id,
+                        id_permohonan=ae_data.id_permohonan,
+                        pilot_name=ae_data.pilot_name,
+                        timestamp=ae_data.timestamp,
+                        drone_video_url=ae_data.drone_video_url,
+                        flight_metadata=ae_data.flight_metadata,
+                        notes=ae_data.notes
+                    )
+            else:
+                if existing_model.aerial_inspection:
+                    self.db.delete(existing_model.aerial_inspection)
 
             # Save polygon geom if updated
             if permohonan.polygon:
@@ -1058,3 +1182,95 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
     def rollback(self) -> None:
         """Rollback transaksi database yang sedang aktif secara atomik."""
         self.db.rollback()
+
+    def get_vector_tile(self, id_permohonan: str, z: int, x: int, y: int) -> bytes:
+        """
+        Mengambil paket biner vector tile (MVT) secara native menggunakan PostGIS.
+        Menggabungkan layer 'site_plan' (AutoCAD detail) dan 'batas_lahan' (geometri permohonan).
+        """
+        query = text("""
+            WITH bounds AS (
+                SELECT 
+                    ST_TileEnvelope(:z, :x, :y) AS env_3857,
+                    ST_Transform(ST_TileEnvelope(:z, :x, :y), 4326) AS env_4326
+            ),
+            mvt_site_plan AS (
+                SELECT 
+                    ST_AsMVTGeom(
+                        ST_Transform(sg.geom, 3857), 
+                        b.env_3857, 
+                        4096, 
+                        64, 
+                        true
+                    ) AS geom,
+                    sg.layer_name,
+                    CASE 
+                        WHEN sg.layer_name = 'PTSP_KDB' THEN '#475569'
+                        WHEN sg.layer_name = 'PTSP_PSU_JALAN' THEN '#cbd5e1'
+                        WHEN sg.layer_name = 'PTSP_KDH' THEN '#10b981'
+                        WHEN sg.layer_name = 'PTSP_PSU_MAKAM' THEN '#eab308'
+                        ELSE '#14b8a6'
+                    END AS color,
+                    CASE 
+                        WHEN sg.layer_name = 'PTSP_KDB' THEN 
+                            COALESCE(
+                                (COALESCE(p.verified_klb, p.tech_klb, p.bylaw_max_klb, 1.2) / 
+                                 NULLIF(COALESCE(p.verified_kdb, p.tech_kdb, p.bylaw_max_kdb, 60.0), 0) * 100.0
+                                ) * 4.0, 
+                                6.0
+                            )
+                        ELSE 0.0
+                    END AS height
+                FROM site_plan_geometries sg
+                JOIN permohonan p ON sg.id_permohonan = p.id_permohonan
+                CROSS JOIN bounds b
+                WHERE sg.id_permohonan = :id_permohonan 
+                  AND ST_Intersects(sg.geom, b.env_4326)
+            ),
+            mvt_batas_lahan AS (
+                SELECT 
+                    ST_AsMVTGeom(
+                        ST_Transform(p.geom, 3857), 
+                        b.env_3857, 
+                        4096, 
+                        64, 
+                        true
+                    ) AS geom,
+                    'Batas Bidang Lahan' AS name
+                FROM permohonan p
+                CROSS JOIN bounds b
+                WHERE p.id_permohonan = :id_permohonan 
+                  AND p.geom IS NOT NULL
+                  AND ST_Intersects(p.geom, b.env_4326)
+            )
+            SELECT 
+                COALESCE(
+                    (SELECT ST_AsMVT(sp, 'site_plan') FROM mvt_site_plan sp), 
+                    ''::bytea
+                ) || 
+                COALESCE(
+                    (SELECT ST_AsMVT(bl, 'batas_lahan') FROM mvt_batas_lahan bl), 
+                    ''::bytea
+                ) AS tile;
+        """)
+
+        try:
+            raw_result = self.db.execute(query, {
+                "id_permohonan": id_permohonan,
+                "z": z,
+                "x": x,
+                "y": y
+            }).scalar()
+            return raw_result if raw_result is not None else b""
+        except Exception as e:
+            logger.error(
+                f"[MVT_TILE_ERROR] Gagal memuat MVT untuk permohonan {id_permohonan} tile {z}/{x}/{y}: {str(e)}",
+                exc_info=True
+            )
+            return b""
+
+    async def get_vector_tile_async(self, id_permohonan: str, z: int, x: int, y: int) -> bytes:
+        """
+        Kompilasi asinkron (non-blocking) untuk pemrosesan biner vector tile.
+        """
+        return await asyncio.to_thread(self.get_vector_tile, id_permohonan, z, x, y)

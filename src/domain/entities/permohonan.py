@@ -1,6 +1,6 @@
 """
 ============================================================================
-SIPAS DOMAIN ENTITY — Permohonan [permohonan.py] (REVISED v5.3 - TYPE SAFE)
+SIPAS DOMAIN ENTITY — Permohonan [permohonan.py] (REVISED v5.4 - TYPE SAFE)
 ============================================================================
 Peran: Entitas domain murni (Pure Python) yang merepresentasikan berkas
        pengajuan pengesahan site plan. Menegakkan aturan transisi status (SLA),
@@ -8,6 +8,9 @@ Peran: Entitas domain murni (Pure Python) yang merepresentasikan berkas
        perhitungan galat input spasial, pengamanan veto Kabid, perpindahan
        hak otorisasi TTE akhir ke Kepala Dinas (Kadis) secara legal, serta
        riwayat silsilah dokumen pengesahan terdahulu (Revisi/Perubahan).
+       
+Pembaruan v5.4: Pemisahan Ground Inspection (titik darat) dan 
+               Aerial Inspection (drone video) untuk kepatuhan GRASP.
 ============================================================================
 """
 
@@ -109,6 +112,54 @@ class SilsilahPermohonan:
         self.parent_sk_number = parent_sk_number
         self.parent_housing_name = parent_housing_name
         self.parent_developer_name = parent_developer_name
+
+
+class FieldInspectionLog:
+    """Entitas domain murni untuk merepresentasikan log sidak titik fisik darat (Ground Inspection)."""
+    def __init__(
+        self,
+        id: int,
+        id_permohonan: str,
+        inspector_name: str,
+        timestamp: datetime,
+        latitude: float,
+        longitude: float,
+        photo_url: str,
+        is_verified: bool = True,
+        distance_from_boundary_meters: Optional[float] = None,
+        notes: Optional[str] = None
+    ):
+        self.id = id
+        self.id_permohonan = id_permohonan
+        self.inspector_name = inspector_name
+        self.timestamp = timestamp
+        self.latitude = latitude
+        self.longitude = longitude
+        self.photo_url = photo_url
+        self.is_verified = is_verified
+        self.distance_from_boundary_meters = distance_from_boundary_meters
+        self.notes = notes
+
+
+class AerialInspectionLog:
+    """Entitas domain murni untuk merepresentasikan dokumentasi video udara drone (Aerial Inspection)."""
+    def __init__(
+        self,
+        id: int,
+        id_permohonan: str,
+        pilot_name: str,
+        timestamp: datetime,
+        drone_video_url: str,
+        flight_metadata: Optional[dict] = None,
+        notes: Optional[str] = None
+    ):
+        self.id = id
+        self.id_permohonan = id_permohonan
+        self.pilot_name = pilot_name
+        self.timestamp = timestamp
+        self.drone_video_url = drone_video_url
+        self.flight_metadata = flight_metadata or {}
+        self.notes = notes
 
 
 class Permohonan:
@@ -261,6 +312,10 @@ class Permohonan:
         admin_lock_name: Optional[str] = None,
         teknisi_lock_id: Optional[int] = None,
         teknisi_lock_name: Optional[str] = None,
+
+        # PEMBARUAN v5.4: Relasi Inspeksi Darat & Udara Terpisah
+        inspection_logs: Optional[List[FieldInspectionLog]] = None,
+        aerial_inspection: Optional[AerialInspectionLog] = None,
     ):
         self.id_permohonan = id_permohonan
         self.submission_no = submission_no
@@ -400,6 +455,10 @@ class Permohonan:
         self.teknisi_lock_id = teknisi_lock_id
         self.teknisi_lock_name = teknisi_lock_name
 
+        # PEMBARUAN v5.4: Inisialisasi Sidak Darat & Udara
+        self.inspection_logs = inspection_logs or []
+        self.aerial_inspection = aerial_inspection
+
     @property
     def document_category(self) -> DocumentCategory:
         land_area_to_check = self.applicant_land_area or self.land_area
@@ -439,7 +498,8 @@ class Permohonan:
     def transition_status(self, new_status: SubmissionStatus) -> None:
         """
         State Machine Aturan Transisi Status Berkas Resmi.
-        Menegakkan Segregation of Duties (SoD) dan keamanan birokrasi penataan ruang.
+        Menegakkan Segregation of Duties (SoD), aturan kelengkapan sidak fisik,
+        dan keamanan birokrasi penataan ruang daerah.
         """
         allowed_transitions = {
             SubmissionStatus.DRAFT: [
@@ -493,6 +553,22 @@ class Permohonan:
             raise IllegalStateTransitionError(
                 f"Ilegal: Tidak diizinkan melakukan transisi status dari '{self.status.value}' langsung ke '{new_status.value}'."
             )
+
+        # PEMBARUAN v5.4: Penegakan aturan kelengkapan sidak darat & udara sebelum Telaah Staf diajukan ke Kabid
+        if new_status == SubmissionStatus.MENUNGGU_REKOMENDASI:
+            # Skenario kategori wajib yang memiliki dampak tata ruang masif
+            if self.submission_category in ["PERUMAHAN", "INDUSTRI", "NON_PERUMAHAN"]:
+                if not self.inspection_logs or len(self.inspection_logs) == 0:
+                    raise ValueError(
+                        f"Gagal: Minimal harus terdapat 1 data log kunjungan lapangan darat (Ground Inspection) "
+                        f"sebelum berkas '{self.submission_no}' dapat diajukan rekomendasi."
+                    )
+                # Video drone udara wajib mutlak untuk perumahan & industri
+                if self.submission_category in ["PERUMAHAN", "INDUSTRI"] and not self.aerial_inspection:
+                    raise ValueError(
+                        f"Gagal: Rekaman video udara (Aerial Drone Inspection) wajib diunggah untuk kategori "
+                        f"'{self.submission_category}' sebelum draf Telaah Staf diajukan ke Kepala Bidang."
+                    )
 
         if new_status == SubmissionStatus.DITOLAK and self.status not in [SubmissionStatus.DRAFT, SubmissionStatus.DITOLAK]:
             self.elapsed_days = max(self.elapsed_days, (date.today() - self.sla_start_date).days)
@@ -706,6 +782,12 @@ class Permohonan:
         for silsilah in self.parents_lineage:
             return silsilah.legacy_sk_doc_url
         return None
+
+    # ─── PEMBARUAN v5.4: INDIKATOR KELENGKAPAN DRONE ──────────────────────────
+    @property
+    def has_aerial_inspection(self) -> bool:
+        """Menilai ketersediaan video udara drone terpasang."""
+        return self.aerial_inspection is not None
 
 
 class IllegalStateTransitionError(Exception):
