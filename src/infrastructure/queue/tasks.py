@@ -18,9 +18,10 @@ from pathlib import Path
 
 from shapely.geometry import Polygon
 from geoalchemy2.shape import from_shape
+from geoalchemy2.shape import to_shape
 
 from src.infrastructure.database.connection import SessionLocal
-from src.infrastructure.database.models import SitePlanGeometryModel
+from src.infrastructure.database.models import PermohonanModel, SitePlanGeometryModel
 from src.domain.value_objects.spatial_params import solveHelmert2D, HelmertParameters
 from src.infrastructure.gis.cad_parser import CadParser
 from src.infrastructure.gis.geoserver_client import GeoServerClient
@@ -57,6 +58,14 @@ def execute_cad_parsing_background(
         # 1. Ekstrak data mentah koordinat lokal dari berkas CAD
         parser = CadParser()
         raw_cad_layers = parser.parse_and_extract_layers(file_path)
+        submission = db.query(PermohonanModel).filter(
+            PermohonanModel.id_permohonan == id_permohonan
+        ).first()
+        if submission is None or submission.geom is None:
+            raise ValueError(
+                f"Batas lahan untuk permohonan '{id_permohonan}' tidak ditemukan."
+            )
+        land_boundary = to_shape(submission.geom)
 
         # 2. Perhitungan dinamis parameter Helmert 2D berdasarkan penambat aktual kiriman user [Jakarta 5]
         # Menghapus keterikatan statis (hardcoded) demi kepatuhan terhadap prinsip Protected Variations
@@ -71,6 +80,13 @@ def execute_cad_parsing_background(
             Tx=helmert_res["Tx"], Ty=helmert_res["Ty"],
             scale=helmert_res["scale"], rotation_rad=helmert_res["rotation"]
         )
+        submission.cad_file_name = file_path_obj.name
+        submission.cad_param_a = transform_params.A
+        submission.cad_param_b = transform_params.B
+        submission.cad_param_tx = transform_params.Tx
+        submission.cad_param_ty = transform_params.Ty
+        submission.cad_scale = transform_params.scale
+        submission.cad_rotation = transform_params.rotation_rad
 
         # 3. Hapus data spasial lama milik permohonan ini jika ada (Idempotent)
         db.query(SitePlanGeometryModel).filter(SitePlanGeometryModel.id_permohonan == id_permohonan).delete()
@@ -78,6 +94,16 @@ def execute_cad_parsing_background(
         # 4. Transformasikan titik lokal CAD dan simpan fisiknya ke PostGIS
         saved_count = 0
         for layer_name, polylines in raw_cad_layers.items():
+            if layer_name == "PTSP_BATAS_LAHAN" and polylines:
+                spatial_record = SitePlanGeometryModel(
+                    id_permohonan=id_permohonan,
+                    layer_name=layer_name,
+                    geom=from_shape(land_boundary, srid=4326)
+                )
+                db.add(spatial_record)
+                saved_count += 1
+                continue
+
             for polyline in polylines:
                 # Lakukan transformasi Helmert 2D ke WGS84 per titik
                 calibrated_coords = []
@@ -91,13 +117,28 @@ def execute_cad_parsing_background(
 
                 # Konversi menjadi objek geometri spasial PostGIS menggunakan Shapely
                 shapely_polygon = Polygon(calibrated_coords)
-                spatial_record = SitePlanGeometryModel(
-                    id_permohonan=id_permohonan,
-                    layer_name=layer_name,
-                    geom=from_shape(shapely_polygon, srid=4326)
+                clipped_geometry = shapely_polygon.intersection(land_boundary)
+                if clipped_geometry.is_empty:
+                    continue
+
+                polygon_parts = (
+                    [clipped_geometry]
+                    if clipped_geometry.geom_type == "Polygon"
+                    else [
+                        part for part in getattr(clipped_geometry, "geoms", [])
+                        if part.geom_type == "Polygon"
+                    ]
                 )
-                db.add(spatial_record)
-                saved_count += 1
+                for polygon_part in polygon_parts:
+                    if polygon_part.area <= 0:
+                        continue
+                    spatial_record = SitePlanGeometryModel(
+                        id_permohonan=id_permohonan,
+                        layer_name=layer_name,
+                        geom=from_shape(polygon_part, srid=4326)
+                    )
+                    db.add(spatial_record)
+                    saved_count += 1
 
         # 5. Eksekusi komit transaksi database fisik PostGIS
         db.commit()

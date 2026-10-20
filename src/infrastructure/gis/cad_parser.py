@@ -111,11 +111,14 @@ class CadParser(CadParserPort):
     def __init__(self):
         # Daftar layer standar daerah Kabupaten Bogor yang diizinkan untuk diekstrak [sipas-be.txt]
         self.allowed_layers = {
-            "PTSP_KDB",      # Koefisien Dasar Bangunan
-            "PTSP_KDH",      # Koefisien Dasar Hijau
-            "PTSP_KTB",      # Koefisien Tapak Basement
-            "PTSP_PSU_JALAN",# Jaringan Jalan Internal
-            "PTSP_PSU_MAKAM" # Lahan Pemakaman 2%
+            "PTSP_KDB",          # Koefisien Dasar Bangunan
+            "PTSP_KDH",          # Koefisien Dasar Hijau (RTH)
+            "PTSP_KTB",          # Koefisien Tapak Basement
+            "PTSP_PSU_JALAN",    # Jaringan Jalan Internal
+            "PTSP_PSU_MAKAM",    # Lahan Pemakaman
+            "PTSP_BATAS_LAHAN",  # Batas Terluar Bidang Tanah
+            "BANGUNAN_3D",       # Layer 3D Model Gedung
+            "KAVELING",          # Kaveling Unit Permohonan
         }
 
     def parse_and_extract_layers(
@@ -169,6 +172,20 @@ class CadParser(CadParserPort):
                             # Terapkan kompresi geometri RDP secara aman
                             simplified_vertices = simplify_polygon(vertices, epsilon)
                             extracted_data[layer_name].append(simplified_vertices)
+
+            # 4. Iterasi entitas 3DFACE
+            for entity in model_space.query('3DFACE'):
+                layer_name = entity.dxf.layer.upper()
+                if layer_name in self.allowed_layers:
+                    try:
+                        v0 = entity.dxf.vtx0
+                        v1 = entity.dxf.vtx1
+                        v2 = entity.dxf.vtx2
+                        v3 = entity.dxf.vtx3
+                        vertices = [(float(v0.x), float(v0.y)), (float(v1.x), float(v1.y)), (float(v2.x), float(v2.y)), (float(v3.x), float(v3.y))]
+                        extracted_data[layer_name].append(vertices)
+                    except Exception:
+                        pass
 
             # 4. Rekam hasil kompresi dan statistik data ke log audit
             for layer, polygons in extracted_data.items():

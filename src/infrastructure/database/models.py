@@ -155,7 +155,14 @@ class PermohonanModel(Base):
     cad_scale: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     cad_rotation: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
-    # ─── TAHAP 5: DATA INFORMASI TATA RUANG (SPATIAL INFO) ────────────────────
+    # ─── TAHAP 5: DATA INFORMASI TATA RUANG (SPATIAL INFO & PKKPR BINDING) ────
+    pkkpr_id: Mapped[Optional[str]] = mapped_column(
+        String(50), 
+        ForeignKey("pkkpr_submissions.id", ondelete="RESTRICT"), 
+        nullable=True, 
+        index=True
+    )
+    pkkpr_origin: Mapped[str] = mapped_column(String(30), default="INTERNAL", nullable=False)
     spatial_kkpr_number: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     spatial_land_use: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     spatial_green_area: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
@@ -309,6 +316,13 @@ class PermohonanModel(Base):
         back_populates="permohonan",
         uselist=False,
         cascade="all, delete-orphan"
+    )
+
+    # Relasi Banyak-ke-Satu Induk Legalitas Tata Ruang (PKKPR)
+    pkkpr: Mapped[Optional["PKKPRSubmissionModel"]] = relationship(
+        "PKKPRSubmissionModel",
+        back_populates="siteplans",
+        foreign_keys=[pkkpr_id]
     )
 
 
@@ -672,3 +686,175 @@ class AerialInspectionLogModel(Base):
         "PermohonanModel",
         back_populates="aerial_inspection"
     )
+
+
+# ─── MODUL PKKPR DATABASE MODELS ──────────────────────────────────────────────
+
+class PKKPRSubmissionModel(Base):
+    """
+    Model Database Utama untuk Permohonan Persetujuan Kesesuaian Kegiatan Pemanfaatan Ruang (PKKPR).
+    Menampung data pemohon, poligon batas lahan PostGIS, hasil kajian spasial, dan status hukum.
+    """
+    __tablename__ = "pkkpr_submissions"
+
+    id: Mapped[str] = mapped_column(String(50), primary_key=True, index=True)
+    submission_no: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, index=True)
+    user: Mapped["UserModel"] = relationship("UserModel", foreign_keys=[user_id])
+
+    category: Mapped[str] = mapped_column(String(50), default="BERUSAHA_PENILAIAN", nullable=False)
+    status: Mapped[str] = mapped_column(String(50), default="DRAFT", nullable=False, index=True)
+    sla_start_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    elapsed_days: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    buffer_sla: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+    # Identitas Pemohon
+    applicant_type: Mapped[str] = mapped_column(String(50), default="BADAN_USAHA", nullable=False)
+    applicant_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    applicant_nik: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    applicant_nib: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    applicant_npwp: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    applicant_phone: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    applicant_email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+
+    # Kegiatan & Lokasi
+    activity_description: Mapped[str] = mapped_column(Text, nullable=False)
+    kbli_code: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
+    location_address: Mapped[str] = mapped_column(Text, nullable=False)
+    location_village: Mapped[str] = mapped_column(String(100), nullable=False)
+    location_district: Mapped[str] = mapped_column(String(100), nullable=False)
+    location_city: Mapped[str] = mapped_column(String(100), default="Kabupaten Bogor", nullable=False)
+
+    # Geometri Bidang Tanah & Luas
+    geom: Mapped[Any] = mapped_column(
+        Geometry(geometry_type='MULTIPOLYGON', srid=4326, spatial_index=True), 
+        nullable=False
+    )
+    proposed_land_area_m2: Mapped[float] = mapped_column(Float, nullable=False)
+    approved_land_area_m2: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+
+    # Ketetapan Parameter Ruang (Diisi saat SK Terbit)
+    approved_kdb_max: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    approved_klb_max: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    approved_kdh_min: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    approved_gsb_min: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    approved_max_floors: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    spatial_zone_code: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    spatial_zone_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+
+    # Mekanisme Penguncian Berkas
+    admin_lock_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    admin_lock: Mapped[Optional["UserModel"]] = relationship("UserModel", foreign_keys=[admin_lock_id])
+    technical_lock_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    technical_lock: Mapped[Optional["UserModel"]] = relationship("UserModel", foreign_keys=[technical_lock_id])
+
+    # Dokumen Legalitas Akhir
+    sk_number: Mapped[Optional[str]] = mapped_column(String(100), unique=True, nullable=True)
+    sk_issued_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    signed_pdf_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    qr_code_hash: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    # Relasi Anak
+    files: Mapped[List["PKKPRFileModel"]] = relationship(
+        "PKKPRFileModel",
+        back_populates="pkkpr",
+        cascade="all, delete-orphan"
+    )
+    fpr_reviews: Mapped[List["PKKPRFprReviewModel"]] = relationship(
+        "PKKPRFprReviewModel",
+        back_populates="pkkpr",
+        cascade="all, delete-orphan"
+    )
+    sk_draft: Mapped[Optional["PKKPRSkDraftModel"]] = relationship(
+        "PKKPRSkDraftModel",
+        back_populates="pkkpr",
+        uselist=False,
+        cascade="all, delete-orphan"
+    )
+    siteplans: Mapped[List["PermohonanModel"]] = relationship(
+        "PermohonanModel",
+        back_populates="pkkpr"
+    )
+
+
+class PKKPRFileModel(Base):
+    """Model penyimpanan berkas lampiran pendukung PKKPR."""
+    __tablename__ = "pkkpr_files"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    pkkpr_id: Mapped[str] = mapped_column(
+        String(50), 
+        ForeignKey("pkkpr_submissions.id", ondelete="CASCADE"), 
+        nullable=False, 
+        index=True
+    )
+    file_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    file_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    file_path: Mapped[str] = mapped_column(Text, nullable=False)
+    file_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    mime_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+
+    pkkpr: Mapped["PKKPRSubmissionModel"] = relationship("PKKPRSubmissionModel", back_populates="files")
+
+
+class PKKPRFprReviewModel(Base):
+    """Model penyimpanan risalah sidang komite Forum Penataan Ruang (FPR)."""
+    __tablename__ = "pkkpr_fpr_reviews"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    pkkpr_id: Mapped[str] = mapped_column(
+        String(50), 
+        ForeignKey("pkkpr_submissions.id", ondelete="CASCADE"), 
+        nullable=False, 
+        index=True
+    )
+    meeting_date: Mapped[date] = mapped_column(Date, nullable=False)
+    official_report_no: Mapped[str] = mapped_column(String(100), nullable=False)
+    recommendation: Mapped[str] = mapped_column(String(50), nullable=False)
+
+    ptp_bpn_number: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    ptp_bpn_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    ptp_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    zoning_compliance_notes: Mapped[str] = mapped_column(Text, nullable=False)
+    infrastructure_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    environmental_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    minutes_pdf_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    created_by_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+    created_by: Mapped["UserModel"] = relationship("UserModel", foreign_keys=[created_by_id])
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+
+    pkkpr: Mapped["PKKPRSubmissionModel"] = relationship("PKKPRSubmissionModel", back_populates="fpr_reviews")
+
+
+class PKKPRSkDraftModel(Base):
+    """Model perumusan draf diktum Surat Keputusan penetapan PKKPR."""
+    __tablename__ = "pkkpr_sk_draft"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    pkkpr_id: Mapped[str] = mapped_column(
+        String(50), 
+        ForeignKey("pkkpr_submissions.id", ondelete="CASCADE"), 
+        unique=True, 
+        nullable=False
+    )
+    draft_sk_number: Mapped[str] = mapped_column(String(100), nullable=False)
+    considerations: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
+    legal_bases: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
+    dictum_clauses: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    obligations: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
+
+    prepared_by_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+    prepared_by: Mapped["UserModel"] = relationship("UserModel", foreign_keys=[prepared_by_id])
+    kabid_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    kabid_paraf_hash: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    pkkpr: Mapped["PKKPRSubmissionModel"] = relationship("PKKPRSubmissionModel", back_populates="sk_draft")

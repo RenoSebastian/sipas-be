@@ -316,6 +316,10 @@ class Permohonan:
         # PEMBARUAN v5.4: Relasi Inspeksi Darat & Udara Terpisah
         inspection_logs: Optional[List[FieldInspectionLog]] = None,
         aerial_inspection: Optional[AerialInspectionLog] = None,
+
+        # INTEGRASI MODUL HULU PKKPR (Perbup Bogor No. 4/2025)
+        pkkpr_id: Optional[str] = None,
+        pkkpr_origin: str = "INTERNAL",
     ):
         self.id_permohonan = id_permohonan
         self.submission_no = submission_no
@@ -458,6 +462,10 @@ class Permohonan:
         # PEMBARUAN v5.4: Inisialisasi Sidak Darat & Udara
         self.inspection_logs = inspection_logs or []
         self.aerial_inspection = aerial_inspection
+
+        # INTEGRASI MODUL HULU PKKPR
+        self.pkkpr_id = pkkpr_id
+        self.pkkpr_origin = pkkpr_origin or "INTERNAL"
 
     @property
     def document_category(self) -> DocumentCategory:

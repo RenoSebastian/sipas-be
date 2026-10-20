@@ -20,6 +20,7 @@ from fastapi.exceptions import RequestValidationError
 from src.infrastructure.http.routes.submissions import router as submissions_router
 from src.infrastructure.http.routes.reports import router as reports_router
 from src.infrastructure.http.routes.auth import router as auth_router
+from src.infrastructure.http.routes.pkkpr import router as pkkpr_router
 import logging
 
 from src.domain.exceptions import SpatialValidationError
@@ -113,6 +114,7 @@ async def health_check():
 app.include_router(submissions_router)
 app.include_router(reports_router)
 app.include_router(auth_router)
+app.include_router(pkkpr_router)
 
 import os
 os.makedirs("uploads/permohonan", exist_ok=True)

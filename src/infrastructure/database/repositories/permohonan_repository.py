@@ -281,7 +281,11 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
 
             # PEMBARUAN v5.4: Relasi Sidak Lapangan & Drone Video
             inspection_logs=inspection_logs,
-            aerial_inspection=aerial_entity
+            aerial_inspection=aerial_entity,
+
+            # INTEGRASI MODUL HULU PKKPR (Perbup Bogor No. 4/2025)
+            pkkpr_id=str(model.pkkpr_id) if model.pkkpr_id else None,
+            pkkpr_origin=str(model.pkkpr_origin) if model.pkkpr_origin else "INTERNAL"
         )
 
     def _to_model(self, entity: Permohonan) -> PermohonanModel:
@@ -511,7 +515,11 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
 
             # PEMBARUAN v5.4: Konversi Relasi ke DB Model saat penyimpanan
             inspection_logs=inspection_log_models,
-            aerial_inspection=aerial_model
+            aerial_inspection=aerial_model,
+
+            # INTEGRASI MODUL HULU PKKPR (Perbup Bogor No. 4/2025)
+            pkkpr_id=entity.pkkpr_id,
+            pkkpr_origin=entity.pkkpr_origin or "INTERNAL"
         )
 
     def find_by_id(self, id_permohonan: str) -> Optional[Permohonan]:
@@ -578,6 +586,10 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
             existing_model.spatial_kkpr_number = permohonan.spatial_kkpr_number
             existing_model.spatial_land_use = permohonan.spatial_land_use
             existing_model.spatial_green_area = permohonan.spatial_green_area if permohonan.spatial_green_area is not None else 0.0
+
+            # INTEGRASI MODUL HULU PKKPR (Perbup Bogor No. 4/2025)
+            existing_model.pkkpr_id = permohonan.pkkpr_id
+            existing_model.pkkpr_origin = permohonan.pkkpr_origin or "INTERNAL"
 
             # Tahap 6
             existing_model.tech_lot_count = permohonan.tech_lot_count
@@ -1045,8 +1057,25 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
                         END
                     )
                 ) AS feature
-                FROM site_plan_geometries
-                WHERE id_permohonan = :id_permohonan
+                FROM (
+                    SELECT
+                        site_plan_geometries.id,
+                        site_plan_geometries.layer_name,
+                        CASE
+                            WHEN site_plan_geometries.layer_name = 'PTSP_BATAS_LAHAN'
+                                THEN permohonan.geom
+                            ELSE ST_CollectionExtract(
+                                ST_Intersection(site_plan_geometries.geom, permohonan.geom),
+                                3
+                            )
+                        END AS geom
+                    FROM site_plan_geometries
+                    JOIN permohonan
+                        ON permohonan.id_permohonan = site_plan_geometries.id_permohonan
+                    WHERE site_plan_geometries.id_permohonan = :id_permohonan
+                        AND permohonan.geom IS NOT NULL
+                ) clipped_siteplan
+                WHERE NOT ST_IsEmpty(geom)
             ) features;
         """)
         
@@ -1200,7 +1229,7 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
             mvt_site_plan AS (
                 SELECT 
                     ST_AsMVTGeom(
-                        ST_Transform(sg.geom, 3857), 
+                        ST_Transform(clipped.geom, 3857), 
                         b.env_3857, 
                         4096, 
                         64, 
@@ -1227,8 +1256,16 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
                 FROM site_plan_geometries sg
                 JOIN permohonan p ON sg.id_permohonan = p.id_permohonan
                 CROSS JOIN bounds b
+                CROSS JOIN LATERAL (
+                    SELECT CASE
+                        WHEN sg.layer_name = 'PTSP_BATAS_LAHAN' THEN p.geom
+                        ELSE ST_CollectionExtract(ST_Intersection(sg.geom, p.geom), 3)
+                    END AS geom
+                ) clipped
                 WHERE sg.id_permohonan = :id_permohonan 
-                  AND ST_Intersects(sg.geom, b.env_4326)
+                  AND p.geom IS NOT NULL
+                  AND NOT ST_IsEmpty(clipped.geom)
+                  AND ST_Intersects(clipped.geom, b.env_4326)
             ),
             mvt_batas_lahan AS (
                 SELECT 

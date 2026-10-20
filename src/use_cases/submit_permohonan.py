@@ -265,6 +265,10 @@ class SubmitPermohonanInputDto:
     replaced_sk_date: Optional[date] = None       # Tanggal SK Fisik Lama
     replaced_sk_doc_url: Optional[str] = None     # URL Berkas SK Fisik Lama
 
+    # ─── INTEGRASI MODUL HULU PKKPR (Perbup Bogor No. 4/2025) ─────
+    pkkpr_id: Optional[str] = None
+    pkkpr_origin: Optional[str] = "INTERNAL"
+
 # ─── SECTION: USE CASE INTERACTOR ─────────────────────────────────────────
 
 from src.use_cases.ports.integration_ports import BpnValidationPort, OssSyncPort, SimtaruSyncPort
@@ -276,7 +280,8 @@ class SubmitPermohonanUseCase:
         audit_trail_repo: AuditTrailRepositoryPort,
         bpn_port: Optional[BpnValidationPort] = None,
         oss_port: Optional[OssSyncPort] = None,
-        simtaru_port: Optional[SimtaruSyncPort] = None
+        simtaru_port: Optional[SimtaruSyncPort] = None,
+        pkkpr_repo: Optional[Any] = None
     ):
         """Suntikkan abstraksi ketergantungan (Dependency Injection)."""
         self.permohonan_repo = permohonan_repo
@@ -284,6 +289,7 @@ class SubmitPermohonanUseCase:
         self.bpn_port = bpn_port
         self.oss_port = oss_port
         self.simtaru_port = simtaru_port
+        self.pkkpr_repo = pkkpr_repo
 
     def execute(self, input_dto: SubmitPermohonanInputDto) -> Permohonan:
         """Menjalankan orkestrasi pendaftaran permohonan satu pintu [Bogor 4]."""
@@ -328,6 +334,15 @@ class SubmitPermohonanUseCase:
         resolved_loc_ownership = resolve_field(input_dto.location_ownership_status, getattr(parent_record, "location_ownership_status", None), "SHM")
         resolved_loc_certificate_no = resolve_field(input_dto.location_certificate_number, getattr(parent_record, "location_certificate_number", None))
         resolved_loc_certificate_owner = resolve_field(input_dto.location_certificate_owner, getattr(parent_record, "location_certificate_owner", None))
+
+        # ─── VALIDASI REGULASI PEMKAB BOGOR: PERUMAHAN WAJIB BADAN USAHA ───
+        resolved_category = (input_dto.submission_category or "").upper().strip()
+        if resolved_category == "PERUMAHAN" and not input_dto.is_draft:
+            if resolved_app_type != "BADAN_USAHA":
+                raise ValueError(
+                    "Sesuai regulasi perizinan Kabupaten Bogor, permohonan rencana tapak kategori 'PERUMAHAN' "
+                    "wajib diajukan atas nama BADAN USAHA / PERUSAHAAN (tidak diizinkan perorangan)."
+                )
 
         permohonan = Permohonan(
             id_permohonan=input_dto.id_permohonan,
@@ -423,7 +438,11 @@ class SubmitPermohonanUseCase:
             bylaw_min_rth_area=input_dto.bylaw_min_rth_area,
 
             # ─── SILSILAH DOMAIN MAPPING KPD ENTIAS DOMAIN ───
-            parents_lineage=[]
+            parents_lineage=[],
+
+            # ─── INTEGRASI MODUL HULU PKKPR (Perbup Bogor No. 4/2025) ─────
+            pkkpr_id=input_dto.pkkpr_id,
+            pkkpr_origin=input_dto.pkkpr_origin or "INTERNAL"
         )
 
         # ─── LOGIKA VERIFIKASI SEJARAH SK SECARA PRESISI (HUKUM DAN SPASIAL) ───
@@ -493,6 +512,31 @@ class SubmitPermohonanUseCase:
         audit_notes = f"Draf permohonan tipe '{permohonan.document_category.value}' berhasil disimpan secara mandiri."
 
         if not input_dto.is_draft:
+            # ─── VALIDASI INTEGRASI HULU PKKPR (Perbup Bogor No. 4/2025 Pasal 3) ───
+            if input_dto.pkkpr_id:
+                if (input_dto.pkkpr_origin or "INTERNAL").upper() == "INTERNAL":
+                    if self.pkkpr_repo:
+                        geom_geojson = None
+                        if input_dto.polygon and len(input_dto.polygon) >= 3:
+                            coords = [[float(pt[0]), float(pt[1])] for pt in input_dto.polygon]
+                            if coords[0] != coords[-1]:
+                                coords.append(coords[0])
+                            geom_geojson = {"type": "Polygon", "coordinates": [coords]}
+
+                        effective_area = float(input_dto.applicant_land_area or input_dto.land_area or 0.0)
+                        val_res = self.pkkpr_repo.validate_phased_siteplan(
+                            pkkpr_id=input_dto.pkkpr_id,
+                            new_siteplan_geom=geom_geojson,
+                            new_area_m2=effective_area,
+                            exclude_permohonan_id=input_dto.id_permohonan,
+                            for_update=True
+                        )
+                        if not val_res["is_valid"]:
+                            raise ValueError(val_res["error"])
+                elif (input_dto.pkkpr_origin or "").upper() == "EXTERNAL":
+                    if not input_dto.spatial_kkpr_number:
+                        raise ValueError("Untuk rujukan PKKPR Eksternal (OSS / ATR-BPN), Nomor SK PKKPR wajib dicantumkan.")
+
             permohonan.transition_status(SubmissionStatus.MENUNGGU_VERIFIKASI)
             action_name = "SUBMIT_UNIFIED_FORM"
             status_after = SubmissionStatus.MENUNGGU_VERIFIKASI.value

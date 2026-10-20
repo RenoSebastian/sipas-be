@@ -43,7 +43,7 @@ class GeoJsonRepository:
         query = text("""
             SELECT jsonb_build_object(
                 'type', 'FeatureCollection',
-                'features', COALESCE(jsonb_agg(features.feature), '[]'::jsonb)
+                'features', COALESCE(jsonb_agg(f.feature), '[]'::jsonb)
             )
             FROM (
                 SELECT jsonb_build_object(
@@ -66,8 +66,25 @@ class GeoJsonRepository:
                         END
                     )
                 ) AS feature
-                FROM site_plan_geometries
-                WHERE id_permohonan = :id_permohonan
+                FROM (
+                    SELECT
+                        site_plan_geometries.id,
+                        site_plan_geometries.layer_name,
+                        CASE
+                            WHEN site_plan_geometries.layer_name = 'PTSP_BATAS_LAHAN'
+                                THEN permohonan.geom
+                            ELSE ST_CollectionExtract(
+                                ST_Intersection(site_plan_geometries.geom, permohonan.geom),
+                                3
+                            )
+                        END AS geom
+                    FROM site_plan_geometries
+                    JOIN permohonan
+                        ON permohonan.id_permohonan = site_plan_geometries.id_permohonan
+                    WHERE site_plan_geometries.id_permohonan = :id_permohonan
+                        AND permohonan.geom IS NOT NULL
+                ) clipped_siteplan
+                WHERE NOT ST_IsEmpty(geom)
             ) f;
         """)
 

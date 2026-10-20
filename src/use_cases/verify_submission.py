@@ -297,10 +297,10 @@ class VerifySubmissionUseCase:
         # ─── SECTION 4: MATRIKS OTORISASI PERAN — SoD ENFORCEMENT ──────────────────
         allowed_roles: dict[SubmissionStatus, list[str]] = {
             SubmissionStatus.MENUNGGU_VERIFIKASI:     ["ADMIN"],
-            SubmissionStatus.VERIFIKASI_ADMINISTRASI: ["ADMIN"],
+            SubmissionStatus.VERIFIKASI_ADMINISTRASI: ["ADMIN", "KASI"],
             SubmissionStatus.VERIFIKASI_TEKNIS:       ["TIM_TEKNIS"],
             SubmissionStatus.MENUNGGU_REKOMENDASI:    ["KABID_PUPR"],
-            SubmissionStatus.MENUNGGU_PERSETUJUAN:    ["KADIS"],
+            SubmissionStatus.MENUNGGU_PERSETUJUAN:    ["SEKDIS", "KADIS"],
             SubmissionStatus.PROSES_TTE:              ["KADIS"],
         }
 

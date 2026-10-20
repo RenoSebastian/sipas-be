@@ -54,6 +54,11 @@ class CoordinateDto(BaseModel):
     polygon: Optional[list] = Field(default=None)
     coordinatesText: Optional[str] = Field(default=None)
     cadFileName: Optional[str] = Field(default=None, examples=["blueprint.dxf"])
+    cadFilePath: Optional[str] = Field(default=None)
+    anchorCad1: Optional[Tuple[float, float]] = Field(default=None)
+    anchorCad2: Optional[Tuple[float, float]] = Field(default=None)
+    anchorMap1: Optional[Tuple[float, float]] = Field(default=None)
+    anchorMap2: Optional[Tuple[float, float]] = Field(default=None)
     cadParamA: Optional[float] = Field(default=None)
     cadParamB: Optional[float] = Field(default=None)
     cadParamTx: Optional[float] = Field(default=None)
@@ -63,6 +68,8 @@ class CoordinateDto(BaseModel):
 
 
 class SpatialDetailsDto(BaseModel):
+    pkkprId: Optional[str] = Field(default=None, examples=["PKKPR-202610-0001"])
+    pkkprOrigin: Optional[str] = Field(default="INTERNAL", pattern="^(INTERNAL|EXTERNAL|LEGACY|)$")
     kkprNumber: Optional[str] = Field(default=None, examples=["503/KKPR/PUPR/2026/089"])
     landUse: Optional[str] = Field(default=None, examples=["Zona Perumahan Kepadatan Sedang"])
     greenArea: Optional[float] = Field(default=0.0, examples=[3850.0])
@@ -164,6 +171,10 @@ class SubmitRequest(BaseModel):
     baseline_source: Optional[str] = Field(default=None, pattern="^(DIGITAL|LEGACY|)$")
     parent_id_permohonan: Optional[str] = Field(default=None, examples=["sub-old-12345"])
     legacy_metadata: Optional[LegacyMetadataDto] = Field(default=None)
+
+    # Rujukan Induk Modul Hulu PKKPR (Perbup Bogor No. 4/2025)
+    pkkpr_id: Optional[str] = Field(default=None, examples=["PKKPR-202610-0001"])
+    pkkpr_origin: Optional[str] = Field(default="INTERNAL", pattern="^(INTERNAL|EXTERNAL|LEGACY|)$")
 
     applicant: ApplicantDto
     submission: SubmissionDetailsDto

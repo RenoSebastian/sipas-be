@@ -27,10 +27,12 @@ from src.infrastructure.database.models import UserModel
 
 class UserRole(str, Enum):
     PEMOHON = "PEMOHON"          # User luar (Pengembang / Masyarakat)
-    ADMIN = "ADMIN"              # Verifikator Formal Administrasi & Pengelola Akun
-    TIM_TEKNIS = "TIM_TEKNIS"    # Verifikator Spasial & Pembuat Telaah Staf
-    KABID_PUPR = "KABID_PUPR"    # Reviewer Draf SK & Endorser Telaah Staf
-    KADIS = "KADIS"              # Otoritas Final Penandatangan TTE SK Resmi
+    ADMIN = "ADMIN"              # Petugas Verifikator Awal (Administrasi) & Pengelola Akun
+    KASI = "KASI"                # Kepala Seksi (Verifikasi Sektoral)
+    TIM_TEKNIS = "TIM_TEKNIS"    # Ketua Tim Teknis (Verifikator Spasial & Telaah Staf)
+    KABID_PUPR = "KABID_PUPR"    # Kepala Bidang (Reviewer Draf SK & Endorser Telaah Staf)
+    SEKDIS = "SEKDIS"            # Sekretaris Dinas (Paraf Koordinasi Administrasi Dinas)
+    KADIS = "KADIS"              # Kepala Dinas (Otoritas Final Penandatangan TTE SK Resmi)
 
 
 SECRET_KEY = "geosipas-super-secret-key-bogor-gis-sipas"

@@ -25,6 +25,7 @@ import random
 import shutil
 import uuid
 import os
+from pathlib import Path
 import urllib.parse
 
 # Adapter Koneksi & Repositori Database
@@ -34,6 +35,7 @@ from src.infrastructure.database.repositories.permohonan_repository import Permo
 from src.infrastructure.database.repositories.audit_trail_repository import AuditTrailRepository
 from src.infrastructure.database.repositories.telaah_staf_repository import TelaahStafRepository
 from src.infrastructure.database.repositories.sk_draft_repository import SkDraftRepository
+from src.infrastructure.database.repositories.pkkpr_repository import PKKPRRepository
 from src.infrastructure.database.models import (
     PermohonanModel, 
     AuditTrailModel, 
@@ -148,6 +150,7 @@ async def upload_file(request: Request, file: UploadFile = File(...)):
 @router.post("/submit", status_code=status.HTTP_201_CREATED)
 def submit_permohonan(
     req: SubmitRequest, 
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db), 
     bpn_port: BpnValidationPort = Depends(get_bpn_port),
     oss_port: OssSyncPort = Depends(get_oss_port),
@@ -158,13 +161,15 @@ def submit_permohonan(
     try:
         permohonan_repo = PermohonanRepository(db)
         audit_trail_repo = AuditTrailRepository(db)
+        pkkpr_repo = PKKPRRepository(db)
         
         use_case = SubmitPermohonanUseCase(
             permohonan_repo, 
             audit_trail_repo,
             bpn_port=bpn_port,
             oss_port=oss_port,
-            simtaru_port=simtaru_port
+            simtaru_port=simtaru_port,
+            pkkpr_repo=pkkpr_repo
         )
  
         id_permohonan = req.id_permohonan or f"sub-{int(datetime.now(timezone.utc).timestamp())}"
@@ -321,9 +326,55 @@ def submit_permohonan(
             parent_id_permohonan=req.parent_id_permohonan,
             replaced_sk_number=req.legacy_metadata.replaced_sk_number if req.legacy_metadata else None,
             replaced_sk_date=req.legacy_metadata.replaced_sk_date if req.legacy_metadata else None,
-            replaced_sk_doc_url=req.legacy_metadata.replaced_sk_doc_url if req.legacy_metadata else None
+            replaced_sk_doc_url=req.legacy_metadata.replaced_sk_doc_url if req.legacy_metadata else None,
+
+            # INTEGRASI MODUL HULU PKKPR (Perbup Bogor No. 4/2025)
+            pkkpr_id=req.pkkpr_id or (req.spatial.pkkprId if req.spatial else None),
+            pkkpr_origin=req.pkkpr_origin or (req.spatial.pkkprOrigin if req.spatial else "INTERNAL") or "INTERNAL"
         )
+        coordinate = req.coordinate
+        cad_path = None
+        if (
+            not req.is_draft
+            and coordinate.cadFilePath
+            and coordinate.anchorCad1 is not None
+            and coordinate.anchorCad2 is not None
+            and coordinate.anchorMap1 is not None
+            and coordinate.anchorMap2 is not None
+        ):
+            upload_root = Path("uploads/permohonan").resolve()
+            cad_path = Path(coordinate.cadFilePath).resolve()
+            try:
+                cad_path.relative_to(upload_root)
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Berkas CAD harus berasal dari unggahan permohonan.",
+                )
+
+            if cad_path.suffix.lower() != ".dxf" or not cad_path.is_file():
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Berkas CAD DXF yang diunggah tidak ditemukan atau formatnya tidak didukung.",
+                )
+
         result = use_case.execute(dto)
+        if (
+            cad_path is not None
+            and coordinate.anchorCad1 is not None
+            and coordinate.anchorCad2 is not None
+            and coordinate.anchorMap1 is not None
+            and coordinate.anchorMap2 is not None
+        ):
+            background_tasks.add_task(
+                execute_cad_parsing_background,
+                file_path=str(cad_path),
+                id_permohonan=result.id_permohonan,
+                anchor_cad_1=coordinate.anchorCad1,
+                anchor_cad_2=coordinate.anchorCad2,
+                anchor_map_1=coordinate.anchorMap1,
+                anchor_map_2=coordinate.anchorMap2,
+            )
 
         return {
             "status": "SUCCESS",
@@ -407,8 +458,8 @@ async def verify_submission(
     if not permohonan_model:
         raise HTTPException(status_code=404, detail="Permohonan tidak ditemukan.")
 
-    # Proteksi keamanan API (Segregation of Duties): Hanya Kadis yang boleh menyetujui di meja Kadis
-    if permohonan_model.status in ["Menunggu Persetujuan", "Proses TTE"]:
+    # Proteksi keamanan API (Segregation of Duties): Hanya Kadis yang boleh menyetujui di meja TTE Kadis
+    if permohonan_model.status == "Proses TTE":
         if current_user.role != "KADIS":
             logger.warning(
                 f"[SECURITY_ALERT] Non-KADIS user '{current_user.username}' (Role: {current_user.role}) "
@@ -417,6 +468,12 @@ async def verify_submission(
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Akses Ditolak: Hanya Kepala Dinas (KADIS) yang diizinkan memproses penandatanganan SK final."
+            )
+    elif permohonan_model.status == "Menunggu Persetujuan":
+        if current_user.role not in ["SEKDIS", "KADIS"]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Akses Ditolak: Hanya Sekretaris Dinas (SEKDIS) atau Kepala Dinas (KADIS) yang diizinkan menelaah status Menunggu Persetujuan."
             )
 
     try:
