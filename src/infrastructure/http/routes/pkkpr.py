@@ -7,8 +7,13 @@ Peran: Endpoint API RESTful untuk siklus hidup Persetujuan Kesesuaian Kegiatan
 ============================================================================
 """
 
+import os
+import shutil
+import uuid
+from pathlib import Path
 from typing import List, Optional, Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Request
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
@@ -16,6 +21,10 @@ from src.infrastructure.database.connection import get_db
 from src.infrastructure.database.models import UserModel
 from src.infrastructure.security.auth import get_current_user, requires_roles, UserRole
 from src.use_cases.pkkpr.pkkpr_service import PKKPRService
+from src.infrastructure.document.pkkpr_pdf_generator import (
+    generate_pkkpr_sk_pdf,
+    generate_pkkpr_receipt_pdf
+)
 from src.infrastructure.http.schemas.pkkpr_schemas import (
     SubmitPKKPRRequest,
     VerifyPKKPRAdminRequest,
@@ -26,6 +35,7 @@ from src.infrastructure.http.schemas.pkkpr_schemas import (
     PKKPRListItemResponse,
     PKKPRDetailResponse,
     PKKPRQuotaSummaryResponse,
+    PKKPRUploadFileResponse,
     ValidatePhasedSitePlanRequest,
     ValidatePhasedSitePlanResponse
 )
@@ -46,6 +56,60 @@ class ValidateSitePlanContainmentResponse(BaseModel):
 
 # ─── 1. PENGAJUAN PERMOHONAN BARU (PEMOHON) ───────────────────────────────────
 
+@router.post("/upload-file", response_model=PKKPRUploadFileResponse, status_code=status.HTTP_201_CREATED)
+async def upload_pkkpr_file(
+    request: Request,
+    file: UploadFile = File(...),
+    file_type: str = Form(default="LAMPIRAN"),
+    current_user: UserModel = Depends(get_current_user)
+):
+    """
+    Mengunggah berkas persyaratan PKKPR (KTP, NIB, Bukti Hak Tanah, Proposal Teknis).
+    Disimpan di storage lokal uploads/pkkpr/ dan mengembalikan metadata file.
+    """
+    try:
+        MAX_FILE_SIZE = 25 * 1024 * 1024  # 25 MB
+        file.file.seek(0, 2)
+        size = file.file.tell()
+        file.file.seek(0)
+        if size > MAX_FILE_SIZE:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Ukuran berkas melebihi batas maksimal 25MB."
+            )
+
+        upload_dir = "uploads/pkkpr"
+        os.makedirs(upload_dir, exist_ok=True)
+
+        raw_filename = file.filename if file.filename else "file"
+        file_ext = os.path.splitext(raw_filename)[1]
+        unique_filename = f"{uuid.uuid4().hex}{file_ext}"
+        file_path = os.path.join(upload_dir, unique_filename).replace("\\", "/")
+
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+
+        base_url = str(request.base_url).rstrip("/")
+        file_url = f"{base_url}/uploads/pkkpr/{unique_filename}"
+        mime_type = file.content_type or "application/octet-stream"
+
+        return PKKPRUploadFileResponse(
+            file_name=raw_filename,
+            file_path=file_path,
+            file_url=file_url,
+            file_size=size,
+            mime_type=mime_type,
+            file_type=file_type
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Gagal mengunggah berkas: {str(e)}"
+        )
+
+
 @router.post("/submit", response_model=PKKPRDetailResponse, status_code=status.HTTP_201_CREATED)
 def submit_pkkpr(
     req: SubmitPKKPRRequest,
@@ -58,6 +122,7 @@ def submit_pkkpr(
         return service.submit_new_pkkpr(user_id=current_user.id, req=req)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
 
 
 # ─── 2. DAFTAR ANTREAN BERKAS ──────────────────────────────────────────────────
@@ -328,5 +393,88 @@ def validate_phased_siteplan(
         is_valid=result["is_valid"],
         error=result.get("error"),
         details=result.get("details", {})
+    )
+
+
+# ─── 12. DOKUMEN CETAK & OUTPUT RESMI PEMOHON (SK & TANDA TERIMA) ──────────────
+
+@router.get("/{pkkpr_id}/download-sk", response_class=FileResponse)
+def download_pkkpr_sk(
+    pkkpr_id: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Mengunduh berkas Surat Keputusan (SK) PKKPR resmi berformat PDF.
+    Dilengkapi Kop Pemkab Bogor, Ketentuan Amplop Ruang, dan TTE Resmi BSrE.
+    """
+    service = PKKPRService(db)
+    model = service.repo.get_by_id(pkkpr_id)
+    if not model:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Permohonan PKKPR dengan ID '{pkkpr_id}' tidak ditemukan."
+        )
+
+    # Pastikan folder docs ada
+    docs_dir = Path("docs")
+    docs_dir.mkdir(parents=True, exist_ok=True)
+    pdf_filename = f"SK_PKKPR_{model.id}.pdf"
+    output_pdf_path = str(docs_dir / pdf_filename)
+
+    # Generate PDF SK PKKPR
+    try:
+        generate_pkkpr_sk_pdf(model, output_pdf_path)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Gagal memproduksi berkas PDF SK PKKPR: {str(e)}"
+        )
+
+    clean_sk_no = (model.sk_number or model.submission_no).replace("/", "_").replace(" ", "_")
+    download_name = f"SK_PKKPR_{clean_sk_no}.pdf"
+
+    return FileResponse(
+        path=output_pdf_path,
+        media_type="application/pdf",
+        filename=download_name
+    )
+
+
+@router.get("/{pkkpr_id}/receipt", response_class=FileResponse)
+def download_pkkpr_receipt(
+    pkkpr_id: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Mengunduh berkas Bukti Tanda Terima Pendaftaran Permohonan PKKPR (Receipt PDF).
+    """
+    service = PKKPRService(db)
+    model = service.repo.get_by_id(pkkpr_id)
+    if not model:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Permohonan PKKPR dengan ID '{pkkpr_id}' tidak ditemukan."
+        )
+
+    docs_dir = Path("docs")
+    docs_dir.mkdir(parents=True, exist_ok=True)
+    pdf_filename = f"Tanda_Terima_PKKPR_{model.id}.pdf"
+    output_pdf_path = str(docs_dir / pdf_filename)
+
+    try:
+        generate_pkkpr_receipt_pdf(model, output_pdf_path)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Gagal memproduksi berkas Tanda Terima: {str(e)}"
+        )
+
+    clean_sub_no = model.submission_no.replace("/", "_").replace(" ", "_")
+    download_name = f"Tanda_Terima_PKKPR_{clean_sub_no}.pdf"
+
+    return FileResponse(
+        path=output_pdf_path,
+        media_type="application/pdf",
+        filename=download_name
     )
 

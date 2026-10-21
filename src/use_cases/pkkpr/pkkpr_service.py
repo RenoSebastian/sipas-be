@@ -106,14 +106,18 @@ class PKKPRService:
             applicant_npwp=req.applicant_npwp,
             applicant_phone=req.applicant_phone,
             applicant_email=req.applicant_email,
-            kbli_code=req.kbli_code
+            kbli_code=req.kbli_code,
+            land_ownership_status=req.land_ownership_status,
+            certificate_number=req.certificate_number,
+            certificate_owner=req.certificate_owner
         )
 
         # Aktifkan permohonan resmi
         entity.submit_application()
 
         # 4. Simpan ke Database
-        saved_model = self.repo.save_submission(entity)
+        files_data = [f.model_dump() for f in req.files] if req.files else None
+        saved_model = self.repo.save_submission(entity, files=files_data)
 
         # 5. Audit Log
         self._log_audit(
@@ -459,6 +463,9 @@ class PKKPRService:
             location_village=model.location_village,
             location_district=model.location_district,
             location_city=model.location_city,
+            land_ownership_status=model.land_ownership_status,
+            certificate_number=model.certificate_number,
+            certificate_owner=model.certificate_owner,
             proposed_land_area_m2=model.proposed_land_area_m2,
             approved_land_area_m2=model.approved_land_area_m2,
             approved_kdb_max=model.approved_kdb_max,

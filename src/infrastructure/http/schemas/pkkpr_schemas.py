@@ -20,6 +20,15 @@ class GeoJSONPolygonGeometry(BaseModel):
 
 # ─── REQUEST SCHEMAS ──────────────────────────────────────────────────────────
 
+class PKKPRFileItemRequest(BaseModel):
+    """Skema metadata berkas lampiran yang diunggah."""
+    file_type: str = Field(..., description="KTP, NIB_AKTA, BUKTI_HAK_TANAH, PROPOSAL_TEKNIS, dll.")
+    file_name: str
+    file_path: str
+    file_size: int
+    mime_type: str
+
+
 class SubmitPKKPRRequest(BaseModel):
     """Payload pengajuan permohonan PKKPR baru oleh pemohon."""
     applicant_type: str = Field(default="BADAN_USAHA", examples=["BADAN_USAHA", "PERORANGAN"])
@@ -39,8 +48,14 @@ class SubmitPKKPRRequest(BaseModel):
     location_district: str = Field(..., min_length=2, max_length=100)
     location_city: str = Field(default="Kabupaten Bogor", max_length=100)
 
+    land_ownership_status: Optional[str] = Field(default="SHM", max_length=50)
+    certificate_number: Optional[str] = Field(default=None, max_length=100)
+    certificate_owner: Optional[str] = Field(default=None, max_length=255)
+
     proposed_land_area_m2: float = Field(..., gt=0, description="Luas bidang tanah dalam m²")
     geometry: GeoJSONPolygonGeometry
+    files: Optional[List[PKKPRFileItemRequest]] = Field(default_factory=list)
+
 
 
 class VerifyPKKPRAdminRequest(BaseModel):
@@ -105,6 +120,15 @@ class PKKPRFileResponse(BaseModel):
     file_size: int
     mime_type: str
     uploaded_at: datetime
+
+
+class PKKPRUploadFileResponse(BaseModel):
+    file_name: str
+    file_path: str
+    file_url: str
+    file_size: int
+    mime_type: str
+    file_type: str
 
 
 class FPRReviewResponse(BaseModel):
@@ -174,6 +198,10 @@ class PKKPRDetailResponse(BaseModel):
     location_village: str
     location_district: str
     location_city: str
+
+    land_ownership_status: Optional[str] = None
+    certificate_number: Optional[str] = None
+    certificate_owner: Optional[str] = None
 
     proposed_land_area_m2: float
     approved_land_area_m2: Optional[float] = None

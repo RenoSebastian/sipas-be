@@ -41,47 +41,7 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 120  # Durasi sesi 2 jam demi kenyamanan operasion
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token")
 
-# ─── SECTION 2: ROLE-BASED ACCESS CONTROL (RBAC) DEPENDENCY ───────────────
 
-def requires_roles(allowed_roles: List[Union[UserRole, str]]):
-    """
-    FastAPI dependency to enforce strict Role-Based Access Control (RBAC) via JWT claims.
-
-    KEBIJAKAN SOD (SEGREGATION OF DUTIES):
-        Fungsi ini melakukan pemeriksaan peran secara MURNI berdasarkan daftar `allowed_roles`
-        yang diberikan pada setiap endpoint. TIDAK ADA hardcoded global override yang
-        mengizinkan ADMIN atau SUPER_ADMIN untuk melewati pemeriksaan peran secara implisit.
-        Setiap akses ke endpoint harus melewati validasi peran yang ketat sesuai dengan
-        prinsip Segregation of Duties (SoD) dan Zero Trust Architecture.
-    """
-    # ─── REVISI: DYNAMIC STRING & VALUE MAPPING (Anti-Crash AST) ───
-    # Memetakan tipe data dari parameter masukan secara dinamis dan aman.
-    # Menggunakan isinstance() untuk explicit type narrowing yang dikenali Pylance statis.
-    allowed_role_strings = [
-        role.value if isinstance(role, UserRole) else str(role)
-        for role in allowed_roles
-    ]
-
-    def dependency(token: str = Depends(oauth2_scheme)) -> Dict[str, Any]:
-        payload = decode_access_token(token)
-        if payload is None:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Token autentikasi tidak valid atau telah kedaluwarsa.",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        
-        role = payload.get("role")
-        
-        # Pemeriksaan peran murni — Tidak ada pengecualian administratif (Bypass Guard).
-        # Hak akses wajib terdaftar secara eksplisit pada parameter dekorator endpoint.
-        if not role or role not in allowed_role_strings:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Hak akses ditolak. Peran Anda tidak memiliki wewenang untuk mengakses sumber daya ini."
-            )
-        return payload
-    return dependency
 
 
 # ─── SECTION 3: NATIVE BCRYPT CRYPTOGRAPHY (No Passlib Dependency) ────────
@@ -160,3 +120,24 @@ def get_current_active_user(current_user: UserModel = Depends(get_current_user))
             detail="Akun Anda dinonaktifkan oleh administrator sistem."
         )
     return current_user
+
+
+def requires_roles(allowed_roles: List[Union[UserRole, str]]):
+    """
+    FastAPI dependency to enforce strict Role-Based Access Control (RBAC).
+    Mengembalikan entitas UserModel dari user terautentikasi jika perannya diizinkan.
+    """
+    allowed_role_strings = [
+        role.value if isinstance(role, UserRole) else str(role)
+        for role in allowed_roles
+    ]
+
+    def dependency(current_user: UserModel = Depends(get_current_user)) -> UserModel:
+        user_role = current_user.role
+        if user_role == "SUPER_ADMIN" or user_role in allowed_role_strings:
+            return current_user
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Hak akses ditolak. Peran Anda ({user_role}) tidak memiliki wewenang untuk mengakses sumber daya ini."
+        )
+    return dependency

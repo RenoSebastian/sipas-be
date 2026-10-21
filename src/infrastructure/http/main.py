@@ -55,8 +55,19 @@ app.add_middleware(
     allow_origins=ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-    allow_headers=["Content-Type", "Authorization", "X-Requested-With"],
+    allow_headers=["*"],
 )
+
+def _get_cors_headers(request: Request) -> dict:
+    origin = request.headers.get("origin")
+    if origin and (origin in ORIGINS or origin.startswith("http://localhost:") or origin.startswith("http://127.0.0.1:")):
+        return {
+            "Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Credentials": "true",
+            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, PATCH, OPTIONS",
+            "Access-Control-Allow-Headers": "*",
+        }
+    return {}
 
 # ─── SECTION: PROTECTED VARIATIONS (EXCEPTION HANDLERS) ───────────────────
 
@@ -70,7 +81,8 @@ async def spatial_validation_exception_handler(request: Request, exc: SpatialVal
             "status": "FAILED_SPATIAL_VALIDATION",
             "message": exc.message,
             "detail": exc.detail
-        }
+        },
+        headers=_get_cors_headers(request)
     )
 
 @app.exception_handler(RequestValidationError)
@@ -83,7 +95,8 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
             "status": "VALIDATION_ERROR",
             "message": "Struktur data yang dikirimkan tidak sesuai dengan kontrak API.",
             "detail": exc.errors()
-        }
+        },
+        headers=_get_cors_headers(request)
     )
  
 @app.exception_handler(Exception)
@@ -95,8 +108,9 @@ async def global_exception_handler(request: Request, exc: Exception):
         content={
             "status": "INTERNAL_SERVER_ERROR",
             "message": "Terjadi kesalahan internal pada server kami. Skenario crash telah direkam di sistem audit log.",
-            "detail": str(exc) if app.debug else None
-        }
+            "detail": str(exc)
+        },
+        headers=_get_cors_headers(request)
     )
 
 # ─── SECTION: ENDPOINTS & ROUTES ──────────────────────────────────────────

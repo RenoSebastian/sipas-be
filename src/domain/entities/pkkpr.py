@@ -136,6 +136,9 @@ class PermohonanPKKPR:
         applicant_email: Optional[str] = None,
         kbli_code: Optional[str] = None,
         location_city: str = "Kabupaten Bogor",
+        land_ownership_status: Optional[str] = "SHM",
+        certificate_number: Optional[str] = None,
+        certificate_owner: Optional[str] = None,
         approved_land_area_m2: Optional[float] = None,
         envelope: Optional[SpatialEnvelope] = None,
         admin_lock_id: Optional[int] = None,
@@ -173,6 +176,9 @@ class PermohonanPKKPR:
         self.applicant_phone = applicant_phone
         self.applicant_email = applicant_email
         self.kbli_code = kbli_code
+        self.land_ownership_status = land_ownership_status
+        self.certificate_number = certificate_number
+        self.certificate_owner = certificate_owner
         self.approved_land_area_m2 = approved_land_area_m2
         self.envelope = envelope or SpatialEnvelope()
         self.admin_lock_id = admin_lock_id

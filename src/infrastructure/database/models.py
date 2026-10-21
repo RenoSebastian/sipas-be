@@ -56,6 +56,20 @@ class UserModel(Base):
         foreign_keys="[PermohonanModel.user_id]"
     )
 
+    def __getitem__(self, item: str) -> Any:
+        if hasattr(self, item):
+            return getattr(self, item)
+        if item == "sub":
+            return self.username
+        raise KeyError(item)
+
+    def get(self, item: str, default: Any = None) -> Any:
+        if hasattr(self, item):
+            return getattr(self, item)
+        if item == "sub":
+            return self.username
+        return default
+
 
 class PendingRegistrationModel(Base):
     """
@@ -724,6 +738,11 @@ class PKKPRSubmissionModel(Base):
     location_village: Mapped[str] = mapped_column(String(100), nullable=False)
     location_district: Mapped[str] = mapped_column(String(100), nullable=False)
     location_city: Mapped[str] = mapped_column(String(100), default="Kabupaten Bogor", nullable=False)
+
+    # Status Hak Atas Tanah & Legalitas (Prasyarat PTP BPN)
+    land_ownership_status: Mapped[Optional[str]] = mapped_column(String(50), default="SHM", nullable=True)
+    certificate_number: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    certificate_owner: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
     # Geometri Bidang Tanah & Luas
     geom: Mapped[Any] = mapped_column(

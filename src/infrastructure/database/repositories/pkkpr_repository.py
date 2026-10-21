@@ -55,7 +55,8 @@ class PKKPRRepository:
 
     def save_submission(
         self,
-        submission: PermohonanPKKPR
+        submission: PermohonanPKKPR,
+        files: Optional[List[Dict[str, Any]]] = None
     ) -> PKKPRSubmissionModel:
         """Menyimpan entitas permohonan baru atau memperbarui yang sudah ada."""
         geom_json_str = json.dumps(submission.geom_geojson)
@@ -92,6 +93,9 @@ class PKKPRRepository:
                 location_village=submission.location_village,
                 location_district=submission.location_district,
                 location_city=submission.location_city,
+                land_ownership_status=submission.land_ownership_status,
+                certificate_number=submission.certificate_number,
+                certificate_owner=submission.certificate_owner,
                 geom=geom_expr,
                 proposed_land_area_m2=submission.proposed_land_area_m2,
                 approved_land_area_m2=submission.approved_land_area_m2,
@@ -115,6 +119,12 @@ class PKKPRRepository:
             model.elapsed_days = submission.elapsed_days
             model.buffer_sla = submission.buffer_sla
             model.approved_land_area_m2 = submission.approved_land_area_m2
+            if submission.land_ownership_status:
+                model.land_ownership_status = submission.land_ownership_status
+            if submission.certificate_number:
+                model.certificate_number = submission.certificate_number
+            if submission.certificate_owner:
+                model.certificate_owner = submission.certificate_owner
             if submission.envelope:
                 model.approved_kdb_max = submission.envelope.kdb_max_percent
                 model.approved_klb_max = submission.envelope.klb_max
@@ -129,6 +139,19 @@ class PKKPRRepository:
             model.sk_issued_date = submission.sk_issued_date
             model.signed_pdf_url = submission.signed_pdf_url
             model.qr_code_hash = submission.qr_code_hash
+
+        if files:
+            for f in files:
+                file_model = PKKPRFileModel(
+                    pkkpr_id=submission.id,
+                    file_type=f.get("file_type") or "LAMPIRAN",
+                    file_name=f.get("file_name") or "file",
+                    file_path=f.get("file_path") or "",
+                    file_size=int(f.get("file_size") or 0),
+                    mime_type=f.get("mime_type") or "application/octet-stream",
+                    uploaded_at=datetime.utcnow()
+                )
+                self.db.add(file_model)
 
         self.db.commit()
         self.db.refresh(model)
