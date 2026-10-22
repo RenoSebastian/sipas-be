@@ -290,26 +290,48 @@ class PKKPRRepository:
 
         total_area = float(pkkpr.approved_land_area_m2 or pkkpr.proposed_land_area_m2 or 0.0)
 
-        siteplans = self.db.query(PermohonanModel).filter(
-            PermohonanModel.pkkpr_id == pkkpr_id,
-            PermohonanModel.status.notin_(["Ditolak", "Tidak Berlaku"])
-        ).order_by(PermohonanModel.submission_date.asc()).all()
+        # Ambil geometri batas luar SK PKKPR Induk (SRID 4326)
+        pkkpr_geom_row = self.db.execute(
+            text("SELECT ST_AsGeoJSON(geom) as geom_geojson FROM pkkpr_submissions WHERE id = :id"),
+            {"id": pkkpr.id}
+        ).fetchone()
+        pkkpr_geometry = json.loads(pkkpr_geom_row.geom_geojson) if pkkpr_geom_row and pkkpr_geom_row.geom_geojson else None
 
-        used_area = sum(float(sp.land_area or 0.0) for sp in siteplans)
+        # Ambil daftar Site Plan anak beserta geometri masing-masing
+        sp_rows = self.db.execute(text("""
+            SELECT 
+                sp.id_permohonan,
+                sp.submission_no,
+                sp.housing_name,
+                sp.developer_name,
+                sp.land_area,
+                sp.status,
+                sp.submission_date,
+                sp.sk_number,
+                ST_AsGeoJSON(sp.geom) as geom_geojson
+            FROM permohonan sp
+            WHERE sp.pkkpr_id = :pkkpr_id
+              AND sp.status NOT IN ('Ditolak', 'Tidak Berlaku')
+            ORDER BY sp.submission_date ASC
+        """), {"pkkpr_id": pkkpr_id}).fetchall()
+
+        used_area = sum(float(r.land_area or 0.0) for r in sp_rows)
         remaining_area = max(0.0, round(total_area - used_area, 2))
         utilization_pct = round((used_area / total_area * 100.0), 2) if total_area > 0 else 0.0
 
         sp_list = []
-        for sp in siteplans:
+        for r in sp_rows:
+            geom_data = json.loads(r.geom_geojson) if r.geom_geojson else None
             sp_list.append({
-                "id_permohonan": sp.id_permohonan,
-                "submission_no": sp.submission_no,
-                "housing_name": sp.housing_name,
-                "developer_name": sp.developer_name,
-                "land_area": float(sp.land_area or 0.0),
-                "status": sp.status,
-                "submission_date": sp.submission_date.isoformat() if sp.submission_date else None,
-                "sk_number": sp.sk_number
+                "id_permohonan": r.id_permohonan,
+                "submission_no": r.submission_no,
+                "housing_name": r.housing_name,
+                "developer_name": r.developer_name,
+                "land_area": float(r.land_area or 0.0),
+                "status": r.status,
+                "submission_date": r.submission_date.isoformat() if r.submission_date else None,
+                "sk_number": r.sk_number,
+                "geometry": geom_data
             })
 
         envelope = {
@@ -335,6 +357,7 @@ class PKKPRRepository:
             "utilization_percent": utilization_pct,
             "siteplans_count": len(sp_list),
             "siteplans": sp_list,
+            "pkkpr_geometry": pkkpr_geometry,
             "envelope": envelope
         }
 

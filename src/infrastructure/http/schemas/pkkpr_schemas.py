@@ -249,6 +249,7 @@ class PKKPRSitePlanItemResponse(BaseModel):
     status: str
     submission_date: Optional[str] = None
     sk_number: Optional[str] = None
+    geometry: Optional[Dict[str, Any]] = None
 
 
 class PKKPREnvelopeResponse(BaseModel):
@@ -274,6 +275,7 @@ class PKKPRQuotaSummaryResponse(BaseModel):
     utilization_percent: float
     siteplans_count: int
     siteplans: List[PKKPRSitePlanItemResponse] = []
+    pkkpr_geometry: Optional[Dict[str, Any]] = None
     envelope: Optional[PKKPREnvelopeResponse] = None
 
 
