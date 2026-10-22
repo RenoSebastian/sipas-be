@@ -107,6 +107,14 @@ class TechnicalDetailsDto(BaseModel):
     applicantGsb: Optional[float] = Field(default=None, examples=[5.0])
     applicantRthArea: Optional[float] = Field(default=None, examples=[2500.0])
 
+    # Sempadan Lengkap (Perbup Bogor No. 4/2025 & Permen PUPR 28/2015)
+    applicantGsbLocal: Optional[float] = Field(default=None, examples=[3.0])
+    sempadanSungai: Optional[float] = Field(default=None, examples=[10.0])
+    sempadanDanau: Optional[float] = Field(default=None, examples=[50.0])
+    sempadanSaluranIrigasi: Optional[float] = Field(default=None, examples=[5.0])
+    sempadanMataAir: Optional[float] = Field(default=None, examples=[100.0])
+    sempadanKhususLainnya: Optional[str] = Field(default=None)
+
 
 class ConsultantDto(BaseModel):
     consultantName: Optional[str] = Field(default=None, examples=["Ir. Hermawan Pratama"])
@@ -207,6 +215,15 @@ class CalibrateRequest(BaseModel):
     anchor_cad_2: Tuple[float, float] = Field(examples=[(120.0, 95.0)])
     anchor_map_1: Tuple[float, float] = Field(examples=[(106.8272, -6.5971)])
     anchor_map_2: Tuple[float, float] = Field(examples=[(106.8295, -6.5990)])
+
+
+class CadPreviewRequest(BaseModel):
+    cadFilePath: Optional[str] = Field(default=None, examples=["uploads/permohonan/blueprint.dxf"])
+    cadFileName: Optional[str] = Field(default=None, examples=["sample_siteplan.dxf"])
+    anchorCad1: Tuple[float, float] = Field(..., examples=[(10.0, 15.0)])
+    anchorCad2: Tuple[float, float] = Field(..., examples=[(120.0, 95.0)])
+    anchorMap1: Tuple[float, float] = Field(..., examples=[(106.8272, -6.5971)])
+    anchorMap2: Tuple[float, float] = Field(..., examples=[(106.8295, -6.5990)])
 
 
 class EvaluasiChecklistItemDto(BaseModel):

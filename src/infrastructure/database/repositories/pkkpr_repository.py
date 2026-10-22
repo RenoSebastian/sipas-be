@@ -308,7 +308,10 @@ class PKKPRRepository:
                 sp.status,
                 sp.submission_date,
                 sp.sk_number,
-                ST_AsGeoJSON(sp.geom) as geom_geojson
+                COALESCE(
+                    (SELECT ST_AsGeoJSON(sg.geom) FROM site_plan_geometries sg WHERE sg.id_permohonan = sp.id_permohonan AND sg.layer_name = 'PTSP_BATAS_LAHAN' LIMIT 1),
+                    ST_AsGeoJSON(sp.geom)
+                ) as geom_geojson
             FROM permohonan sp
             WHERE sp.pkkpr_id = :pkkpr_id
               AND sp.status NOT IN ('Ditolak', 'Tidak Berlaku')
@@ -534,3 +537,95 @@ class PKKPRRepository:
         self.db.commit()
         self.db.refresh(model)
         return model
+
+    def get_siteplans_geojson(self, pkkpr_id: str) -> Dict[str, Any]:
+        """
+        Mengompilasi seluruh poligon CAD dari seluruh permohonan Site Plan (tahap 1, 2, dst)
+        yang berafiliasi dengan SK PKKPR ini menjadi satu GeoJSON FeatureCollection terpadu.
+        """
+        query = text("""
+            SELECT jsonb_build_object(
+                'type', 'FeatureCollection',
+                'features', COALESCE(jsonb_agg(features.feature), '[]'::jsonb)
+            )
+            FROM (
+                SELECT jsonb_build_object(
+                    'type', 'Feature',
+                    'id', id,
+                    'geometry', ST_AsGeoJSON(geom)::jsonb,
+                    'properties', jsonb_build_object(
+                        'id_permohonan', id_permohonan,
+                        'submission_no', submission_no,
+                        'housing_name', housing_name,
+                        'layer_name', layer_name,
+                        'color', CASE 
+                            WHEN layer_name = 'PTSP_KDB' THEN '#475569'
+                            WHEN layer_name = 'PTSP_PSU_JALAN' THEN '#cbd5e1'
+                            WHEN layer_name = 'PTSP_KDH' THEN '#10b981'
+                            WHEN layer_name = 'PTSP_PSU_MAKAM' THEN '#eab308'
+                            WHEN layer_name = 'PTSP_BATAS_LAHAN' THEN '#0284c7'
+                            ELSE '#14b8a6'
+                        END,
+                        'fillOpacity', CASE 
+                            WHEN layer_name = 'PTSP_BATAS_LAHAN' THEN 0.15
+                            WHEN layer_name = 'PTSP_PSU_JALAN' THEN 0.50
+                            ELSE 0.70
+                        END
+                    )
+                ) AS feature
+                FROM (
+                    SELECT
+                        site_plan_geometries.id::text,
+                        site_plan_geometries.id_permohonan,
+                        permohonan.submission_no,
+                        permohonan.housing_name,
+                        site_plan_geometries.layer_name,
+                        CASE
+                            WHEN site_plan_geometries.layer_name = 'PTSP_BATAS_LAHAN'
+                                THEN COALESCE(site_plan_geometries.geom, permohonan.geom)
+                            ELSE COALESCE(
+                                ST_CollectionExtract(
+                                    ST_Intersection(site_plan_geometries.geom, COALESCE(permohonan.geom, site_plan_geometries.geom)),
+                                    3
+                                ),
+                                site_plan_geometries.geom
+                            )
+                        END AS geom
+                    FROM site_plan_geometries
+                    JOIN permohonan
+                        ON permohonan.id_permohonan = site_plan_geometries.id_permohonan
+                    WHERE permohonan.pkkpr_id = :pkkpr_id
+                        AND permohonan.status NOT IN ('Ditolak', 'Tidak Berlaku')
+                        AND permohonan.geom IS NOT NULL
+
+                    UNION ALL
+
+                    SELECT
+                        p.id_permohonan as id,
+                        p.id_permohonan,
+                        p.submission_no,
+                        p.housing_name,
+                        'PTSP_BATAS_LAHAN' as layer_name,
+                        p.geom
+                    FROM permohonan p
+                    WHERE p.pkkpr_id = :pkkpr_id
+                      AND p.status NOT IN ('Ditolak', 'Tidak Berlaku')
+                      AND p.geom IS NOT NULL
+                      AND NOT EXISTS (
+                          SELECT 1 FROM site_plan_geometries sg WHERE sg.id_permohonan = p.id_permohonan
+                      )
+                ) clipped_siteplan
+                WHERE NOT ST_IsEmpty(geom)
+            ) features;
+        """)
+        try:
+            raw_result = self.db.execute(query, {"pkkpr_id": pkkpr_id}).scalar()
+            if not raw_result:
+                return {"type": "FeatureCollection", "features": []}
+            if isinstance(raw_result, str):
+                return json.loads(raw_result)
+            return raw_result
+        except Exception as e:
+            self.db.rollback()
+            raise RuntimeError(f"Gagal memproses kompilasi CAD GeoJSON siteplans PKKPR: {str(e)}")
+

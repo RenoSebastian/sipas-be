@@ -396,6 +396,20 @@ def validate_phased_siteplan(
     )
 
 
+@router.get("/{pkkpr_id}/siteplans-geojson")
+def get_pkkpr_siteplans_geojson(
+    pkkpr_id: str,
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Mengambil seluruh poligon CAD dari seluruh permohonan Site Plan (tahap 1, 2, dst)
+    yang berafiliasi dengan SK PKKPR ini dalam format GeoJSON FeatureCollection terpadu.
+    """
+    service = PKKPRService(db)
+    return service.repo.get_siteplans_geojson(pkkpr_id)
+
+
 # ─── 12. DOKUMEN CETAK & OUTPUT RESMI PEMOHON (SK & TANDA TERIMA) ──────────────
 
 @router.get("/{pkkpr_id}/download-sk", response_class=FileResponse)

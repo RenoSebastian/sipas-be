@@ -93,12 +93,32 @@ def execute_cad_parsing_background(
 
         # 4. Transformasikan titik lokal CAD dan simpan fisiknya ke PostGIS
         saved_count = 0
+
+        # Ekstrak dan kalibrasi batas tapak riil (PTSP_BATAS_LAHAN) terlebih dahulu jika tersedia di CAD
+        cad_boundary_geom = None
+        if "PTSP_BATAS_LAHAN" in raw_cad_layers and raw_cad_layers["PTSP_BATAS_LAHAN"]:
+            first_b_poly = raw_cad_layers["PTSP_BATAS_LAHAN"][0]
+            if len(first_b_poly) >= 3:
+                b_coords = []
+                for x, y in first_b_poly:
+                    wc = transform_params.transform(x, y)
+                    b_coords.append((wc.longitude, wc.latitude))
+                if b_coords[0] != b_coords[-1]:
+                    b_coords.append(b_coords[0])
+                if len(b_coords) >= 4:
+                    cad_boundary_geom = Polygon(b_coords)
+                    if not cad_boundary_geom.is_valid:
+                        cad_boundary_geom = cad_boundary_geom.buffer(0)
+                    submission.geom = from_shape(cad_boundary_geom, srid=4326)
+                    land_boundary = cad_boundary_geom
+
         for layer_name, polylines in raw_cad_layers.items():
             if layer_name == "PTSP_BATAS_LAHAN" and polylines:
+                boundary_to_save = cad_boundary_geom if cad_boundary_geom is not None else land_boundary
                 spatial_record = SitePlanGeometryModel(
                     id_permohonan=id_permohonan,
                     layer_name=layer_name,
-                    geom=from_shape(land_boundary, srid=4326)
+                    geom=from_shape(boundary_to_save, srid=4326)
                 )
                 db.add(spatial_record)
                 saved_count += 1

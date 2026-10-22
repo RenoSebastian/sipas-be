@@ -215,6 +215,14 @@ class PermohonanModel(Base):
     tech_green_buffer_area: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     tech_tps_b3_provision: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
+    # E. Ketentuan Sempadan Lengkap (Perbup Bogor No. 4/2025 & Permen PUPR 28/2015)
+    tech_applicant_gsb_local: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    tech_sempadan_sungai: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    tech_sempadan_danau: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    tech_sempadan_saluran_irigasi: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    tech_sempadan_mata_air: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    tech_sempadan_khusus_lainnya: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+
     # ─── TAHAP 7: DATA KONSULTAN PERENCANA (CONSULTANT) ───────────────────────
     consultant_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     consultant_company_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)

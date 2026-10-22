@@ -224,6 +224,13 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
             tech_green_buffer_area=float(model.tech_green_buffer_area) if model.tech_green_buffer_area is not None else None,
             tech_tps_b3_provision=str(model.tech_tps_b3_provision) if model.tech_tps_b3_provision else None,
 
+            tech_applicant_gsb_local=float(model.tech_applicant_gsb_local) if model.tech_applicant_gsb_local is not None else None,
+            tech_sempadan_sungai=float(model.tech_sempadan_sungai) if model.tech_sempadan_sungai is not None else None,
+            tech_sempadan_danau=float(model.tech_sempadan_danau) if model.tech_sempadan_danau is not None else None,
+            tech_sempadan_saluran_irigasi=float(model.tech_sempadan_saluran_irigasi) if model.tech_sempadan_saluran_irigasi is not None else None,
+            tech_sempadan_mata_air=float(model.tech_sempadan_mata_air) if model.tech_sempadan_mata_air is not None else None,
+            tech_sempadan_khusus_lainnya=str(model.tech_sempadan_khusus_lainnya) if model.tech_sempadan_khusus_lainnya else None,
+
             # Tahap 7: Konsultan Perencana
             consultant_name=str(model.consultant_name) if model.consultant_name else None,
             consultant_company_name=str(model.consultant_company_name) if model.consultant_company_name else None,
@@ -461,6 +468,13 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
             tech_green_buffer_area=entity.tech_green_buffer_area,
             tech_tps_b3_provision=entity.tech_tps_b3_provision,
 
+            tech_applicant_gsb_local=entity.tech_applicant_gsb_local,
+            tech_sempadan_sungai=entity.tech_sempadan_sungai,
+            tech_sempadan_danau=entity.tech_sempadan_danau,
+            tech_sempadan_saluran_irigasi=entity.tech_sempadan_saluran_irigasi,
+            tech_sempadan_mata_air=entity.tech_sempadan_mata_air,
+            tech_sempadan_khusus_lainnya=entity.tech_sempadan_khusus_lainnya,
+
             # Tahap 7
             consultant_name=entity.consultant_name,
             consultant_company_name=entity.consultant_company_name,
@@ -620,6 +634,13 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
             existing_model.tech_ipal_capacity = permohonan.tech_ipal_capacity
             existing_model.tech_green_buffer_area = permohonan.tech_green_buffer_area
             existing_model.tech_tps_b3_provision = permohonan.tech_tps_b3_provision
+
+            existing_model.tech_applicant_gsb_local = permohonan.tech_applicant_gsb_local
+            existing_model.tech_sempadan_sungai = permohonan.tech_sempadan_sungai
+            existing_model.tech_sempadan_danau = permohonan.tech_sempadan_danau
+            existing_model.tech_sempadan_saluran_irigasi = permohonan.tech_sempadan_saluran_irigasi
+            existing_model.tech_sempadan_mata_air = permohonan.tech_sempadan_mata_air
+            existing_model.tech_sempadan_khusus_lainnya = permohonan.tech_sempadan_khusus_lainnya
 
             # Tahap 7
             existing_model.consultant_name = permohonan.consultant_name
@@ -1063,10 +1084,13 @@ class PermohonanRepository(ExtendedPermohonanRepositoryPort):
                         site_plan_geometries.layer_name,
                         CASE
                             WHEN site_plan_geometries.layer_name = 'PTSP_BATAS_LAHAN'
-                                THEN permohonan.geom
-                            ELSE ST_CollectionExtract(
-                                ST_Intersection(site_plan_geometries.geom, permohonan.geom),
-                                3
+                                THEN COALESCE(site_plan_geometries.geom, permohonan.geom)
+                            ELSE COALESCE(
+                                ST_CollectionExtract(
+                                    ST_Intersection(site_plan_geometries.geom, COALESCE(permohonan.geom, site_plan_geometries.geom)),
+                                    3
+                                ),
+                                site_plan_geometries.geom
                             )
                         END AS geom
                     FROM site_plan_geometries

@@ -273,18 +273,26 @@ def main():
     # Generate Layout CAD
     layout_full = build_cad_layout(poly_full_utm, origin_utm)
     layout_tahap1 = build_cad_layout(poly_tahap1_utm, origin_utm)
+    layout_tahap2 = build_cad_layout(poly_tahap2_utm, origin_utm)
 
     # Hitung Titik Ikat Helmert
     ctrl_tahap1 = get_helmert_control_points(poly_tahap1_utm, origin_utm)
+    ctrl_tahap2 = get_helmert_control_points(poly_tahap2_utm, origin_utm)
     ctrl_full = get_helmert_control_points(poly_full_utm, origin_utm)
 
     control_points_config = {
         "CAD_Siteplan_Tahap1_Geocitra.dxf": ctrl_tahap1,
+        "CAD_Siteplan_Tahap2_Geocitra.dxf": ctrl_tahap2,
         "CAD_Siteplan_Geocitra_Full.dxf": ctrl_full,
         "siteplan_geocitra.dxf": ctrl_tahap1
     }
 
-    for target_dir in base_dirs:
+    # Tambahkan direktori uploads backend agar endpoint preview-cad dapat membaca langsung
+    backend_upload_dir = os.path.abspath("uploads/permohonan")
+    backend_root_upload = os.path.abspath("uploads")
+    all_target_dirs = base_dirs + [backend_upload_dir, backend_root_upload]
+
+    for target_dir in all_target_dirs:
         print(f"\nMenulis berkas ke folder: {target_dir}")
         os.makedirs(target_dir, exist_ok=True)
 
@@ -296,16 +304,25 @@ def main():
         save_shp_zip(os.path.join(target_dir, "BPN_Siteplan_Tahap1_Geocitra.zip"), poly_tahap1_utm, "sp-tahap-1", "Batas Site Plan Tahap 1 - Geocitra Green Residence", SK_NUMBER)
         save_geojson(os.path.join(target_dir, "BPN_Siteplan_Tahap1_Geocitra.geojson"), poly_tahap1_utm, "sp-tahap-1", "Batas Site Plan Tahap 1 - Geocitra Green Residence", SK_NUMBER)
 
-        # 3. CAD Drawings
-        save_dxf(os.path.join(target_dir, "CAD_Siteplan_Tahap1_Geocitra.dxf"), layout_tahap1)
-        save_dxf(os.path.join(target_dir, "CAD_Siteplan_Geocitra_Full.dxf"), layout_full)
+        # 3. Tahap 2 Site Plan SHP & GeoJSON (Sisa Lahan Tahap Terakhir)
+        save_shp_zip(os.path.join(target_dir, "BPN_Siteplan_Tahap2_Geocitra.zip"), poly_tahap2_utm, "sp-tahap-2", "Batas Site Plan Tahap 2 - Geocitra Green Residence", SK_NUMBER)
+        save_geojson(os.path.join(target_dir, "BPN_Siteplan_Tahap2_Geocitra.geojson"), poly_tahap2_utm, "sp-tahap-2", "Batas Site Plan Tahap 2 - Geocitra Green Residence", SK_NUMBER)
 
-        # Buat juga salinan berekstensi .dwg (format teks/dxf wrapper agar diterima uploader .dwg/.dxf)
-        shutil.copy(os.path.join(target_dir, "CAD_Siteplan_Tahap1_Geocitra.dxf"), os.path.join(target_dir, "CAD_Siteplan_Tahap1_Geocitra.dwg"))
+        # 4. CAD Drawings DXF
+        save_dxf(os.path.join(target_dir, "CAD_Siteplan_Tahap1_Geocitra.dxf"), layout_tahap1)
+        save_dxf(os.path.join(target_dir, "CAD_Siteplan_Tahap2_Geocitra.dxf"), layout_tahap2)
+        save_dxf(os.path.join(target_dir, "CAD_Siteplan_Geocitra_Full.dxf"), layout_full)
 
         # Simpan ringkasan JSON titik ikat
         with open(os.path.join(target_dir, "titik_kontrol_helmert.json"), "w") as f:
             json.dump(control_points_config, f, indent=2)
+
+    # Simpan juga ke dist frontend jika folder dist ada
+    dist_dir = os.path.abspath("../sipas-fe/dist/downloads/simulasi_geocitra")
+    if os.path.exists(dist_dir):
+        save_dxf(os.path.join(dist_dir, "CAD_Siteplan_Tahap2_Geocitra.dxf"), layout_tahap2)
+        save_shp_zip(os.path.join(dist_dir, "BPN_Siteplan_Tahap2_Geocitra.zip"), poly_tahap2_utm, "sp-tahap-2", "Batas Site Plan Tahap 2 - Geocitra Green Residence", SK_NUMBER)
+        save_geojson(os.path.join(dist_dir, "BPN_Siteplan_Tahap2_Geocitra.geojson"), poly_tahap2_utm, "sp-tahap-2", "Batas Site Plan Tahap 2 - Geocitra Green Residence", SK_NUMBER)
 
     # Simpan juga ke file JSON frontend mock
     frontend_config_path = os.path.abspath("../sipas-fe/src/mock/siteplan/geocitra_control_points.json")

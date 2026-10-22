@@ -95,12 +95,14 @@ from src.infrastructure.http.schemas.submissions import (
     SelfDeclaredCompensationDto,
     SubmitRequest,
     CalibrateRequest,
+    CadPreviewRequest,
     EvaluasiChecklistItemDto,
     VerifyRequest,
     LinkParentRequest,
     GroundInspectionResponseDto,
     AerialInspectionResponseDto
 )
+from src.domain.value_objects.spatial_params import solveHelmert2D, HelmertParameters
 
 
 # ─── SECTION 3: HTTP ROUTE HANDLERS ───────────────────────────────────────
@@ -144,6 +146,127 @@ async def upload_file(request: Request, file: UploadFile = File(...)):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Gagal mengunggah berkas: {str(e)}"
+        )
+
+
+@router.post("/preview-cad", status_code=status.HTTP_200_OK)
+def preview_cad(
+    payload: CadPreviewRequest,
+    current_user: UserModel = Depends(get_current_user)
+):
+    """
+    Mengurai berkas CAD (.dxf) yang diunggah dan menerapkan transformasi Helmert 2D
+    secara real-time untuk visualisasi preview instan di form pengajuan (Tahap 4).
+    """
+    candidate_paths: List[Path] = []
+    if payload.cadFilePath:
+        candidate_paths.append(Path(payload.cadFilePath))
+        candidate_paths.append(Path("uploads/permohonan") / Path(payload.cadFilePath).name)
+        candidate_paths.append(Path("uploads") / Path(payload.cadFilePath).name)
+    if payload.cadFileName:
+        candidate_paths.append(Path("uploads/permohonan") / payload.cadFileName)
+        candidate_paths.append(Path("uploads") / payload.cadFileName)
+        candidate_paths.append(Path(payload.cadFileName))
+
+    target_file: Optional[Path] = None
+    for p in candidate_paths:
+        if p.exists() and p.is_file():
+            target_file = p
+            break
+
+    if not target_file:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Berkas CAD tidak ditemukan di server pada jalur: {payload.cadFilePath or payload.cadFileName}"
+        )
+
+    try:
+        # Kalkulasi matriks konformal Helmert 2D
+        helmert_res = solveHelmert2D(
+            p1=payload.anchorCad1,
+            p2=payload.anchorCad2,
+            P1=payload.anchorMap1,
+            P2=payload.anchorMap2
+        )
+        transform_params = HelmertParameters(
+            A=helmert_res["A"],
+            B=helmert_res["B"],
+            Tx=helmert_res["Tx"],
+            Ty=helmert_res["Ty"],
+            scale=helmert_res["scale"],
+            rotation_rad=helmert_res["rotation"]
+        )
+
+        parser = CadParser()
+        raw_cad_layers = parser.parse_and_extract_layers(str(target_file))
+
+        COLOR_MAP = {
+            "PTSP_KDB": "#475569",        # Slate kaveling
+            "PTSP_PSU_JALAN": "#cbd5e1",  # Slate jalan
+            "PTSP_KDH": "#10b981",        # Emerald RTH
+            "PTSP_PSU_MAKAM": "#eab308",  # Amber Makam
+            "PTSP_BATAS_LAHAN": "#3b82f6",# Biru Batas Tapak
+            "BANGUNAN_3D": "#8b5cf6",     # Ungu 3D
+            "KAVELING": "#475569"
+        }
+        LABEL_MAP = {
+            "PTSP_KDB": "Kaveling Unit (KDB)",
+            "PTSP_PSU_JALAN": "Jaringan Jalan (PSU)",
+            "PTSP_KDH": "Ruang Terbuka Hijau (KDH)",
+            "PTSP_PSU_MAKAM": "Pemakaman (PSU)",
+            "PTSP_BATAS_LAHAN": "Batas Lahan Site Plan",
+            "BANGUNAN_3D": "Model Bangunan",
+            "KAVELING": "Kaveling Permohonan"
+        }
+
+        features: List[Dict[str, Any]] = []
+        extracted_boundary: Optional[List[List[float]]] = None
+
+        for layer_name, polylines in raw_cad_layers.items():
+            for polyline in polylines:
+                if len(polyline) < 3:
+                    continue
+                calibrated_coords: List[List[float]] = []
+                for x, y in polyline:
+                    wc = transform_params.transform(x, y)
+                    calibrated_coords.append([wc.longitude, wc.latitude])
+
+                if calibrated_coords[0] != calibrated_coords[-1]:
+                    calibrated_coords.append(calibrated_coords[0])
+
+                if layer_name == "PTSP_BATAS_LAHAN" and extracted_boundary is None:
+                    extracted_boundary = calibrated_coords
+
+                features.append({
+                    "type": "Feature",
+                    "properties": {
+                        "layer_name": layer_name,
+                        "label": LABEL_MAP.get(layer_name, layer_name),
+                        "color": COLOR_MAP.get(layer_name, "#14b8a6"),
+                        "fillOpacity": 0.45 if layer_name == "PTSP_PSU_JALAN" else 0.65
+                    },
+                    "geometry": {
+                        "type": "Polygon",
+                        "coordinates": [calibrated_coords]
+                    }
+                })
+
+        return {
+            "type": "FeatureCollection",
+            "features": features,
+            "extracted_boundary": extracted_boundary,
+            "transform_params": {
+                "scale": transform_params.scale,
+                "rotation": transform_params.rotation_rad,
+                "Tx": transform_params.Tx,
+                "Ty": transform_params.Ty
+            }
+        }
+    except Exception as e:
+        logger.error(f"[PREVIEW_CAD_ERROR] Gagal memproses preview CAD: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Gagal memproses kalkulasi preview CAD: {str(e)}"
         )
 
 
@@ -265,6 +388,13 @@ def submit_permohonan(
             tech_ipal_capacity=req.technical.ipalCapacity,
             tech_green_buffer_area=req.technical.greenBufferArea,
             tech_tps_b3_provision=req.technical.tpsB3Provision,
+
+            tech_applicant_gsb_local=req.technical.applicantGsbLocal if req.technical else None,
+            tech_sempadan_sungai=req.technical.sempadanSungai if req.technical else None,
+            tech_sempadan_danau=req.technical.sempadanDanau if req.technical else None,
+            tech_sempadan_saluran_irigasi=req.technical.sempadanSaluranIrigasi if req.technical else None,
+            tech_sempadan_mata_air=req.technical.sempadanMataAir if req.technical else None,
+            tech_sempadan_khusus_lainnya=req.technical.sempadanKhususLainnya if req.technical else None,
             
             # Tahap 7
             consultant_name=req.consultant.consultantName,
@@ -355,7 +485,7 @@ def submit_permohonan(
             if cad_path.suffix.lower() != ".dxf" or not cad_path.is_file():
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Berkas CAD DXF yang diunggah tidak ditemukan atau formatnya tidak didukung.",
+                    detail="Berkas CAD wajib berformat AutoCAD DXF (.dxf). Format .dwg dapat dibuka di AutoCAD lalu disimpan melalui 'Save As' -> format AutoCAD DXF.",
                 )
 
         result = use_case.execute(dto)
@@ -711,6 +841,12 @@ def get_all_submissions(
 
                 "applicantBuildingArea": r.applicant_building_area,
                 "applicantGsb": r.applicant_gsb,
+                "applicantGsbLocal": r.tech_applicant_gsb_local,
+                "sempadanSungai": r.tech_sempadan_sungai,
+                "sempadanDanau": r.tech_sempadan_danau,
+                "sempadanSaluranIrigasi": r.tech_sempadan_saluran_irigasi,
+                "sempadanMataAir": r.tech_sempadan_mata_air,
+                "sempadanKhususLainnya": r.tech_sempadan_khusus_lainnya,
                 "applicantRthArea": r.applicant_rth_area
             },
             "consultant": {
@@ -958,6 +1094,12 @@ def get_submission_by_id(id_permohonan: str, db: Session = Depends(get_db), curr
 
             "applicantBuildingArea": r.applicant_building_area,
             "applicantGsb": r.applicant_gsb,
+            "applicantGsbLocal": r.tech_applicant_gsb_local,
+            "sempadanSungai": r.tech_sempadan_sungai,
+            "sempadanDanau": r.tech_sempadan_danau,
+            "sempadanSaluranIrigasi": r.tech_sempadan_saluran_irigasi,
+            "sempadanMataAir": r.tech_sempadan_mata_air,
+            "sempadanKhususLainnya": r.tech_sempadan_khusus_lainnya,
             "applicantRthArea": r.applicant_rth_area
         },
         "consultant": {

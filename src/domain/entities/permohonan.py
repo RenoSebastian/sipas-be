@@ -250,7 +250,15 @@ class Permohonan:
         tech_ipal_capacity: Optional[str] = None,
         tech_green_buffer_area: Optional[float] = None,
         tech_tps_b3_provision: Optional[str] = None,
-        
+
+        # Ketentuan Sempadan Lengkap
+        tech_applicant_gsb_local: Optional[float] = None,
+        tech_sempadan_sungai: Optional[float] = None,
+        tech_sempadan_danau: Optional[float] = None,
+        tech_sempadan_saluran_irigasi: Optional[float] = None,
+        tech_sempadan_mata_air: Optional[float] = None,
+        tech_sempadan_khusus_lainnya: Optional[str] = None,
+
         # ─── TAHAP 7: DATA KONSULTAN PERENCANA (CONSULTANT) ───────────────────────
         consultant_name: Optional[str] = None,
         consultant_company_name: Optional[str] = None,
@@ -400,6 +408,13 @@ class Permohonan:
         self.tech_ipal_capacity = tech_ipal_capacity
         self.tech_green_buffer_area = tech_green_buffer_area
         self.tech_tps_b3_provision = tech_tps_b3_provision
+
+        self.tech_applicant_gsb_local = tech_applicant_gsb_local
+        self.tech_sempadan_sungai = tech_sempadan_sungai
+        self.tech_sempadan_danau = tech_sempadan_danau
+        self.tech_sempadan_saluran_irigasi = tech_sempadan_saluran_irigasi
+        self.tech_sempadan_mata_air = tech_sempadan_mata_air
+        self.tech_sempadan_khusus_lainnya = tech_sempadan_khusus_lainnya
         
         self.consultant_name = consultant_name
         self.consultant_company_name = consultant_company_name

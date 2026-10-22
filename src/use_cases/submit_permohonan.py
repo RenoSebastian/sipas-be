@@ -203,6 +203,13 @@ class SubmitPermohonanInputDto:
     tech_green_buffer_area: Optional[float] = None
     tech_tps_b3_provision: Optional[str] = None
 
+    tech_applicant_gsb_local: Optional[float] = None
+    tech_sempadan_sungai: Optional[float] = None
+    tech_sempadan_danau: Optional[float] = None
+    tech_sempadan_saluran_irigasi: Optional[float] = None
+    tech_sempadan_mata_air: Optional[float] = None
+    tech_sempadan_khusus_lainnya: Optional[str] = None
+
     # Tahap 7
     consultant_name: Optional[str] = None
     consultant_company_name: Optional[str] = None
@@ -411,6 +418,20 @@ class SubmitPermohonanUseCase:
             tech_parking_capacity=input_dto.tech_parking_capacity,
             tech_max_floors=input_dto.tech_max_floors,
             tech_total_floor_area=input_dto.tech_total_floor_area,
+
+            tech_warehouse_count=input_dto.tech_warehouse_count,
+            tech_road_load_mst=input_dto.tech_road_load_mst,
+            tech_electricity_power=input_dto.tech_electricity_power,
+            tech_ipal_capacity=input_dto.tech_ipal_capacity,
+            tech_green_buffer_area=input_dto.tech_green_buffer_area,
+            tech_tps_b3_provision=input_dto.tech_tps_b3_provision,
+
+            tech_applicant_gsb_local=input_dto.tech_applicant_gsb_local,
+            tech_sempadan_sungai=input_dto.tech_sempadan_sungai,
+            tech_sempadan_danau=input_dto.tech_sempadan_danau,
+            tech_sempadan_saluran_irigasi=input_dto.tech_sempadan_saluran_irigasi,
+            tech_sempadan_mata_air=input_dto.tech_sempadan_mata_air,
+            tech_sempadan_khusus_lainnya=input_dto.tech_sempadan_khusus_lainnya,
 
             # Tahap 7
             consultant_name=input_dto.consultant_name,
