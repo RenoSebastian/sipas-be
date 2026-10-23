@@ -25,6 +25,9 @@ DATABASE_URL = os.getenv(
     "DATABASE_URL", 
     "postgresql://postgres:naufal@localhost:5432/sipas_db"
 )
+# Normalisasi driver ke psycopg 3 (postgresql+psycopg://) untuk kompatibilitas Windows Code Integrity Policy
+if DATABASE_URL.startswith("postgresql://"):
+    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 1)
 
 # 2. Membuat Engine Koneksi Database
 # Mengaktifkan pool_pre_ping=True untuk mendeteksi secara dini jika koneksi terputus (Anti-Jitter)

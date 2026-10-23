@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field, model_validator, SecretStr
 from sqlalchemy import text  # Ditambahkan untuk menangani kueri spasial raw SQL PostGIS secara aman
 from sqlalchemy.orm import Session
 from typing import Tuple, Optional, Any, List, Dict, cast
-from datetime import datetime, date, timezone
+from datetime import datetime, date, timezone, timedelta
 import logging
 import random
 import shutil
@@ -910,6 +910,167 @@ def get_all_submissions(
         "page": page,
         "limit": limit,
         "total_pages": total_pages
+    }
+
+
+@router.get("/public/track", status_code=status.HTTP_200_OK)
+def public_track_siteplan(
+    id: Optional[str] = Query(None),
+    no: Optional[str] = Query(None),
+    db: Session = Depends(get_db)
+):
+    """Laman publik pelacakan status berkas permohonan Site Plan (tanpa login)."""
+    if not id and not no:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Harap masukkan Nomor Registrasi Sistem atau ID Permohonan."
+        )
+
+    q = db.query(PermohonanModel)
+    if no:
+        clean_no = no.strip()
+        model = q.filter(PermohonanModel.submission_no.ilike(f"%{clean_no}%")).first()
+    else:
+        model = q.filter(PermohonanModel.id_permohonan == id.strip()).first()
+
+    if not model:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Berkas permohonan dengan nomor '{no or id}' tidak ditemukan dalam pangkalan data dinas."
+        )
+
+    STATUS_STEPS = [
+        {"step_number": 1, "name": "Pengajuan Berkas Online", "actor": "Pemohon / Pelaku Usaha"},
+        {"step_number": 2, "name": "Verifikasi Kelengkapan Administrasi", "actor": "Petugas Front Office DPMPTSP"},
+        {"step_number": 3, "name": "Evaluasi Teknis Spasial & Batas RDTR", "actor": "Tim Teknis Tata Bangunan & Tata Ruang"},
+        {"step_number": 4, "name": "Penyusunan Telaah Staf & Draf SK", "actor": "Kepala Seksi / Kepala Bidang Perumahan"},
+        {"step_number": 5, "name": "Peninjauan Legalitas Naskah", "actor": "Sekretaris Dinas (SEKDIS)"},
+        {"step_number": 6, "name": "Pengesahan Tanda Tangan Elektronik (TTE)", "actor": "Kepala Dinas (KADIS) DPMPTSP"}
+    ]
+
+    status_str = model.status or "Pengajuan Dokumen"
+    current_step = 1
+    if status_str in ["Pengajuan Dokumen", "Draf"]:
+        current_step = 1
+    elif status_str in ["Verifikasi Administrasi"]:
+        current_step = 2
+    elif status_str in ["Verifikasi Teknis"]:
+        current_step = 3
+    elif status_str in ["Menunggu Rekomendasi"]:
+        current_step = 4
+    elif status_str in ["Menunggu Persetujuan", "Proses TTE"]:
+        current_step = 5
+    elif status_str in ["Disetujui"]:
+        current_step = 6
+
+    steps = []
+    for s_item in STATUS_STEPS:
+        num = s_item["step_number"]
+        if num < current_step:
+            step_status = "COMPLETED"
+        elif num == current_step:
+            step_status = "COMPLETED" if status_str == "Disetujui" else "IN_PROGRESS"
+        else:
+            step_status = "WAITING"
+        steps.append({
+            "step_number": num,
+            "name": s_item["name"],
+            "actor": s_item["actor"],
+            "status": step_status
+        })
+
+    sub_date = model.submission_date.strftime("%d %B %Y") if model.submission_date else "-"
+    location_desc = model.location_full_address or f"Desa {model.location_village or '-'}, Kec. {model.location_district or '-'}, Kab. Bogor"
+
+    return {
+        "id": model.id_permohonan,
+        "submission_no": model.submission_no,
+        "applicant_name": model.applicant_name or model.developer_name or "-",
+        "housing_name": model.housing_name or "-",
+        "activity_description": f"Pembangunan {model.housing_name or 'Perumahan'}",
+        "status": status_str,
+        "submitted_at": sub_date,
+        "location": location_desc,
+        "land_area": model.land_area or 0.0,
+        "estimated_completion_days": 14,
+        "receipt_pdf_url": f"/api/v1/submissions/{model.id_permohonan}/receipt",
+        "steps": steps
+    }
+
+
+@router.get("/public/verify", status_code=status.HTTP_200_OK)
+def public_verify_siteplan(
+    id: Optional[str] = Query(None),
+    sk: Optional[str] = Query(None),
+    db: Session = Depends(get_db)
+):
+    """Laman publik verifikasi keaslian naskah hukum SK Pengesahan Site Plan (TTE BSrE - BSSN)."""
+    if not id and not sk:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Harap cantumkan ID Permohonan atau Nomor SK Pengesahan Site Plan."
+        )
+
+    q = db.query(PermohonanModel)
+    if sk:
+        model = q.filter(PermohonanModel.sk_number.ilike(f"%{sk.strip()}%")).first()
+    else:
+        model = q.filter(PermohonanModel.id_permohonan == id.strip()).first()
+
+    if not model:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Naskah hukum Surat Keputusan (SK) Site Plan tidak ditemukan dalam pangkalan data dinas."
+        )
+
+    sk_draft = db.query(SkDraftModel).filter(SkDraftModel.id_permohonan == model.id_permohonan).first()
+
+    is_valid = (model.status == "Disetujui")
+    sk_number = model.sk_number or (sk_draft.sk_number if sk_draft else f"503/SITEPLAN/DPMPTSP/2026/{model.id_permohonan}")
+
+    wib_tz = timezone(timedelta(hours=7))
+    issued_date = model.submission_date.strftime("%d %B %Y") if model.submission_date else datetime.now(wib_tz).strftime("%d %B %Y")
+
+    kdb = 60.0
+    klb = 1.8
+    kdh = 20.0
+    gsb = 5.0
+    if sk_draft and sk_draft.document_payload:
+        intensity = sk_draft.document_payload.get("diktum_intensity", {})
+        if intensity:
+            kdb = intensity.get("kdb_max", 60.0)
+            klb = intensity.get("klb_max", 1.8)
+            kdh = intensity.get("kdh_min", 20.0)
+
+    return {
+        "is_valid": is_valid,
+        "id": model.id_permohonan,
+        "submission_no": model.submission_no,
+        "sk_number": sk_number,
+        "sk_issued_date": issued_date,
+        "status": model.status,
+        "applicant_name": model.applicant_name or model.developer_name or "-",
+        "applicant_type": model.applicant_type or "BADAN_USAHA",
+        "applicant_nib": model.applicant_nib or "-",
+        "housing_name": model.housing_name or "-",
+        "activity_description": f"Pembangunan {model.housing_name or 'Perumahan'}",
+        "location_address": model.location_full_address or f"Desa {model.location_village or '-'}, Kec. {model.location_district or '-'}",
+        "location_village": model.location_village or "-",
+        "location_district": model.location_district or "-",
+        "location_city": "Kabupaten Bogor",
+        "land_area": model.land_area or 0.0,
+        "approved_kdb_max": kdb,
+        "approved_klb_max": klb,
+        "approved_kdh_min": kdh,
+        "approved_gsb_min": gsb,
+        "approved_max_floors": 4,
+        "signer_name": "Dr. Ir. H. CECEP IMAM NAGARA, M.Si",
+        "signer_nip": "19720815 199803 1 004",
+        "signer_title": "Kepala Dinas Penanaman Modal dan Pelayanan Terpadu Satu Pintu Kabupaten Bogor",
+        "certification_authority": "Balai Sertifikasi Elektronik (BSrE) - Badan Siber dan Sandi Negara (BSSN)",
+        "qr_code_hash": model.signature_hash or "SHA256:SITEPLAN-BSRE-TEGAR-BERIMAN-BOGOR-2026",
+        "verified_at": datetime.now(wib_tz).strftime("%d %B %Y %H:%M:%S WIB"),
+        "pdf_download_url": f"/api/v1/submissions/{model.id_permohonan}/download"
     }
 
 
@@ -1838,64 +1999,27 @@ async def download_signed_pdf(id_permohonan: str, db: Session = Depends(get_db))
     pdf_path = docs_dir / f"SK_Pengesahan_Site_Plan_{id_permohonan}.pdf"
     draft_path = docs_dir / f"DRAFT_SK_Pengesahan_Site_Plan_{id_permohonan}.pdf"
 
-    # 2. Jika file tidak ada fisik di server, coba generate secara dinamis
-    if not pdf_path.exists() and not draft_path.exists():
-        try:
-            from src.infrastructure.database.repositories.sk_draft_repository import SkDraftRepository
-            from src.infrastructure.database.repositories.permohonan_repository import PermohonanRepository
-            from src.infrastructure.document.pdf_engine import HtmlToPdfEngine
+    # 2. Selalu generate secara dinamis menggunakan engine ReportLab
+    try:
+        from src.infrastructure.database.repositories.sk_draft_repository import SkDraftRepository
+        from src.infrastructure.database.repositories.permohonan_repository import PermohonanRepository
+        from src.infrastructure.document.siteplan_pdf_generator import generate_siteplan_sk_pdf
 
-            # Inisialisasi adapter repo & engine dokumen
-            permohonan_repo = PermohonanRepository(db)
-            sk_draft_repo = SkDraftRepository(db)
-            doc_generator = HtmlToPdfEngine()
+        permohonan_repo = PermohonanRepository(db)
+        sk_draft_repo = SkDraftRepository(db)
 
-            permohonan = permohonan_repo._to_domain(permohonan_model)
-            sk_draft = sk_draft_repo.find_by_permohonan_id(id_permohonan)
+        permohonan = permohonan_repo._to_domain(permohonan_model)
+        sk_draft = sk_draft_repo.find_by_permohonan_id(id_permohonan)
 
-            if sk_draft:
-                if permohonan.status == "Disetujui":
-                    doc_generator.generate_final_sk_siteplan(permohonan, sk_draft)
-                else:
-                    doc_generator.generate_draft_sk_siteplan(permohonan, sk_draft)
-            else:
-                # Generate PDF dummy yang rapi jika sk_draft belum dibentuk (untuk seeded/mock data)
-                title = f"DRAF SK PENGESAHAN SITE PLAN - {permohonan_model.housing_name or 'PROYEK'}"
-                status_text = permohonan_model.status
-                html_dummy = f"""
-                <html>
-                <head>
-                    <style>
-                        body {{ font-family: sans-serif; padding: 50px; color: #334155; line-height: 1.6; }}
-                        h1 {{ color: #0f172a; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px; }}
-                        .meta {{ margin: 20px 0; background: #f8fafc; padding: 15px; border-left: 4px solid #14b8a6; }}
-                        .footer {{ margin-top: 50px; font-size: 11px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 10px; }}
-                    </style>
-                </head>
-                <body>
-                    <h1>{title}</h1>
-                    <div class="meta">
-                        <strong>Nomor Registrasi:</strong> {permohonan_model.submission_no}<br/>
-                        <strong>Pengaju:</strong> {permohonan_model.developer_name or '-'}<br/>
-                        <strong>Luas Lahan:</strong> {permohonan_model.land_area or 0} m²<br/>
-                        <strong>Status Terakhir:</strong> {status_text}
-                    </div>
-                    <p>
-                        Dokumen ini merupakan lampiran visual Surat Keputusan (SK) resmi yang digenerasi secara dinamis oleh GEOSIPAS 
-                        untuk keperluan peninjauan dan pembuktian integrasi sistem TTE BSrE (tanda tangan elektronik).
-                    </p>
-                    <div class="footer">
-                        GEOSIPAS Kabupaten Bogor &copy; 2026 - Sandbox TTE / BSSN Bypass
-                    </div>
-                </body>
-                </html>
-                """
-                doc_generator.compile_to_pdf(html_dummy, str(draft_path))
-        except Exception as e:
-            logger.error(f"[DOWNLOAD_GENERATE_ERROR] Gagal memproduksi berkas secara dinamis: {str(e)}")
-
-    # 3. Tentukan file mana yang akan diunduh
-    target_path = pdf_path if pdf_path.exists() else (draft_path if draft_path.exists() else None)
+        if permohonan.status == "Disetujui":
+            generate_siteplan_sk_pdf(permohonan, sk_draft, str(pdf_path), is_draft=False)
+            target_path = pdf_path
+        else:
+            generate_siteplan_sk_pdf(permohonan, sk_draft, str(draft_path), is_draft=True)
+            target_path = draft_path
+    except Exception as e:
+        logger.error(f"[DOWNLOAD_GENERATE_ERROR] Gagal memproduksi SK secara dinamis: {str(e)}")
+        target_path = pdf_path if pdf_path.exists() else (draft_path if draft_path.exists() else None)
 
     if not target_path or not target_path.exists():
         raise HTTPException(
@@ -1921,23 +2045,19 @@ async def download_receipt_pdf(id_permohonan: str, db: Session = Depends(get_db)
             detail=f"Permohonan dengan ID '{id_permohonan}' tidak ditemukan."
         )
 
-    # Pastikan direktori docs ada
     docs_dir = Path("docs")
     docs_dir.mkdir(parents=True, exist_ok=True)
 
     pdf_path = docs_dir / f"Tanda_Terima_{id_permohonan}.pdf"
 
-    # 2. Selalu generate secara dinamis tiap kali endpoint dipanggil agar mencerminkan perubahan visual terkini
+    # 2. Selalu generate secara dinamis tiap kali endpoint dipanggil agar mencerminkan format visual resmi terkini
     try:
         from src.infrastructure.database.repositories.permohonan_repository import PermohonanRepository
-        from src.infrastructure.document.pdf_engine import HtmlToPdfEngine
+        from src.infrastructure.document.siteplan_pdf_generator import generate_siteplan_receipt_pdf
 
-        # Inisialisasi adapter repo & engine dokumen
         permohonan_repo = PermohonanRepository(db)
-        doc_generator = HtmlToPdfEngine()
-
         permohonan = permohonan_repo._to_domain(permohonan_model)
-        doc_generator.generate_receipt_pdf(permohonan)
+        generate_siteplan_receipt_pdf(permohonan, str(pdf_path))
     except Exception as e:
         logger.error(f"[RECEIPT_GENERATE_ERROR] Gagal memproduksi tanda terima secara dinamis: {str(e)}")
 

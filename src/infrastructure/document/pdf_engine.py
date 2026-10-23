@@ -583,20 +583,28 @@ class HtmlToPdfEngine(DocumentGeneratorPort):
         generated_by: Optional[str] = None
     ) -> str:
         """Menghasilkan draf cetak visual Surat Keputusan (SK) lengkap dengan cap DRAFT."""
-        
-        # Merakit payload konteks draf keputusan
+        output_dir = Path("docs")
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_path = output_dir / f"DRAFT_SK_Pengesahan_Site_Plan_{permohonan.id_permohonan}.pdf"
+
+        try:
+            from src.infrastructure.document.siteplan_pdf_generator import generate_siteplan_sk_pdf
+            return generate_siteplan_sk_pdf(
+                permohonan=permohonan,
+                sk_draft=sk_draft,
+                output_path=str(output_path),
+                is_draft=True,
+                signer_name=generated_by
+            )
+        except Exception as e:
+            logger.warning(f"[PDF_ENGINE] Gagal menggunakan engine ReportLab untuk Draf SK, beralih ke WeasyPrint fallback: {str(e)}")
+
+        # Fallback WeasyPrint jika terjadi kendala tak terduga
         context = self._build_sk_context(permohonan, sk_draft, is_draft=True, generated_by=generated_by)
-        
-        # Tambahkan memo Kabid jika dilampirkan
         if notes_by_kabid:
             context["document_metadata"]["notes_by_kabid"] = notes_by_kabid
 
         html_content = self.render_html("sk_draft.html", context)
-        
-        output_dir = Path("docs")
-        output_dir.mkdir(parents=True, exist_ok=True)
-        output_path = output_dir / f"DRAFT_SK_Pengesahan_Site_Plan_{permohonan.id_permohonan}.pdf"
-        
         return self.compile_to_pdf(html_content, str(output_path))
 
     def generate_final_sk_siteplan(
@@ -606,16 +614,24 @@ class HtmlToPdfEngine(DocumentGeneratorPort):
         generated_by: Optional[str] = None
     ) -> str:
         """Menghasilkan dokumen Surat Keputusan (SK) bersih (final) siap dibubuhi TTE Kadis."""
-        
-        # Merakit payload keputusan final bersih (is_draft=False)
-        context = self._build_sk_context(permohonan, sk_draft, is_draft=False, generated_by=generated_by)
-
-        html_content = self.render_html("sk_draft.html", context)
-        
         output_dir = Path("docs")
         output_dir.mkdir(parents=True, exist_ok=True)
         output_path = output_dir / f"SK_Pengesahan_Site_Plan_{permohonan.id_permohonan}.pdf"
-        
+
+        try:
+            from src.infrastructure.document.siteplan_pdf_generator import generate_siteplan_sk_pdf
+            return generate_siteplan_sk_pdf(
+                permohonan=permohonan,
+                sk_draft=sk_draft,
+                output_path=str(output_path),
+                is_draft=False,
+                signer_name=generated_by
+            )
+        except Exception as e:
+            logger.warning(f"[PDF_ENGINE] Gagal menggunakan engine ReportLab untuk SK Final, beralih ke WeasyPrint fallback: {str(e)}")
+
+        context = self._build_sk_context(permohonan, sk_draft, is_draft=False, generated_by=generated_by)
+        html_content = self.render_html("sk_draft.html", context)
         return self.compile_to_pdf(html_content, str(output_path))
 
     def generate_receipt_pdf(
@@ -623,9 +639,21 @@ class HtmlToPdfEngine(DocumentGeneratorPort):
         permohonan: Permohonan,
         generated_by: Optional[str] = None
     ) -> str:
-        """Mengonversi data permohonan menjadi berkas PDF tanda terima (receipt) fisik."""
-        
-        # System Log (Generated User, Tanggal & Waktu)
+        """Mengonversi data permohonan menjadi berkas PDF tanda terima (receipt) fisik berlogo resmi."""
+        output_dir = Path("docs")
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_path = output_dir / f"Tanda_Terima_{permohonan.id_permohonan}.pdf"
+
+        try:
+            from src.infrastructure.document.siteplan_pdf_generator import generate_siteplan_receipt_pdf
+            return generate_siteplan_receipt_pdf(
+                permohonan=permohonan,
+                output_path=str(output_path),
+                generated_by=generated_by
+            )
+        except Exception as e:
+            logger.warning(f"[PDF_ENGINE] Gagal menggunakan engine ReportLab untuk Tanda Terima, beralih ke WeasyPrint fallback: {str(e)}")
+
         wib_tz = timezone(timedelta(hours=7))
         now = datetime.now(wib_tz)
         system_log = {
@@ -635,7 +663,6 @@ class HtmlToPdfEngine(DocumentGeneratorPort):
             "generated_at": now.strftime("%d-%m-%Y %H:%M:%S WIB")
         }
 
-        # Inject Branding (Logo + App Name dari System Config Admin)
         branding = _load_branding()
 
         context = {
@@ -655,7 +682,4 @@ class HtmlToPdfEngine(DocumentGeneratorPort):
         }
         
         html_content = self.render_html("receipt.html", context)
-        output_dir = Path("docs")
-        output_dir.mkdir(parents=True, exist_ok=True)
-        output_path = output_dir / f"Tanda_Terima_{permohonan.id_permohonan}.pdf"
         return self.compile_to_pdf(html_content, str(output_path))

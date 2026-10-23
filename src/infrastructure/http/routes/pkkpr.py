@@ -17,8 +17,9 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
+from datetime import datetime
 from src.infrastructure.database.connection import get_db
-from src.infrastructure.database.models import UserModel
+from src.infrastructure.database.models import UserModel, PKKPRSubmissionModel
 from src.infrastructure.security.auth import get_current_user, requires_roles, UserRole
 from src.use_cases.pkkpr.pkkpr_service import PKKPRService
 from src.infrastructure.document.pkkpr_pdf_generator import (
@@ -37,7 +38,10 @@ from src.infrastructure.http.schemas.pkkpr_schemas import (
     PKKPRQuotaSummaryResponse,
     PKKPRUploadFileResponse,
     ValidatePhasedSitePlanRequest,
-    ValidatePhasedSitePlanResponse
+    ValidatePhasedSitePlanResponse,
+    PKKPRPublicVerificationResponse,
+    PKKPRPublicTrackingResponse,
+    PKKPRPublicTrackingStep
 )
 
 router = APIRouter(prefix="/api/pkkpr", tags=["PKKPR (Pemanfaatan Ruang)"])
@@ -158,6 +162,170 @@ def list_my_approved_sk(
         user_id=current_user.id if current_user.role == "PEMOHON" else None,
         role="PEMOHON",
         status="DISETUJUI"
+    )
+
+
+# ─── 3b. ENDPOINT PUBLIK: VERIFIKASI KEASLIAN SK PKKPR & PELACAKAN (SCANNER) ─
+
+@router.get("/public/verify", response_model=PKKPRPublicVerificationResponse)
+@router.get("/public/verify/{pkkpr_id}", response_model=PKKPRPublicVerificationResponse)
+def public_verify_pkkpr_sk(
+    pkkpr_id: Optional[str] = None,
+    id: Optional[str] = None,
+    sk: Optional[str] = None,
+    hash: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Endpoint Publik Resmi (Tanpa Otentikasi) untuk Verifikasi Keaslian Dokumen SK PKKPR.
+    Dipanggil saat masyarakat/instansi eksternal memindai QR Code pada lembar SK PKKPR.
+    """
+    target_id = pkkpr_id or id
+    query = db.query(PKKPRSubmissionModel)
+    if target_id:
+        query = query.filter(PKKPRSubmissionModel.id == target_id)
+    elif sk:
+        query = query.filter(PKKPRSubmissionModel.sk_number == sk)
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Parameter identifikasi permohonan ('id' atau 'sk') wajib disertakan."
+        )
+
+    model = query.first()
+    if not model:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Naskah Dokumen PKKPR tidak ditemukan dalam pangkalan data resmi Pemkab Bogor."
+        )
+
+    is_approved = (model.status == "DISETUJUI")
+    hash_matched = True
+    if hash and model.qr_code_hash:
+        hash_matched = (model.qr_code_hash.startswith(hash) or hash.startswith(model.qr_code_hash[:20]))
+
+    sk_date_str = model.sk_issued_date.strftime("%d %B %Y") if model.sk_issued_date else None
+
+    return PKKPRPublicVerificationResponse(
+        is_valid=is_approved,
+        status=model.status,
+        id=model.id,
+        submission_no=model.submission_no,
+        sk_number=model.sk_number,
+        sk_issued_date=sk_date_str,
+        applicant_name=model.applicant_name,
+        applicant_type=model.applicant_type,
+        applicant_nib=model.applicant_nib or model.applicant_nik,
+        activity_description=model.activity_description,
+        kbli_code=model.kbli_code,
+        location_address=model.location_address,
+        location_village=model.location_village,
+        location_district=model.location_district,
+        location_city="Kabupaten Bogor",
+        land_ownership_status=model.land_ownership_status,
+        certificate_number=model.certificate_number,
+        certificate_owner=model.certificate_owner,
+        proposed_land_area_m2=float(model.proposed_land_area_m2 or 0),
+        approved_land_area_m2=float(model.approved_land_area_m2 or model.proposed_land_area_m2 or 0),
+        spatial_zone_code=model.spatial_zone_code,
+        spatial_zone_name=model.spatial_zone_name,
+        approved_kdb_max=model.approved_kdb_max,
+        approved_klb_max=model.approved_klb_max,
+        approved_kdh_min=model.approved_kdh_min,
+        approved_gsb_min=model.approved_gsb_min,
+        approved_max_floors=model.approved_max_floors,
+        qr_code_hash=model.qr_code_hash,
+        hash_matched=hash_matched,
+        signer_name="IR. H. KEPALA DINAS, M.Si.",
+        signer_nip="19740512 199803 1 002",
+        signer_title="Kepala Dinas Penanaman Modal dan Pelayanan Terpadu Satu Pintu Kabupaten Bogor",
+        certification_authority="Balai Sertifikasi Elektronik (BSrE) - BSSN",
+        verified_at=datetime.now().strftime("%d-%m-%Y %H:%M:%S WIB"),
+        pdf_download_url=f"/api/pkkpr/{model.id}/download-sk"
+    )
+
+
+@router.get("/public/track", response_model=PKKPRPublicTrackingResponse)
+@router.get("/public/track/{identifier}", response_model=PKKPRPublicTrackingResponse)
+def public_track_pkkpr(
+    identifier: Optional[str] = None,
+    id: Optional[str] = None,
+    no: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Endpoint Publik Resmi untuk Pelacakan Status Berkas PKKPR Daring (Tanda Terima).
+    """
+    target = identifier or id or no
+    if not target:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Nomor registrasi permohonan atau ID berkas wajib disertakan."
+        )
+
+    model = db.query(PKKPRSubmissionModel).filter(
+        (PKKPRSubmissionModel.id == target) | (PKKPRSubmissionModel.submission_no == target)
+    ).first()
+
+    if not model:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Berkas permohonan dengan nomor / ID '{target}' tidak ditemukan."
+        )
+
+    status_order = [
+        "PENGAJUAN_BERKAS",
+        "VERIFIKASI_ADMINISTRASI",
+        "KAJIAN_TEKNIS",
+        "SIDANG_FPR",
+        "DRAF_SK",
+        "DISETUJUI"
+    ]
+    curr_status = model.status
+    curr_idx = status_order.index(curr_status) if curr_status in status_order else 0
+
+    steps_config = [
+        (1, "Pendaftaran Berkas Online", "Pemohon / Pelaku Usaha"),
+        (2, "Verifikasi Formal Berkas Administrasi", "Admin SIPAS"),
+        (3, "Kajian Teknis Spasial GIS & Kesesuaian RDTR", "Tim Teknis Tata Ruang (PUPR)"),
+        (4, "Sidang Penilaian Forum Penataan Ruang (FPR)", "Komite FPR Kab. Bogor"),
+        (5, "Perumusan Draf Surat Keputusan (SK) & Amplop Ruang", "Tim Verifikator Perizinan"),
+        (6, "Pengesahan TTE Digital Sertifikasi BSrE", "Kepala Dinas DPMPTSP")
+    ]
+
+    tracking_steps = []
+    for step_num, step_name, actor in steps_config:
+        idx = step_num - 1
+        if curr_status == "DITOLAK":
+            step_status = "REJECTED" if idx == curr_idx else ("COMPLETED" if idx < curr_idx else "PENDING")
+        elif idx < curr_idx:
+            step_status = "COMPLETED"
+        elif idx == curr_idx:
+            step_status = "COMPLETED" if curr_status == "DISETUJUI" else "IN_PROGRESS"
+        else:
+            step_status = "PENDING"
+
+        tracking_steps.append(PKKPRPublicTrackingStep(
+            step_number=step_num,
+            name=step_name,
+            actor=actor,
+            status=step_status
+        ))
+
+    created_str = model.created_at.strftime("%d %B %Y, %H:%M WIB") if model.created_at else "-"
+    loc_str = f"Desa {model.location_village or '-'}, Kec. {model.location_district or '-'}, Kab. Bogor"
+
+    return PKKPRPublicTrackingResponse(
+        id=model.id,
+        submission_no=model.submission_no,
+        status=model.status,
+        applicant_name=model.applicant_name,
+        activity_description=model.activity_description or "-",
+        location=loc_str,
+        submitted_at=created_str,
+        estimated_completion_days=12,
+        receipt_pdf_url=f"/api/pkkpr/{model.id}/receipt",
+        steps=tracking_steps
     )
 
 

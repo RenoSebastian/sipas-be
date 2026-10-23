@@ -15,11 +15,41 @@ from typing import Optional, List, Dict, Any
 
 from reportlab.lib.pagesizes import A4
 from reportlab.platypus import (
-    SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable, KeepTogether
+    SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable, KeepTogether, Image
 )
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 from reportlab.lib.units import cm, mm
+from reportlab.graphics.barcode import qr
+from reportlab.graphics.shapes import Drawing
+
+
+def _get_logo_flowable(width: float = 14.5 * mm, height: float = 18.5 * mm) -> Optional[Image]:
+    """Mendapatkan elemen Image logo resmi Pemkab Bogor jika berkas fisik tersedia."""
+    candidates = [
+        Path(__file__).parent / "assets" / "logo_bogor.png",
+        Path(__file__).parent / "logo_bogor.png",
+        Path("src/infrastructure/document/assets/logo_bogor.png"),
+        Path("src/infrastructure/document/logo_bogor.png"),
+    ]
+    for p in candidates:
+        if p.exists():
+            try:
+                return Image(str(p.resolve()), width=width, height=height)
+            except Exception:
+                pass
+    return None
+
+
+def _create_qr_code(data: str, size: float = 46) -> Drawing:
+    """Menghasilkan elemen Flowable QR Code vektor resmi resolusi tinggi."""
+    qr_code = qr.QrCodeWidget(data)
+    bounds = qr_code.getBounds()
+    w = bounds[2] - bounds[0]
+    h = bounds[3] - bounds[1]
+    d = Drawing(size, size, transform=[size / w, 0, 0, size / h, 0, 0])
+    d.add(qr_code)
+    return d
 
 
 def _create_styles():
@@ -29,8 +59,8 @@ def _create_styles():
         "KopInstansi",
         parent=styles["Normal"],
         fontName="Helvetica-Bold",
-        fontSize=11,
-        leading=14,
+        fontSize=10,
+        leading=12,
         alignment=1, # Center
         textTransform="uppercase"
     )
@@ -38,8 +68,8 @@ def _create_styles():
         "KopDinas",
         parent=styles["Normal"],
         fontName="Helvetica-Bold",
-        fontSize=12,
-        leading=15,
+        fontSize=11,
+        leading=13,
         alignment=1,
         textTransform="uppercase"
     )
@@ -47,61 +77,62 @@ def _create_styles():
         "KopSub",
         parent=styles["Normal"],
         fontName="Helvetica",
-        fontSize=7.5,
-        leading=10,
-        alignment=1
+        fontSize=6.8,
+        leading=8.8,
+        alignment=1,
+        textColor=colors.HexColor("#334155")
     )
     doc_title = ParagraphStyle(
         "DocTitle",
         parent=styles["Normal"],
         fontName="Helvetica-Bold",
-        fontSize=10.5,
-        leading=13.5,
+        fontSize=8.5,
+        leading=11,
         alignment=1
     )
     body_text = ParagraphStyle(
         "BodyTextCustom",
         parent=styles["Normal"],
         fontName="Helvetica",
-        fontSize=8.5,
-        leading=12,
+        fontSize=7.2,
+        leading=9.5,
         alignment=4 # Justify
     )
     body_bold = ParagraphStyle(
         "BodyBoldCustom",
         parent=styles["Normal"],
         fontName="Helvetica-Bold",
-        fontSize=8.5,
-        leading=12
+        fontSize=7.2,
+        leading=9.5
     )
     dictum_header = ParagraphStyle(
         "DictumHeader",
         parent=styles["Normal"],
         fontName="Helvetica-Bold",
-        fontSize=9,
-        leading=12,
+        fontSize=8,
+        leading=10,
         alignment=1
     )
     table_cell = ParagraphStyle(
         "TableCell",
         parent=styles["Normal"],
         fontName="Helvetica",
-        fontSize=8,
-        leading=11
+        fontSize=7,
+        leading=9
     )
     table_cell_bold = ParagraphStyle(
         "TableCellBold",
         parent=styles["Normal"],
         fontName="Helvetica-Bold",
-        fontSize=8,
-        leading=11
+        fontSize=7,
+        leading=9
     )
     table_cell_center = ParagraphStyle(
         "TableCellCenter",
         parent=styles["Normal"],
         fontName="Helvetica",
-        fontSize=8,
-        leading=11,
+        fontSize=7,
+        leading=9,
         alignment=1
     )
 
@@ -128,48 +159,64 @@ def generate_pkkpr_sk_pdf(pkkpr: Any, output_path: str) -> str:
     doc = SimpleDocTemplate(
         output_path,
         pagesize=A4,
-        leftMargin=18*mm,
-        rightMargin=18*mm,
-        topMargin=12*mm,
-        bottomMargin=12*mm
+        leftMargin=14*mm,
+        rightMargin=14*mm,
+        topMargin=8*mm,
+        bottomMargin=8*mm
     )
 
     s = _create_styles()
     story = []
 
     # 1. KOP SURAT RESMI PEMKAB BOGOR
-    story.append(Paragraph("PEMERINTAH KABUPATEN BOGOR", s["kop_instansi"]))
-    story.append(Paragraph("DINAS PENANAMAN MODAL DAN PELAYANAN TERPADU SATU PINTU", s["kop_dinas"]))
-    story.append(Paragraph(
-        "Jl. Raya Tegar Beriman No. 25, Cibinong, Kabupaten Bogor, Jawa Barat 16914<br/>"
-        "Telepon: (021) 8751090 | Pos-el: dpmptsp@bogorkab.go.id | Laman: sipas.bogorkab.go.id",
-        s["kop_sub"]
-    ))
-    story.append(Spacer(1, 1.5*mm))
-    story.append(HRFlowable(width="100%", thickness=1.5, color=colors.black, spaceAfter=0.5*mm))
-    story.append(HRFlowable(width="100%", thickness=0.5, color=colors.black, spaceAfter=3*mm))
+    logo = _get_logo_flowable(width=14.5*mm, height=18.5*mm)
+    kop_text = [
+        Paragraph("PEMERINTAH KABUPATEN BOGOR", s["kop_instansi"]),
+        Paragraph("DINAS PENANAMAN MODAL DAN PELAYANAN TERPADU SATU PINTU", s["kop_dinas"]),
+        Paragraph(
+            "Jl. Tegar Beriman No. 1, Cibinong, Kabupaten Bogor, Jawa Barat 16914<br/>"
+            "Telepon: (021) 8751090 | Pos-el: dpmptsp@bogorkab.go.id | Laman: sipas.bogorkab.go.id",
+            s["kop_sub"]
+        )
+    ]
+    if logo:
+        t_kop = Table([[logo, kop_text]], colWidths=[18*mm, 164*mm])
+        t_kop.setStyle(TableStyle([
+            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+            ('ALIGN', (0,0), (0,0), 'CENTER'),
+            ('LEFTPADDING', (0,0), (-1,-1), 0),
+            ('RIGHTPADDING', (0,0), (-1,-1), 0),
+            ('TOPPADDING', (0,0), (-1,-1), 0),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 0),
+        ]))
+        story.append(t_kop)
+    else:
+        for p in kop_text:
+            story.append(p)
+    story.append(Spacer(1, 0.8*mm))
+    story.append(HRFlowable(width="100%", thickness=1.5, color=colors.black, spaceAfter=0.3*mm))
+    story.append(HRFlowable(width="100%", thickness=0.5, color=colors.black, spaceAfter=1.2*mm))
 
     # 2. JUDUL DOKUMEN & NOMOR KEPUTUSAN
     sk_no = getattr(pkkpr, "sk_number", None) or f"DRAFT-{getattr(pkkpr, 'submission_no', 'PKKPR')}"
-    is_approved = getattr(pkkpr, "status", "") == "DISETUJUI"
     
     story.append(Paragraph(
         "KEPUTUSAN KEPALA DINAS PENANAMAN MODAL DAN PELAYANAN TERPADU SATU PINTU<br/>KABUPATEN BOGOR",
         s["doc_title"]
     ))
-    story.append(Spacer(1, 1*mm))
+    story.append(Spacer(1, 0.5*mm))
     story.append(Paragraph(f"NOMOR : <strong>{sk_no}</strong>", s["doc_title"]))
-    story.append(Spacer(1, 1.5*mm))
+    story.append(Spacer(1, 0.8*mm))
     story.append(Paragraph(
         "TENTANG<br/>"
         "PERSETUJUAN KESESUAIAN KEGIATAN PEMANFAATAN RUANG (PKKPR)<br/>"
         f"UNTUK KEGIATAN {getattr(pkkpr, 'activity_description', '').upper()}",
         s["doc_title"]
     ))
-    story.append(Spacer(1, 3.5*mm))
+    story.append(Spacer(1, 1.2*mm))
 
     story.append(Paragraph("KEPALA DINAS PENANAMAN MODAL DAN PELAYANAN TERPADU SATU PINTU KABUPATEN BOGOR,", s["body_bold"]))
-    story.append(Spacer(1, 1.5*mm))
+    story.append(Spacer(1, 0.8*mm))
 
     # 3. KONSIDERANS MENIMBANG & MENGINGAT
     fpr_reviews = getattr(pkkpr, "fpr_reviews", [])
@@ -185,9 +232,8 @@ def generate_pkkpr_sk_pdf(pkkpr: Any, output_path: str) -> str:
                 f"a. bahwa permohonan Persetujuan Kesesuaian Kegiatan Pemanfaatan Ruang yang diajukan oleh "
                 f"<strong>{getattr(pkkpr, 'applicant_name', '-')}</strong> telah memenuhi persyaratan administratif dan verifikasi formal dinas;<br/>"
                 f"b. bahwa berdasarkan Risalah Sidang Komite Forum Penataan Ruang (FPR) Kabupaten Bogor Nomor "
-                f"<strong>{fpr_report_no}</strong> dan Pertimbangan Teknis Pertanahan Kantor Pertanahan ATR/BPN Kabupaten Bogor Nomor <strong>{ptp_bpn}</strong>, "
-                f"rencana pemanfaatan ruang dinyatakan selaras dengan pola tata ruang daerah;<br/>"
-                f"c. bahwa berdasarkan pertimbangan sebagaimana dimaksud pada huruf a dan huruf b, perlu menetapkan Keputusan Kepala Dinas.",
+                f"<strong>{fpr_report_no}</strong> dan Pertimbangan Teknis Pertanahan Kantor Pertanahan ATR/BPN Nomor <strong>{ptp_bpn}</strong>, "
+                f"rencana pemanfaatan ruang dinyatakan selaras dengan pola tata ruang daerah;",
                 s["body_text"]
             )
         ],
@@ -195,30 +241,27 @@ def generate_pkkpr_sk_pdf(pkkpr: Any, output_path: str) -> str:
             Paragraph("Mengingat", s["body_bold"]),
             Paragraph(":", s["body_bold"]),
             Paragraph(
-                "1. Undang-Undang Nomor 6 Tahun 2023 tentang Penetapan Perppu Cipta Kerja;<br/>"
-                "2. Peraturan Pemerintah Nomor 21 Tahun 2021 tentang Penyelenggaraan Penataan Ruang;<br/>"
-                "3. Peraturan Menteri ATR/BPN Nomor 13 Tahun 2021 tentang Pelaksanaan KKPR;<br/>"
-                "4. Peraturan Daerah Kabupaten Bogor Nomor 11 Tahun 2016 jo Nomor 1 Tahun 2024 tentang RTRW Kabupaten Bogor;<br/>"
-                "5. Peraturan Bupati Bogor Nomor 4 Tahun 2025 tentang Pedoman Penyelenggaraan Rencana Tapak (Site Plan) Digital Terpadu.",
+                "1. UU No. 6 Tahun 2023; 2. PP No. 21 Tahun 2021; 3. Permen ATR/BPN No. 13 Tahun 2021;<br/>"
+                "4. Perda Kab. Bogor No. 11/2016 jo No. 1/2024 tentang RTRW; 5. Perbup Bogor No. 4/2025 tentang Rencana Tapak (Site Plan) Digital.",
                 s["body_text"]
             )
         ]
     ]
 
-    t_konsiderans = Table(menimbang_data, colWidths=[24*mm, 4*mm, 146*mm])
+    t_konsiderans = Table(menimbang_data, colWidths=[20*mm, 3*mm, 159*mm])
     t_konsiderans.setStyle(TableStyle([
         ('VALIGN', (0,0), (-1,-1), 'TOP'),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 2),
-        ('TOPPADDING', (0,0), (-1,-1), 2),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 0.8),
+        ('TOPPADDING', (0,0), (-1,-1), 0.8),
         ('LEFTPADDING', (0,0), (-1,-1), 0),
         ('RIGHTPADDING', (0,0), (-1,-1), 0),
     ]))
     story.append(t_konsiderans)
-    story.append(Spacer(1, 2*mm))
+    story.append(Spacer(1, 1*mm))
 
     # 4. DIKTUM MEMUTUSKAN
     story.append(Paragraph("MEMUTUSKAN:", s["dictum_header"]))
-    story.append(Spacer(1, 1.5*mm))
+    story.append(Spacer(1, 0.8*mm))
 
     proposed_m2 = getattr(pkkpr, "proposed_land_area_m2", 0)
     approved_m2 = getattr(pkkpr, "approved_land_area_m2", None) or proposed_m2
@@ -270,16 +313,16 @@ def generate_pkkpr_sk_pdf(pkkpr: Any, output_path: str) -> str:
         ]
     ]
 
-    t_dictum = Table(dictum_data, colWidths=[24*mm, 4*mm, 146*mm])
+    t_dictum = Table(dictum_data, colWidths=[20*mm, 3*mm, 159*mm])
     t_dictum.setStyle(TableStyle([
         ('VALIGN', (0,0), (-1,-1), 'TOP'),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 1.5),
-        ('TOPPADDING', (0,0), (-1,-1), 1.5),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 0.8),
+        ('TOPPADDING', (0,0), (-1,-1), 0.8),
         ('LEFTPADDING', (0,0), (-1,-1), 0),
         ('RIGHTPADDING', (0,0), (-1,-1), 0),
     ]))
     story.append(t_dictum)
-    story.append(Spacer(1, 1.5*mm))
+    story.append(Spacer(1, 0.8*mm))
 
     # TABEL AMPLOP RUANG DIKTUM KETIGA
     table_envelope_data = [
@@ -293,7 +336,7 @@ def generate_pkkpr_sk_pdf(pkkpr: Any, output_path: str) -> str:
             Paragraph("1", s["table_cell_center"]),
             Paragraph("Pola / Zona Ruang RDTR", s["table_cell"]),
             Paragraph(f"<strong>{zone_code}</strong> ({zone_name})", s["table_cell"]),
-            Paragraph("Sesuai Rencana Detail Tata Ruang", s["table_cell"])
+            Paragraph("Sesuai Rencana Detail Tata Ruang Kab. Bogor", s["table_cell"])
         ],
         [
             Paragraph("2", s["table_cell_center"]),
@@ -305,38 +348,38 @@ def generate_pkkpr_sk_pdf(pkkpr: Any, output_path: str) -> str:
             Paragraph("3", s["table_cell_center"]),
             Paragraph("Koefisien Lantai Bangunan (KLB)", s["table_cell"]),
             Paragraph(f"<strong>Maksimal {klb_max:.2f}</strong>", s["table_cell"]),
-            Paragraph("Batas rasio total luas lantai", s["table_cell"])
+            Paragraph("Batas akumulasi luas total lantai bangunan", s["table_cell"])
         ],
         [
             Paragraph("4", s["table_cell_center"]),
             Paragraph("Koefisien Daerah Hijau (KDH)", s["table_cell"]),
             Paragraph(f"<strong>Minimal {kdh_min:.1f}%</strong>", s["table_cell"]),
-            Paragraph("Wajib berupa resapan tanah terbuka", s["table_cell"])
+            Paragraph("Kawasan resapan air terbuka bervegetasi", s["table_cell"])
         ],
         [
             Paragraph("5", s["table_cell_center"]),
             Paragraph("Garis Sempadan Bangunan (GSB)", s["table_cell"]),
-            Paragraph(f"<strong>Minimal {gsb_min:.1f} meter</strong>", s["table_cell"]),
-            Paragraph("Jarak bebas dari as jalan / sempadan", s["table_cell"])
+            Paragraph(f"<strong>Minimal {gsb_min:.1f} Meter</strong>", s["table_cell"]),
+            Paragraph("Jarak bebas as/tepi jalan terhadap muka bangunan", s["table_cell"])
         ],
         [
             Paragraph("6", s["table_cell_center"]),
-            Paragraph("Ketinggian Bangunan", s["table_cell"]),
+            Paragraph("Ketinggian Bangunan Maksimum", s["table_cell"]),
             Paragraph(f"<strong>Maksimal {max_floors} Lantai</strong>", s["table_cell"]),
-            Paragraph("Kesesuaian daya dukung kawasan", s["table_cell"])
+            Paragraph("Sesuai batas KKOP & daya dukung kawasan", s["table_cell"])
         ]
     ]
 
-    t_envelope = Table(table_envelope_data, colWidths=[10*mm, 52*mm, 52*mm, 60*mm])
+    t_envelope = Table(table_envelope_data, colWidths=[8*mm, 52*mm, 52*mm, 70*mm])
     t_envelope.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#f1f5f9")),
-        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor("#cbd5e1")),
+        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor("#94a3b8")),
         ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ('TOPPADDING', (0,0), (-1,-1), 2.5),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 2.5),
+        ('TOPPADDING', (0,0), (-1,-1), 1),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 1),
     ]))
     story.append(t_envelope)
-    story.append(Spacer(1, 2*mm))
+    story.append(Spacer(1, 0.8*mm))
 
     # DIKTUM KEEMPAT & KELIMA
     dictum_closing_data = [
@@ -344,11 +387,10 @@ def generate_pkkpr_sk_pdf(pkkpr: Any, output_path: str) -> str:
             Paragraph("KEEMPAT", s["body_bold"]),
             Paragraph(":", s["body_bold"]),
             Paragraph(
-                "Pemegang Persetujuan ini diwajibkan:<br/>"
-                "1. Mengalokasikan lahan untuk Prasarana, Sarana, dan Utilitas Umum (PSU) sekurang-kurangnya 30% s.d. 40% "
-                "dari total luas lahan yang disetujui sesuai Perbup Bogor No. 4/2025;<br/>"
-                "2. Menyediakan sistem drainase terpadu dan sumur resapan air hujan berstandar teknis dinas;<br/>"
-                "3. Mengajukan permohonan pengesahan Rencana Tapak (Site Plan) digital melalui sistem GEOSIPAS sebelum pelaksanaan fisik.",
+                "Pemegang Persetujuan ini diwajibkan: "
+                "1. Mengalokasikan lahan PSU sekurang-kurangnya 30% s.d. 40% sesuai Perbup Bogor No. 4/2025; "
+                "2. Menyediakan sistem drainase terpadu dan sumur resapan air hujan berstandar teknis dinas; "
+                "3. Mengajukan permohonan pengesahan Rencana Tapak (Site Plan) digital via GEOSIPAS sebelum pelaksanaan fisik.",
                 s["body_text"]
             )
         ],
@@ -357,65 +399,93 @@ def generate_pkkpr_sk_pdf(pkkpr: Any, output_path: str) -> str:
             Paragraph(":", s["body_bold"]),
             Paragraph(
                 "Keputusan ini berlaku selama 3 (tiga) tahun terhitung sejak tanggal ditetapkan. "
-                "Apabila di kemudian hari terdapat kekeliruan atau pelanggaran peruntukan ruang, "
-                "maka Keputusan ini akan ditinjau kembali sesuai peraturan perundang-undangan.",
+                "Apabila di kemudian hari terdapat kekeliruan atau pelanggaran peruntukan ruang, maka Keputusan ini akan ditinjau kembali.",
                 s["body_text"]
             )
         ]
     ]
 
-    t_closing = Table(dictum_closing_data, colWidths=[24*mm, 4*mm, 146*mm])
+    t_closing = Table(dictum_closing_data, colWidths=[20*mm, 3*mm, 159*mm])
     t_closing.setStyle(TableStyle([
         ('VALIGN', (0,0), (-1,-1), 'TOP'),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 1.5),
-        ('TOPPADDING', (0,0), (-1,-1), 1.5),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 0.8),
+        ('TOPPADDING', (0,0), (-1,-1), 0.8),
         ('LEFTPADDING', (0,0), (-1,-1), 0),
         ('RIGHTPADDING', (0,0), (-1,-1), 0),
     ]))
     story.append(t_closing)
-    story.append(Spacer(1, 3*mm))
+    story.append(Spacer(1, 1*mm))
 
-    # 5. BLOK TANDA TANGAN ELEKTRONIK (TTE KADIS)
+    # 5. BLOK TANDA TANGAN ELEKTRONIK (TTE KADIS DENGAN QR CODE RESMI BSrE)
     issued_date_raw = getattr(pkkpr, "sk_issued_date", None)
     if issued_date_raw:
         issued_date_str = issued_date_raw.strftime("%d %B %Y")
     else:
         issued_date_str = date.today().strftime("%d %B %Y")
 
-    qr_hash = getattr(pkkpr, "qr_code_hash", None) or "INTEGRITAS-KAB-BOGOR-PKKPR-TTE"
-    qr_short = qr_hash[:24]
+    qr_hash = getattr(pkkpr, "qr_code_hash", None) or "INTEGRITAS-KAB-BOGOR-PKKPR-TTE-BSRE"
+    qr_short = qr_hash[:20]
+    sk_number_val = getattr(pkkpr, 'sk_number', None) or getattr(pkkpr, 'submission_no', '-')
 
-    tte_box_html = (
-        f"<div style='border: 1px solid #0f766e; background-color: #f0fdf4; padding: 4px; text-align: center;'>"
-        f"<font size='7' color='#065f46'><strong>DITANDATANGANI SECARA ELEKTRONIK (TTE)</strong><br/>"
-        f"Sertifikat Digital BSrE BSSN<br/>"
-        f"Kode Validasi: <code>{qr_short}...</code></font>"
-        f"</div>"
-    )
+    public_frontend_url = os.getenv("PUBLIC_FRONTEND_URL", "https://geosipas.bogorkab.go.id").rstrip("/")
+    verify_url = f"{public_frontend_url}/validasi/pkkpr?id={getattr(pkkpr, 'id', '')}&sk={sk_number_val}&hash={qr_hash[:32]}"
+    qr_flowable = _create_qr_code(verify_url, size=42)
+
+    tte_badge_table = Table([
+        [
+            qr_flowable,
+            Paragraph(
+                f"<font size='6.5' color='#065f46'><strong>DITANDATANGANI ELEKTRONIK (TTE)</strong><br/>"
+                f"Sertifikasi: <strong>BSrE - BSSN</strong><br/>"
+                f"Kode: <code>{qr_short}...</code><br/>"
+                f"<em>Pindai QR untuk verifikasi keaslian SK</em></font>",
+                s["table_cell"]
+            )
+        ]
+    ], colWidths=[16*mm, 68*mm])
+    tte_badge_table.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,-1), colors.HexColor("#f0fdf4")),
+        ('BOX', (0,0), (-1,-1), 0.8, colors.HexColor("#0f766e")),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('TOPPADDING', (0,0), (-1,-1), 1.5),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 1.5),
+        ('LEFTPADDING', (0,0), (-1,-1), 2),
+        ('RIGHTPADDING', (0,0), (-1,-1), 2),
+    ]))
+
+    sig_right_column = [
+        Paragraph(
+            f"Ditetapkan di Cibinong<br/>"
+            f"pada tanggal {issued_date_str}<br/>"
+            f"<strong>KEPALA DINAS PENANAMAN MODAL DAN PELAYANAN TERPADU SATU PINTU<br/>KABUPATEN BOGOR</strong>",
+            s["table_cell_center"]
+        ),
+        Spacer(1, 0.8*mm),
+        tte_badge_table,
+        Spacer(1, 0.8*mm),
+        Paragraph(
+            f"<strong><u>IR. H. KEPALA DINAS, M.Si.</u></strong><br/>"
+            f"<font size='6.5'>NIP. 19740512 199803 1 002</font>",
+            s["table_cell_center"]
+        )
+    ]
 
     signature_table_data = [
         [
             Paragraph(
-                f"<font size='7' color='#64748b'>"
+                f"<font size='6.5' color='#64748b'>"
                 f"Sistem Informasi GEOSIPAS Kabupaten Bogor<br/>"
                 f"Dicetak otomatis pada: {datetime.now().strftime('%d-%m-%Y %H:%M:%S WIB')}<br/>"
-                f"Status Berkas: <strong>{getattr(pkkpr, 'status', 'DISETUJUI')}</strong>"
+                f"Status Berkas: <strong>{getattr(pkkpr, 'status', 'DISETUJUI')}</strong><br/>"
+                f"ID Sistem: <code>{getattr(pkkpr, 'id', '')}</code>"
                 f"</font>",
                 s["table_cell"]
             ),
-            Paragraph(
-                f"Ditetapkan di Cibinong<br/>"
-                f"pada tanggal {issued_date_str}<br/>"
-                f"<strong>KEPALA DINAS PENANAMAN MODAL DAN PELAYANAN TERPADU SATU PINTU<br/>KABUPATEN BOGOR</strong><br/>"
-                f"{tte_box_html}<br/>"
-                f"<strong><u>IR. H. KEPALA DINAS, M.Si.</u></strong><br/>"
-                f"<font size='7'>NIP. 19740512 199803 1 002</font>",
-                s["table_cell_center"]
-            )
+            sig_right_column
         ]
     ]
 
-    t_sig = Table(signature_table_data, colWidths=[90*mm, 84*mm])
+    t_sig = Table(signature_table_data, colWidths=[92*mm, 90*mm])
     t_sig.setStyle(TableStyle([
         ('VALIGN', (0,0), (-1,-1), 'BOTTOM'),
         ('LEFTPADDING', (0,0), (-1,-1), 0),
@@ -447,16 +517,33 @@ def generate_pkkpr_receipt_pdf(pkkpr: Any, output_path: str) -> str:
     story = []
 
     # 1. KOP SURAT
-    story.append(Paragraph("PEMERINTAH KABUPATEN BOGOR", s["kop_instansi"]))
-    story.append(Paragraph("SISTEM INFORMASI PELAYANAN PENGESAHAN DIGITAL (GEOSIPAS)", s["kop_dinas"]))
-    story.append(Paragraph(
-        "Dinas Perumahan, Kawasan Permukiman dan Pertanahan / DPMPTSP Kabupaten Bogor<br/>"
-        "Komplek Pemda Jl. Tegar Beriman, Cibinong 16914",
-        s["kop_sub"]
-    ))
-    story.append(Spacer(1, 2*mm))
+    logo = _get_logo_flowable(width=15*mm, height=19*mm)
+    kop_text = [
+        Paragraph("PEMERINTAH KABUPATEN BOGOR", s["kop_instansi"]),
+        Paragraph("DINAS PENANAMAN MODAL DAN PELAYANAN TERPADU SATU PINTU", s["kop_dinas"]),
+        Paragraph(
+            "Jl. Tegar Beriman No. 1, Cibinong, Kabupaten Bogor, Jawa Barat 16914<br/>"
+            "Sistem Informasi Pelayanan Pengesahan Tata Ruang & Site Plan Digital (GEOSIPAS)",
+            s["kop_sub"]
+        )
+    ]
+    if logo:
+        t_kop = Table([[logo, kop_text]], colWidths=[18*mm, 152*mm])
+        t_kop.setStyle(TableStyle([
+            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+            ('ALIGN', (0,0), (0,0), 'CENTER'),
+            ('LEFTPADDING', (0,0), (-1,-1), 0),
+            ('RIGHTPADDING', (0,0), (-1,-1), 0),
+            ('TOPPADDING', (0,0), (-1,-1), 0),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 0),
+        ]))
+        story.append(t_kop)
+    else:
+        for p in kop_text:
+            story.append(p)
+    story.append(Spacer(1, 1.5*mm))
     story.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor("#0f766e"), spaceAfter=1*mm))
-    story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#0f766e"), spaceAfter=4*mm))
+    story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#0f766e"), spaceAfter=3*mm))
 
     # 2. TITLE TANDA TERIMA
     story.append(Paragraph("TANDA TERIMA PENDAFTARAN PERMOHONAN PKKPR", s["doc_title"]))
@@ -555,28 +642,47 @@ def generate_pkkpr_receipt_pdf(pkkpr: Any, output_path: str) -> str:
     ))
     story.append(Spacer(1, 6*mm))
 
-    # FOOTER TANDA TERIMA
+    public_frontend_url = os.getenv("PUBLIC_FRONTEND_URL", "https://geosipas.bogorkab.go.id").rstrip("/")
+    receipt_tracking_url = f"{public_frontend_url}/pelacakan/pkkpr?id={getattr(pkkpr, 'id', '')}&no={getattr(pkkpr, 'submission_no', '')}"
+    receipt_qr = _create_qr_code(receipt_tracking_url, size=40)
+
+    receipt_qr_card = Table([
+        [
+            receipt_qr,
+            Paragraph(
+                f"<font size='7' color='#0f766e'><strong>TANDA TERIMA RESMI ONLINE</strong><br/>"
+                f"GEOSIPAS KABUPATEN BOGOR<br/>"
+                f"No: <code>{getattr(pkkpr, 'submission_no', '-')}</code><br/>"
+                f"<em>Pindai QR untuk cek berkas</em></font>",
+                s["table_cell"]
+            )
+        ]
+    ], colWidths=[16*mm, 52*mm])
+    receipt_qr_card.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,-1), colors.HexColor("#f8fafc")),
+        ('BOX', (0,0), (-1,-1), 0.8, colors.HexColor("#0f766e")),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('TOPPADDING', (0,0), (-1,-1), 2),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 2),
+        ('LEFTPADDING', (0,0), (-1,-1), 2),
+        ('RIGHTPADDING', (0,0), (-1,-1), 2),
+    ]))
+
     footer_data = [
         [
             Paragraph(
                 f"<font size='7' color='#64748b'>"
                 f"Dicetak otomatis oleh Sistem GEOSIPAS Kabupaten Bogor<br/>"
-                f"ID Berkas: <code>{getattr(pkkpr, 'id', '-')}</code><br/>"
+                f"ID Registrasi: <code>{getattr(pkkpr, 'id', '-')}</code><br/>"
+                f"Tanggal: {datetime.now().strftime('%d-%m-%Y %H:%M WIB')}<br/>"
                 f"Dokumen ini sah sebagai bukti pendaftaran tanda terima daring."
                 f"</font>",
                 s["table_cell"]
             ),
-            Paragraph(
-                f"<div style='border: 1px dashed #0f766e; padding: 4px; text-align: center; background-color: #f8fafc;'>"
-                f"<font size='7' color='#0f766e'><strong>TANDA TERIMA SAH ONLINE</strong><br/>"
-                f"GEOSIPAS KABUPATEN BOGOR<br/>"
-                f"<code>{getattr(pkkpr, 'submission_no', '-')}</code></font>"
-                f"</div>",
-                s["table_cell_center"]
-            )
+            receipt_qr_card
         ]
     ]
-    t_foot = Table(footer_data, colWidths=[105*mm, 69*mm])
+    t_foot = Table(footer_data, colWidths=[100*mm, 70*mm])
     t_foot.setStyle(TableStyle([
         ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
         ('LEFTPADDING', (0,0), (-1,-1), 0),

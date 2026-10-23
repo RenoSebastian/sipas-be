@@ -291,3 +291,65 @@ class ValidatePhasedSitePlanResponse(BaseModel):
     error: Optional[str] = None
     details: Dict[str, Any] = {}
 
+
+# ─── SCHEMAS FOR PUBLIC VERIFICATION & TRACKING (QR SCANNER PORTAL) ──────────
+
+class PKKPRPublicVerificationResponse(BaseModel):
+    is_valid: bool
+    status: str
+    id: str
+    submission_no: str
+    sk_number: Optional[str] = None
+    sk_issued_date: Optional[str] = None
+    applicant_name: str
+    applicant_type: str
+    applicant_nib: Optional[str] = None
+    activity_description: str
+    kbli_code: Optional[str] = None
+    location_address: Optional[str] = None
+    location_village: Optional[str] = None
+    location_district: Optional[str] = None
+    location_city: str = "Kabupaten Bogor"
+    land_ownership_status: Optional[str] = None
+    certificate_number: Optional[str] = None
+    certificate_owner: Optional[str] = None
+    proposed_land_area_m2: float
+    approved_land_area_m2: Optional[float] = None
+    spatial_zone_code: Optional[str] = None
+    spatial_zone_name: Optional[str] = None
+    approved_kdb_max: Optional[float] = None
+    approved_klb_max: Optional[float] = None
+    approved_kdh_min: Optional[float] = None
+    approved_gsb_min: Optional[float] = None
+    approved_max_floors: Optional[int] = None
+    qr_code_hash: Optional[str] = None
+    hash_matched: bool = True
+    signer_name: str = "IR. H. KEPALA DINAS, M.Si."
+    signer_nip: str = "19740512 199803 1 002"
+    signer_title: str = "Kepala Dinas Penanaman Modal dan Pelayanan Terpadu Satu Pintu Kabupaten Bogor"
+    certification_authority: str = "Balai Sertifikasi Elektronik (BSrE) - BSSN"
+    verified_at: str
+    pdf_download_url: str
+
+
+class PKKPRPublicTrackingStep(BaseModel):
+    step_number: int
+    name: str
+    actor: str
+    status: str  # "COMPLETED", "IN_PROGRESS", "PENDING"
+    timestamp: Optional[str] = None
+    note: Optional[str] = None
+
+
+class PKKPRPublicTrackingResponse(BaseModel):
+    id: str
+    submission_no: str
+    status: str
+    applicant_name: str
+    activity_description: str
+    location: str
+    submitted_at: str
+    estimated_completion_days: int = 12
+    receipt_pdf_url: str
+    steps: List[PKKPRPublicTrackingStep] = []
+
